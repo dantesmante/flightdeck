@@ -13,6 +13,7 @@
   let refreshKey = $state(0);
   let toast = $state<string | null>(null);
   let completed = $state<FlightDetail | null>(null);
+  let session = -1;
 
   const aircraft = $derived(
     status?.telemetry && status.live
@@ -31,13 +32,17 @@
     api.status().then((s) => {
       if (!s) return;
       status = s;
+      session = s.session;
       liveTrack = s.track;
     });
     offs.push(
       on<Status>("status", (s) => {
         // A new flight starts with an empty track.
+        // A new flight (or none) starts a fresh track; never join flights up.
         if (!s.live) liveTrack = [];
+        else if (s.session !== session) liveTrack = [...s.track_tail];
         else if (s.track_tail.length) liveTrack = [...liveTrack, ...s.track_tail];
+        session = s.session;
         // A new flight has begun: put the last result away.
         if (s.live && completed && s.live.start_ms > completed.flight.end_ms) dismiss();
         status = s;

@@ -85,6 +85,7 @@ export interface Status {
   telemetry: Telemetry | null;
   last_landing: LandingReport | null;
   demo: boolean;
+  session: number;
   track_tail: [number, number][];
 }
 

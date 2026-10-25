@@ -5,7 +5,7 @@
 
 use telemetry::{units, AircraftInfo, EngineType, SimKind, Telemetry};
 
-use crate::{EVENT_AIRCRAFT_LOADED, EVENT_CRASHED, EVENT_PAUSE, EVENT_SIM};
+use crate::{EVENT_AIRCRAFT_LOADED, EVENT_CRASHED, EVENT_PAUSE, EVENT_SIM, EVENT_SIM_START, REQ_SIM_STATE};
 
 pub struct Var {
     pub name: &'static str,
@@ -44,7 +44,10 @@ pub const TELEMETRY_VARS: &[Var] = &[
     v("NUMBER OF ENGINES", "number"),
 ];
 
-/// Aircraft definition: four STRING256 then two FLOAT64.
+/// Aircraft details. Each one is its own definition and request (id
+/// `AIRCRAFT_BASE + index`), so a variable a sim version rejects only loses
+/// that one field. Empty units = STRING256.
+pub const AIRCRAFT_BASE: u32 = 10;
 pub const AIRCRAFT_VARS: &[Var] = &[
     v("TITLE", ""),
     v("ATC MODEL", ""),
@@ -64,8 +67,10 @@ pub enum Parsed {
     Telemetry(Telemetry),
     Aircraft(AircraftInfo),
     AircraftReloaded,
+    /// The sim entered (true) or left (false) a flight, e.g. back to the menus.
+    SimRunning(bool),
     Quit,
-    Exception(u32),
+    Exception { code: u32, send_id: u32, index: u32 },
     Other,
 }
 
@@ -73,7 +78,11 @@ pub enum Parsed {
 #[derive(Debug, Default)]
 pub struct State {
     paused: bool,
+    /// From the "Sim" state: `Some(false)` while in menus or loading.
+    pub in_flight: Option<bool>,
     last_touchdown_fps: Option<f64>,
+    aircraft: AircraftInfo,
+    atc_type: String,
 }
 
 fn u32_at(b: &[u8], off: usize) -> Option<u32> {
@@ -130,7 +139,20 @@ pub fn parse(b: &[u8], st: &mut State, now_ms: i64) -> Parsed {
             version_minor: u32_at(b, HEADER + 260).unwrap_or(0),
         },
         crate::ffi::RECV_ID_QUIT => Parsed::Quit,
-        crate::ffi::RECV_ID_EXCEPTION => Parsed::Exception(u32_at(b, HEADER).unwrap_or(0)),
+        crate::ffi::RECV_ID_EXCEPTION => Parsed::Exception {
+            code: u32_at(b, HEADER).unwrap_or(0),
+            send_id: u32_at(b, HEADER + 4).unwrap_or(0),
+            index: u32_at(b, HEADER + 8).unwrap_or(0),
+        },
+        crate::ffi::RECV_ID_SYSTEM_STATE => {
+            if u32_at(b, HEADER) == Some(REQ_SIM_STATE) {
+                let running = u32_at(b, HEADER + 4).unwrap_or(1) != 0;
+                st.in_flight = Some(running);
+                Parsed::SimRunning(running)
+            } else {
+                Parsed::Other
+            }
+        }
         crate::ffi::RECV_ID_EVENT => {
             let event = u32_at(b, HEADER + 4).unwrap_or(0);
             let data = u32_at(b, HEADER + 8).unwrap_or(0);
@@ -139,8 +161,11 @@ pub fn parse(b: &[u8], st: &mut State, now_ms: i64) -> Parsed {
                     st.paused = data != 0;
                     Parsed::Other
                 }
-                EVENT_SIM => Parsed::Other,
-                EVENT_AIRCRAFT_LOADED => Parsed::AircraftReloaded,
+                EVENT_SIM => {
+                    st.in_flight = Some(data != 0);
+                    Parsed::SimRunning(data != 0)
+                }
+                EVENT_AIRCRAFT_LOADED | EVENT_SIM_START => Parsed::AircraftReloaded,
                 EVENT_CRASHED => Parsed::Other,
                 _ => Parsed::Other,
             }
@@ -149,7 +174,9 @@ pub fn parse(b: &[u8], st: &mut State, now_ms: i64) -> Parsed {
             let req = u32_at(b, HEADER).unwrap_or(0);
             match req {
                 1 => parse_telemetry(b, st, now_ms).map_or(Parsed::Other, Parsed::Telemetry),
-                2 => parse_aircraft(b).map_or(Parsed::Other, Parsed::Aircraft),
+                r if (AIRCRAFT_BASE..AIRCRAFT_BASE + AIRCRAFT_VARS.len() as u32).contains(&r) => {
+                    parse_aircraft_field(b, st, (r - AIRCRAFT_BASE) as usize).map_or(Parsed::Other, Parsed::Aircraft)
+                }
                 _ => Parsed::Other,
             }
         }
@@ -195,7 +222,9 @@ fn parse_telemetry(b: &[u8], st: &mut State, now_ms: i64) -> Option<Telemetry> {
         parking_brake: vals[12] > 0.5,
         engines_running: running,
         fuel_kg: vals[17] * units::LB_TO_KG,
-        paused: st.paused,
+        // Outside a flight (menus, loading) positions are meaningless: report
+        // them as paused so the tracker ignores them. Also guard 0,0.
+        paused: st.paused || st.in_flight == Some(false) || (vals[0].abs() < 0.01 && vals[1].abs() < 0.01),
         sim_rate: vals[18],
         wind_dir_deg: vals[19],
         wind_kt: vals[20],
@@ -203,21 +232,24 @@ fn parse_telemetry(b: &[u8], st: &mut State, now_ms: i64) -> Option<Telemetry> {
     })
 }
 
-fn parse_aircraft(b: &[u8]) -> Option<AircraftInfo> {
+/// One aircraft field arrived; merge it and return the updated aircraft.
+fn parse_aircraft_field(b: &[u8], st: &mut State, index: usize) -> Option<AircraftInfo> {
     let o = SIMOBJECT_DATA_OFFSET;
-    let title = str_at(b, o, 256)?;
-    let model = clean_atc_model(&str_at(b, o + 256, 256)?);
-    let atc_type = str_at(b, o + 512, 256)?;
-    let atc_id = str_at(b, o + 768, 256)?;
-    let engine = f64_at(b, o + 1024)?;
-    let engines = f64_at(b, o + 1032)?;
-    Some(AircraftInfo {
-        title: if title.is_empty() { atc_type } else { title },
-        icao_type: model,
-        registration: atc_id,
-        engine_count: engines.clamp(0.0, 8.0) as u8,
-        engine_type: engine_type(engine),
-    })
+    let a = &mut st.aircraft;
+    match AIRCRAFT_VARS.get(index)?.name {
+        "TITLE" => a.title = str_at(b, o, 256)?,
+        "ATC MODEL" => a.icao_type = clean_atc_model(&str_at(b, o, 256)?),
+        "ATC TYPE" => st.atc_type = str_at(b, o, 256)?,
+        "ATC ID" => a.registration = str_at(b, o, 256)?,
+        "ENGINE TYPE" => a.engine_type = engine_type(f64_at(b, o)?),
+        "NUMBER OF ENGINES" => a.engine_count = f64_at(b, o)?.clamp(0.0, 8.0) as u8,
+        _ => return None,
+    }
+    let mut out = st.aircraft.clone();
+    if out.title.is_empty() {
+        out.title = st.atc_type.clone();
+    }
+    Some(out)
 }
 
 #[cfg(test)]
@@ -306,20 +338,87 @@ mod tests {
         assert!(t.paused);
     }
 
+    fn string_field(s: &[u8]) -> Vec<u8> {
+        let mut p = vec![0u8; 256];
+        p[..s.len()].copy_from_slice(s);
+        p
+    }
+
+    fn field_req(name: &str) -> u32 {
+        AIRCRAFT_BASE + AIRCRAFT_VARS.iter().position(|v| v.name == name).unwrap() as u32
+    }
+
     #[test]
-    fn aircraft_strings() {
-        let mut p = vec![0u8; 1040];
-        p[..20].copy_from_slice(b"Cessna Skyhawk G1000");
-        let model = b"TT:ATCCOM.AC_MODEL_C172.0.text";
-        p[256..256 + model.len()].copy_from_slice(model);
-        p[768..774].copy_from_slice(b"N172SP");
-        p[1024..1032].copy_from_slice(&0.0f64.to_le_bytes());
-        p[1032..1040].copy_from_slice(&1.0f64.to_le_bytes());
-        let Parsed::Aircraft(a) = parse(&data_msg(2, &p), &mut State::default(), 0) else { panic!() };
+    fn aircraft_fields_merge() {
+        let mut st = State::default();
+        parse(&data_msg(field_req("TITLE"), &string_field(b"Cessna Skyhawk G1000")), &mut st, 0);
+        parse(&data_msg(field_req("ATC MODEL"), &string_field(b"TT:ATCCOM.AC_MODEL_C172.0.text")), &mut st, 0);
+        parse(&data_msg(field_req("ENGINE TYPE"), &0.0f64.to_le_bytes()), &mut st, 0);
+        parse(&data_msg(field_req("NUMBER OF ENGINES"), &1.0f64.to_le_bytes()), &mut st, 0);
+        let Parsed::Aircraft(a) = parse(&data_msg(field_req("ATC ID"), &string_field(b"N172SP")), &mut st, 0) else {
+            panic!()
+        };
         assert_eq!(a.title, "Cessna Skyhawk G1000");
         assert_eq!(a.icao_type, "C172");
         assert_eq!(a.registration, "N172SP");
         assert_eq!((a.engine_count, a.engine_type), (1, EngineType::Piston));
+    }
+
+    #[test]
+    fn missing_title_falls_back_to_atc_type() {
+        let mut st = State::default();
+        let Parsed::Aircraft(a) = parse(&data_msg(field_req("ATC TYPE"), &string_field(b"Cessna")), &mut st, 0) else {
+            panic!()
+        };
+        assert_eq!(a.title, "Cessna");
+    }
+
+    fn sim_event(running: u32) -> Vec<u8> {
+        let mut ev = header(crate::ffi::RECV_ID_EVENT, HEADER + 12);
+        ev[HEADER + 4..HEADER + 8].copy_from_slice(&EVENT_SIM.to_le_bytes());
+        ev[HEADER + 8..HEADER + 12].copy_from_slice(&running.to_le_bytes());
+        ev
+    }
+
+    #[test]
+    fn menus_count_as_paused() {
+        let mut st = State::default();
+        assert_eq!(parse(&sim_event(0), &mut st, 0), Parsed::SimRunning(false));
+        let Parsed::Telemetry(t) = parse(&data_msg(1, &telemetry_payload(sample())), &mut st, 0) else { panic!() };
+        assert!(t.paused);
+        parse(&sim_event(1), &mut st, 0);
+        let Parsed::Telemetry(t) = parse(&data_msg(1, &telemetry_payload(sample())), &mut st, 0) else { panic!() };
+        assert!(!t.paused);
+    }
+
+    #[test]
+    fn system_state_reply_sets_flight_state() {
+        let mut st = State::default();
+        let mut b = header(crate::ffi::RECV_ID_SYSTEM_STATE, HEADER + 12 + 260);
+        b[HEADER..HEADER + 4].copy_from_slice(&REQ_SIM_STATE.to_le_bytes());
+        b[HEADER + 4..HEADER + 8].copy_from_slice(&0u32.to_le_bytes());
+        assert_eq!(parse(&b, &mut st, 0), Parsed::SimRunning(false));
+        assert_eq!(st.in_flight, Some(false));
+    }
+
+    #[test]
+    fn null_island_is_ignored() {
+        let mut v = sample();
+        v[0] = 0.0;
+        v[1] = 0.0;
+        let Parsed::Telemetry(t) = parse(&data_msg(1, &telemetry_payload(v)), &mut State::default(), 0) else {
+            panic!()
+        };
+        assert!(t.paused);
+    }
+
+    #[test]
+    fn exception_details() {
+        let mut b = header(crate::ffi::RECV_ID_EXCEPTION, HEADER + 12);
+        b[HEADER..HEADER + 4].copy_from_slice(&7u32.to_le_bytes());
+        b[HEADER + 4..HEADER + 8].copy_from_slice(&42u32.to_le_bytes());
+        b[HEADER + 8..HEADER + 12].copy_from_slice(&3u32.to_le_bytes());
+        assert_eq!(parse(&b, &mut State::default(), 0), Parsed::Exception { code: 7, send_id: 42, index: 3 });
     }
 
     #[test]

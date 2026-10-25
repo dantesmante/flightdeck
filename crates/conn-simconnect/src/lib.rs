@@ -8,31 +8,38 @@
 mod ffi;
 pub mod parse;
 
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::collections::HashMap;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use telemetry::{ConnectorError, SimConnector, SimKind, SimMessage};
 
-use parse::{Parsed, AIRCRAFT_VARS, TELEMETRY_VARS};
+use parse::{Parsed, AIRCRAFT_BASE, AIRCRAFT_VARS, TELEMETRY_VARS};
 
 pub use ffi::candidate_paths;
 
 const DEF_TELEMETRY: u32 = 1;
-const DEF_AIRCRAFT: u32 = 2;
 const REQ_TELEMETRY: u32 = 1;
-const REQ_AIRCRAFT: u32 = 2;
+pub(crate) const REQ_SIM_STATE: u32 = 3;
 pub(crate) const EVENT_PAUSE: u32 = 1;
 pub(crate) const EVENT_SIM: u32 = 2;
 pub(crate) const EVENT_AIRCRAFT_LOADED: u32 = 3;
 pub(crate) const EVENT_CRASHED: u32 = 4;
+pub(crate) const EVENT_SIM_START: u32 = 5;
 
 /// Most messages read per poll, so one poll never stalls the thread.
 const MAX_PER_POLL: usize = 500;
+/// Ask again for aircraft details until they arrive.
+const AIRCRAFT_RETRY: Duration = Duration::from_secs(15);
 
 pub struct SimConnectConnector {
     api: ffi::Api,
     handle: ffi::Handle,
     sim: SimKind,
     state: parse::State,
+    /// Which call each SimConnect send ID belongs to, to explain exceptions.
+    sent: HashMap<u32, String>,
+    have_aircraft: bool,
+    last_aircraft_request: Instant,
 }
 
 // The raw handle is only used from the thread that polls the connector.
@@ -50,33 +57,79 @@ impl SimConnectConnector {
         let handle = api
             .open("FlightDeck")
             .map_err(|hr| ConnectorError::NotAvailable(format!("SimConnect_Open failed (0x{hr:08X}); is MSFS running?")))?;
-
-        let setup = || -> Result<(), String> {
-            let check = |hr: i32, what: &str| if hr == ffi::S_OK { Ok(()) } else { Err(format!("{what}: 0x{hr:08X}")) };
-            for v in TELEMETRY_VARS {
-                check(api.add_to_data_definition(handle, DEF_TELEMETRY, v.name, Some(v.units), ffi::DATATYPE_FLOAT64), v.name)?;
-            }
-            for v in AIRCRAFT_VARS {
-                let (units, ty) = if v.units.is_empty() {
-                    (None, ffi::DATATYPE_STRING256)
-                } else {
-                    (Some(v.units), ffi::DATATYPE_FLOAT64)
-                };
-                check(api.add_to_data_definition(handle, DEF_AIRCRAFT, v.name, units, ty), v.name)?;
-            }
-            check(api.subscribe(handle, EVENT_PAUSE, "Pause"), "Pause")?;
-            check(api.subscribe(handle, EVENT_SIM, "Sim"), "Sim")?;
-            check(api.subscribe(handle, EVENT_AIRCRAFT_LOADED, "AircraftLoaded"), "AircraftLoaded")?;
-            check(api.subscribe(handle, EVENT_CRASHED, "Crashed"), "Crashed")?;
-            check(api.request_data(handle, REQ_AIRCRAFT, DEF_AIRCRAFT, ffi::PERIOD_ONCE), "aircraft request")?;
-            check(api.request_data(handle, REQ_TELEMETRY, DEF_TELEMETRY, ffi::PERIOD_SIM_FRAME), "telemetry request")?;
-            Ok(())
+        let mut c = SimConnectConnector {
+            api,
+            handle,
+            sim: hint.unwrap_or(SimKind::Msfs2020),
+            state: parse::State::default(),
+            sent: HashMap::new(),
+            have_aircraft: false,
+            last_aircraft_request: Instant::now(),
         };
-        if let Err(e) = setup() {
-            api.close(handle);
+        if let Err(e) = c.setup() {
             return Err(ConnectorError::Failure(e));
         }
-        Ok(SimConnectConnector { api, handle, sim: hint.unwrap_or(SimKind::Msfs2020), state: parse::State::default() })
+        Ok(c)
+    }
+
+    /// Remember what a call was, so a later exception can name it.
+    fn note(&mut self, what: &str) {
+        if let Some(id) = self.api.last_send_id(self.handle) {
+            self.sent.insert(id, what.to_string());
+        }
+    }
+
+    fn check(&mut self, hr: i32, what: &str) -> Result<(), String> {
+        self.note(what);
+        if hr == ffi::S_OK {
+            Ok(())
+        } else {
+            Err(format!("{what}: 0x{hr:08X}"))
+        }
+    }
+
+    fn setup(&mut self) -> Result<(), String> {
+        let h = self.handle;
+        for v in TELEMETRY_VARS {
+            let hr = self.api.add_to_data_definition(h, DEF_TELEMETRY, v.name, Some(v.units), ffi::DATATYPE_FLOAT64);
+            self.check(hr, &format!("telemetry variable '{}'", v.name))?;
+        }
+        for (i, v) in AIRCRAFT_VARS.iter().enumerate() {
+            let def = AIRCRAFT_BASE + i as u32;
+            let (units, ty) = if v.units.is_empty() {
+                (None, ffi::DATATYPE_STRING256)
+            } else {
+                (Some(v.units), ffi::DATATYPE_FLOAT64)
+            };
+            let hr = self.api.add_to_data_definition(h, def, v.name, units, ty);
+            self.check(hr, &format!("aircraft variable '{}'", v.name))?;
+        }
+        for (id, name) in [
+            (EVENT_PAUSE, "Pause"),
+            (EVENT_SIM, "Sim"),
+            (EVENT_AIRCRAFT_LOADED, "AircraftLoaded"),
+            (EVENT_CRASHED, "Crashed"),
+            (EVENT_SIM_START, "SimStart"),
+        ] {
+            let hr = self.api.subscribe(h, id, name);
+            self.check(hr, &format!("event '{name}'"))?;
+        }
+        // Are we in a flight right now, or in the menus?
+        let hr = self.api.request_system_state(h, REQ_SIM_STATE, "Sim");
+        self.check(hr, "system state 'Sim'")?;
+        self.request_aircraft();
+        let hr = self.api.request_data(h, REQ_TELEMETRY, DEF_TELEMETRY, ffi::PERIOD_SIM_FRAME);
+        self.check(hr, "telemetry request")?;
+        Ok(())
+    }
+
+    fn request_aircraft(&mut self) {
+        self.last_aircraft_request = Instant::now();
+        for (i, v) in AIRCRAFT_VARS.iter().enumerate() {
+            let id = AIRCRAFT_BASE + i as u32;
+            let _ = self.api.request_data(self.handle, id, id, ffi::PERIOD_ONCE);
+            self.note(&format!("aircraft request '{}'", v.name));
+        }
     }
 }
 
@@ -100,17 +153,40 @@ impl SimConnector for SimConnectConnector {
                     });
                 }
                 Parsed::Telemetry(t) => out.push(SimMessage::Telemetry(t)),
-                Parsed::Aircraft(a) => out.push(SimMessage::Aircraft(a)),
+                Parsed::Aircraft(a) => {
+                    if !self.have_aircraft {
+                        log::info!("aircraft: {a:?}");
+                    }
+                    self.have_aircraft = true;
+                    out.push(SimMessage::Aircraft(a));
+                }
                 Parsed::AircraftReloaded => {
-                    let _ = self.api.request_data(self.handle, REQ_AIRCRAFT, DEF_AIRCRAFT, ffi::PERIOD_ONCE);
+                    log::info!("aircraft or flight loaded; asking for aircraft details");
+                    self.request_aircraft();
+                }
+                Parsed::SimRunning(running) => {
+                    log::info!("MSFS {}", if running { "is in a flight" } else { "is in the menus or loading" });
+                    if running {
+                        self.request_aircraft();
+                    }
                 }
                 Parsed::Quit => {
                     out.push(SimMessage::Disconnected { reason: "MSFS closed".into() });
                     break;
                 }
-                Parsed::Exception(code) => log::warn!("SimConnect exception {code}"),
+                Parsed::Exception { code, send_id, index } => {
+                    let what = self.sent.get(&send_id).map(String::as_str).unwrap_or("an unknown request");
+                    log::warn!("MSFS rejected {what}: SimConnect exception {code} (parameter {index})");
+                }
                 Parsed::Other => {}
             }
+        }
+        if !self.have_aircraft
+            && self.state.in_flight != Some(false)
+            && self.last_aircraft_request.elapsed() >= AIRCRAFT_RETRY
+        {
+            log::info!("no aircraft details yet; asking again");
+            self.request_aircraft();
         }
         Ok(out)
     }

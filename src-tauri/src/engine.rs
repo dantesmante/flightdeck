@@ -45,6 +45,8 @@ pub struct Status {
     pub telemetry: Option<Telemetry>,
     pub last_landing: Option<LandingReport>,
     pub demo: bool,
+    /// Changes whenever a new flight begins, so the UI starts a fresh track.
+    pub session: u64,
     /// [lon, lat] points added since the previous status event.
     pub track_tail: Vec<[f64; 2]>,
 }
@@ -132,6 +134,8 @@ struct Engine {
     last_scan: Option<Instant>,
     last_connect: Option<Instant>,
     last_status: Instant,
+    session: u64,
+    last_diag: Instant,
 }
 
 pub fn spawn(
@@ -166,6 +170,8 @@ pub fn spawn(
                 last_scan: None,
                 last_connect: None,
                 last_status: Instant::now(),
+                session: 0,
+                last_diag: Instant::now(),
             };
             loop {
                 match rx.try_recv() {
@@ -301,10 +307,12 @@ impl Engine {
                 .map_err(|e| log::warn!("journal unavailable: {e}"))
                 .ok();
             self.dep = None;
+            self.session += 1;
             self.shared.lock().unwrap().track.clear();
             self.tail.clear();
         }
         self.last_sample = Some(s);
+        self.diagnose(&s);
         let outputs = self.tracker.as_mut().unwrap().update(&s);
         for o in outputs {
             match o {
@@ -328,6 +336,22 @@ impl Engine {
                 }
                 TrackerOutput::Completed(f) => self.store(&f),
             }
+        }
+    }
+
+    /// While taxiing in, log the values the "parked" check uses, so a sim
+    /// that reports them differently is easy to spot in the terminal.
+    fn diagnose(&mut self, s: &Telemetry) {
+        let taxiing_in = self.tracker.as_ref().and_then(Tracker::phase) == Some(Phase::TaxiIn);
+        if taxiing_in && self.last_diag.elapsed() >= Duration::from_secs(5) {
+            self.last_diag = Instant::now();
+            log::info!(
+                "taxi in: ground speed {:.2} kt, on ground {}, engines running {}, parking brake {}",
+                s.gs_kt,
+                s.on_ground,
+                s.engines_running,
+                s.parking_brake
+            );
         }
     }
 
@@ -383,7 +407,10 @@ impl Engine {
             sim_label: self.sim.map(|s| s.label().to_string()),
             sim_version: self.sim_version.clone(),
             notice: self.notice.clone(),
-            aircraft: (!self.aircraft.title.is_empty()).then(|| self.aircraft.clone()),
+            aircraft: (!self.aircraft.title.is_empty()
+                || !self.aircraft.icao_type.is_empty()
+                || !self.aircraft.registration.is_empty())
+            .then(|| self.aircraft.clone()),
             phase,
             phase_label: phase.map(|p| p.label().to_string()),
             last_landing: live.as_ref().and_then(|l| l.last_landing.clone()),
@@ -391,6 +418,7 @@ impl Engine {
             dep: self.dep.clone(),
             telemetry: self.last_sample,
             demo: self.demo,
+            session: self.session,
             track_tail: std::mem::take(&mut self.tail),
         };
         self.shared.lock().unwrap().status = Status { track_tail: vec![], ..status.clone() };

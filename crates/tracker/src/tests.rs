@@ -321,3 +321,35 @@ fn grades() {
     assert_eq!(grade_for(-250.0), "Firm");
     assert_eq!(grade_for(-700.0), "Very hard");
 }
+
+#[test]
+fn wheel_flicker_is_not_a_bounce() {
+    let mut f = Script::new();
+    f.taxi_and_takeoff();
+    f.approach_and_land(-150.0);
+    f.run(0.2, 10.0, |s| s.on_ground = false);
+    f.run(1.0, 10.0, |s| s.on_ground = true);
+    f.rollout_taxi_park();
+    assert_eq!(f.completed().unwrap().landings[0].bounces, 0);
+}
+
+#[test]
+fn standing_still_after_landing_ends_the_flight() {
+    // A sim that never reports engines off or the parking brake.
+    let mut f = Script::new();
+    f.taxi_and_takeoff();
+    f.approach_and_land(-150.0);
+    f.run(30.0, 10.0, |s| {
+        s.vs_fpm = 0.0;
+        s.gs_kt = (s.gs_kt - 4.0).max(12.0);
+    });
+    f.run(30.0, 10.0, |s| s.gs_kt = 12.0);
+    f.run(70.0, 10.0, |s| {
+        s.gs_kt = 0.0;
+        s.engines_running = 2;
+        s.parking_brake = false;
+    });
+    let s = f.completed().expect("should end after a minute standing still");
+    assert_eq!(s.status, FlightStatus::Complete);
+    assert!(s.events.iter().any(|e| e.kind == "parked_by_timeout"));
+}

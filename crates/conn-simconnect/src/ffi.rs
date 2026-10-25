@@ -20,6 +20,7 @@ pub const RECV_ID_OPEN: u32 = 2;
 pub const RECV_ID_QUIT: u32 = 3;
 pub const RECV_ID_EVENT: u32 = 4;
 pub const RECV_ID_SIMOBJECT_DATA: u32 = 8;
+pub const RECV_ID_SYSTEM_STATE: u32 = 15;
 
 // SIMCONNECT_DATATYPE
 pub const DATATYPE_FLOAT64: u32 = 4;
@@ -39,6 +40,8 @@ type AddToDataDefinitionFn =
 type RequestDataOnSimObjectFn =
     unsafe extern "system" fn(Handle, u32, u32, u32, u32, u32, u32, u32, u32) -> HResult;
 type SubscribeToSystemEventFn = unsafe extern "system" fn(Handle, u32, *const c_char) -> HResult;
+type RequestSystemStateFn = unsafe extern "system" fn(Handle, u32, *const c_char) -> HResult;
+type GetLastSentPacketIdFn = unsafe extern "system" fn(Handle, *mut u32) -> HResult;
 type GetNextDispatchFn = unsafe extern "system" fn(Handle, *mut *mut u8, *mut u32) -> HResult;
 
 /// The loaded DLL and its function pointers.
@@ -49,6 +52,8 @@ pub struct Api {
     add_to_data_definition: AddToDataDefinitionFn,
     request_data_on_sim_object: RequestDataOnSimObjectFn,
     subscribe_to_system_event: SubscribeToSystemEventFn,
+    request_system_state: RequestSystemStateFn,
+    get_last_sent_packet_id: GetLastSentPacketIdFn,
     get_next_dispatch: GetNextDispatchFn,
 }
 
@@ -102,6 +107,8 @@ impl Api {
         let add_to_data_definition = sym!(lib, b"SimConnect_AddToDataDefinition\0");
         let request_data_on_sim_object = sym!(lib, b"SimConnect_RequestDataOnSimObject\0");
         let subscribe_to_system_event = sym!(lib, b"SimConnect_SubscribeToSystemEvent\0");
+        let request_system_state = sym!(lib, b"SimConnect_RequestSystemState\0");
+        let get_last_sent_packet_id = sym!(lib, b"SimConnect_GetLastSentPacketID\0");
         let get_next_dispatch = sym!(lib, b"SimConnect_GetNextDispatch\0");
         Ok(Api {
             _lib: lib,
@@ -110,6 +117,8 @@ impl Api {
             add_to_data_definition,
             request_data_on_sim_object,
             subscribe_to_system_event,
+            request_system_state,
+            get_last_sent_packet_id,
             get_next_dispatch,
         })
     }
@@ -148,6 +157,21 @@ impl Api {
         let name = CString::new(name).unwrap();
         // SAFETY: valid NUL-terminated event name.
         unsafe { (self.subscribe_to_system_event)(h, event, name.as_ptr()) }
+    }
+
+    /// Ask for a system state such as "Sim" (1 = in a flight, 0 = in menus).
+    pub fn request_system_state(&self, h: Handle, req: u32, state: &str) -> HResult {
+        let state = CString::new(state).unwrap();
+        // SAFETY: valid NUL-terminated state name.
+        unsafe { (self.request_system_state)(h, req, state.as_ptr()) }
+    }
+
+    /// ID of the last request sent, used to match exceptions to requests.
+    pub fn last_send_id(&self, h: Handle) -> Option<u32> {
+        let mut id = 0u32;
+        // SAFETY: valid out-pointer.
+        let hr = unsafe { (self.get_last_sent_packet_id)(h, &mut id) };
+        (hr == S_OK).then_some(id)
     }
 
     /// Copy the next queued message out of SimConnect's buffer, if any.

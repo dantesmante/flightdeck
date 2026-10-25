@@ -51,12 +51,17 @@ pub struct Config {
     pub rejected_gs_kt: f64,
     pub taxi_in_gs_kt: f64,
     pub park_gs_kt: f64,
+    /// After landing, standing still this long counts as parked even if the
+    /// sim never reports engines off or the parking brake set.
+    pub park_fallback_ms: i64,
     /// How long a ground condition must hold before the phase changes.
     pub debounce_ms: i64,
     /// How long the aircraft must be off the ground to count as airborne.
     pub airborne_ms: i64,
     /// Off the ground for less than this after a touchdown = a bounce.
     pub bounce_window_ms: i64,
+    /// Shorter lifts than this are wheel-contact flicker, not bounces.
+    pub bounce_min_ms: i64,
     /// A jump of more than `teleport_min_nm` faster than this = teleport.
     pub teleport_nm_per_s: f64,
     pub teleport_min_nm: f64,
@@ -78,9 +83,11 @@ impl Default for Config {
             rejected_gs_kt: 25.0,
             taxi_in_gs_kt: 30.0,
             park_gs_kt: 1.0,
+            park_fallback_ms: 60_000,
             debounce_ms: 3000,
             airborne_ms: 2000,
             bounce_window_ms: 10_000,
+            bounce_min_ms: 500,
             teleport_nm_per_s: 5.0,
             teleport_min_nm: 5.0,
             track_interval_ms: 1000,
@@ -244,6 +251,7 @@ struct Holds {
     reject: Hold,
     slow: Hold,
     park: Hold,
+    stopped: Hold,
 }
 
 impl Holds {
@@ -484,11 +492,13 @@ impl Tracker {
                         self.set_phase(Phase::Airborne, since, out);
                     }
                 } else {
-                    if self.off_ground_since.take().is_some() {
-                        if let Some(l) = self.landings.last_mut() {
-                            l.bounces += 1;
+                    if let Some(since) = self.off_ground_since.take() {
+                        if t - since >= c.bounce_min_ms {
+                            if let Some(l) = self.landings.last_mut() {
+                                l.bounces += 1;
+                            }
+                            self.event(t, "bounce", serde_json::Value::Null);
                         }
-                        self.event(t, "bounce", serde_json::Value::Null);
                     }
                     if let Some(t0) = self.holds.slow.check(s.gs_kt < c.taxi_in_gs_kt, t, c.debounce_ms) {
                         self.flush_touchdown(out);
@@ -497,10 +507,13 @@ impl Tracker {
                 }
             }
             Phase::TaxiIn => {
-                let parked = s.on_ground
-                    && s.gs_kt < c.park_gs_kt
-                    && (s.engines_running == 0 || s.parking_brake);
+                let stopped = s.on_ground && s.gs_kt < c.park_gs_kt;
+                let parked = stopped && (s.engines_running == 0 || s.parking_brake);
                 if let Some(t0) = self.holds.park.check(parked, t, c.debounce_ms) {
+                    self.block_in = Some(t0);
+                    self.set_phase(Phase::Arrived, t0, out);
+                } else if let Some(t0) = self.holds.stopped.check(stopped, t, c.park_fallback_ms) {
+                    self.event(t, "parked_by_timeout", serde_json::Value::Null);
                     self.block_in = Some(t0);
                     self.set_phase(Phase::Arrived, t0, out);
                 }

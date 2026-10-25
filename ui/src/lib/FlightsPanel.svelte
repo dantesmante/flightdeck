@@ -53,7 +53,7 @@
     <h2 class="num">{f.dep_icao ?? "????"} <span class="to">to</span> {f.arr_icao ?? "????"}</h2>
     <p class="names">{f.dep_name ?? "Unknown departure"}<br />{f.arr_name ?? "Unknown arrival"}</p>
     <p class="meta">
-      {day(f.start_ms)}, {f.icao_type || f.aircraft_title}{f.registration ? ` ${f.registration}` : ""}
+      {[day(f.start_ms), [f.icao_type || f.aircraft_title, f.registration].filter(Boolean).join(" ")].filter(Boolean).join(", ")}
       {#if f.status !== "complete"}<span class="tag">{f.status}</span>{/if}
     </p>
     <dl class="times">
@@ -105,7 +105,7 @@
                 <span class="num dur">{hhmm(f.total_min)}</span>
               </span>
               <span class="r2">
-                <span>{day(f.start_ms)}, {f.icao_type || f.aircraft_title}</span>
+                <span>{[day(f.start_ms), f.icao_type || f.aircraft_title].filter(Boolean).join(", ")}</span>
                 {#if f.landing_rate_fpm != null}
                   <span class="num rate {gradeTone(f.landing_grade)}">{int(f.landing_rate_fpm)} fpm</span>
                 {:else if f.status !== "complete"}

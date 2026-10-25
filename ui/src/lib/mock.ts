@@ -50,6 +50,7 @@ const status: FullStatus = {
   },
   last_landing: null,
   demo: false,
+  session: 1,
   track_tail: [],
   track,
 };
