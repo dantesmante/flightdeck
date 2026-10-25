@@ -109,8 +109,8 @@
     {#snippet inner()}
       <div class="inner">
         <div class="watermark"><Emblem size={260} color="#7f9f9b" /></div>
-        <p class="lead">This passport records every country and region its bearer has flown into.</p>
-        <p>A stamp is issued on landing: an international stamp when you arrive in another country, and a regional stamp when you land in a new state, province or region at home.</p>
+        <p class="lead">This passport records every border its bearer has crossed by air.</p>
+        <p>Each international flight is stamped twice: on departure from one country and on arrival in the next.</p>
         <p>The first arrival in any country receives a first-entry seal.</p>
         <p class="small">Issued by FlightDeck. Valid for all simulators.</p>
       </div>
@@ -171,7 +171,7 @@
       <div class="visa">
         <h3>Visas</h3>
         {#if vp.stamps.length === 0 && vp.no === 1}
-          <p class="empty">No stamps yet. Land in a new region or another country and your first stamp appears here.</p>
+          <p class="empty">No stamps yet. Fly to another country and your first stamps appear here.</p>
         {/if}
         {#each vp.stamps as s, j (`${s.flight_id}-${s.kind}`)}
           {@const at = slot(s, j)}

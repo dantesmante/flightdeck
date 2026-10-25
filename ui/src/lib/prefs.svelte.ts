@@ -8,7 +8,6 @@ const defaults: Settings = {
   distance_unit: "nm",
   logbook_layout: "faa",
   logbook_hand: "hand",
-  regional_stamps: "true",
 };
 
 export const prefs = $state<{ s: Settings; loaded: boolean }>({ s: { ...defaults }, loaded: false });

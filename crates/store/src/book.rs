@@ -13,7 +13,6 @@ pub const DEFAULT_SETTINGS: &[(&str, &str)] = &[
     ("distance_unit", "nm"),      // nm | mi | km
     ("logbook_layout", "faa"),    // faa | easa
     ("logbook_hand", "hand"),     // hand | type
-    ("regional_stamps", "true"),  // true | false
 ];
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -99,7 +98,45 @@ pub struct HangarRow {
     pub last_sim: String,
 }
 
+/// One flown route for the map: where a flight left from and landed.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RouteRow {
+    pub flight_id: i64,
+    pub dep_icao: Option<String>,
+    pub arr_icao: Option<String>,
+    pub dep_lat: Option<f64>,
+    pub dep_lon: Option<f64>,
+    pub arr_lat: Option<f64>,
+    pub arr_lon: Option<f64>,
+    pub date_ms: i64,
+    pub aircraft_type: String,
+}
+
 impl Store {
+    /// Every flight's end points, oldest first.
+    pub fn routes(&self) -> Result<Vec<RouteRow>> {
+        let mut st = self.conn.prepare(
+            "SELECT f.id, f.dep_icao, f.arr_icao, f.dep_lat, f.dep_lon, f.arr_lat, f.arr_lon,
+                    COALESCE(f.block_out, f.takeoff, f.start_ms), COALESCE(NULLIF(a.icao_type, ''), a.title, '')
+             FROM flight f LEFT JOIN aircraft a ON a.id = f.aircraft_id
+             ORDER BY COALESCE(f.block_out, f.takeoff, f.start_ms) ASC",
+        )?;
+        let rows = st.query_map([], |r| {
+            Ok(RouteRow {
+                flight_id: r.get(0)?,
+                dep_icao: r.get(1)?,
+                arr_icao: r.get(2)?,
+                dep_lat: r.get(3)?,
+                dep_lon: r.get(4)?,
+                arr_lat: r.get(5)?,
+                arr_lon: r.get(6)?,
+                date_ms: r.get(7)?,
+                aircraft_type: r.get(8)?,
+            })
+        })?;
+        Ok(rows.collect::<std::result::Result<_, _>>()?)
+    }
+
     pub fn settings(&self) -> Result<HashMap<String, String>> {
         let mut out: HashMap<String, String> =
             DEFAULT_SETTINGS.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();

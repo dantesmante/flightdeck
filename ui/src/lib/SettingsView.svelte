@@ -116,22 +116,10 @@
   </div>
 
   <div class="group">
-    <h3>Passport</h3>
-    <label class="check">
-      <input
-        type="checkbox"
-        checked={prefs.s.regional_stamps !== "false"}
-        onchange={(e) => setPref("regional_stamps", (e.currentTarget as HTMLInputElement).checked ? "true" : "false")}
-      />
-      Stamp domestic flights with regional stamps (states, provinces, regions)
-    </label>
-  </div>
-
-  <div class="group">
     <h3>Sample flights</h3>
     <p class="help">
       Five ready-made flights across the US, Canada and Europe in five different aircraft, one of them at night. Use them to
-      try the passport, logbook and hangar. Removing them also removes demo flights you flew from the map.
+      try the map's route lines, the passport, the logbook and the hangar. Removing them also removes demo flights you flew from the map.
     </p>
     <div class="row">
       <button class="primary" onclick={addSamples} disabled={busy}>Add sample flights</button>
@@ -246,18 +234,6 @@
   .seg button.on {
     background: var(--panel-3);
     color: var(--amber);
-  }
-  .check {
-    flex-direction: row;
-    align-items: center;
-    gap: 10px;
-    font-size: 15px;
-    color: var(--ink);
-  }
-  .check input {
-    width: 18px;
-    height: 18px;
-    accent-color: var(--amber);
   }
   .primary {
     border: none;

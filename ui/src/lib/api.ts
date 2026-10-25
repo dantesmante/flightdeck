@@ -187,7 +187,18 @@ export interface LogRow {
 
 export type LogPatch = Partial<Omit<LogRow, "flight_id" | "date_ms" | "sim" | "status" | "aircraft_type" | "ident" | "category_class" | "engine_count" | "from_icao" | "to_icao" | "out_ms" | "in_ms">>;
 
-export type StampKind = "departure" | "arrival" | "first_entry" | "regional";
+export type StampKind = "departure" | "arrival" | "first_entry";
+
+export interface Route {
+  flight_id: number;
+  dep_icao: string | null;
+  arr_icao: string | null;
+  /** [lon, lat] */
+  from: [number, number];
+  to: [number, number];
+  date_ms: number;
+  aircraft_type: string;
+}
 
 export interface Stamp {
   flight_id: number;
@@ -273,6 +284,7 @@ export const api = {
   updateLogEntry: (flightId: number, patch: LogPatch) => call<boolean>("update_log_entry", { flightId, patch }),
   passport: () => call<PassportData>("get_passport"),
   hangar: () => call<HangarItem[]>("get_hangar"),
+  routes: () => call<Route[]>("get_routes"),
   aircraftPhoto: (id: number) => call<string | null>("get_aircraft_photo", { id }),
   setAircraftPhoto: (id: number, dataUrl: string | null) => call<boolean>("set_aircraft_photo", { id, dataUrl }),
   addSampleFlights: () => call<number>("add_sample_flights"),

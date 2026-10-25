@@ -23,11 +23,7 @@
     const r = rng(stamp.seed);
     const pick = <T,>(xs: T[]) => xs[Math.floor(r() * xs.length) % xs.length];
     const shape: Shape =
-      stamp.kind === "first_entry"
-        ? "seal"
-        : stamp.kind === "regional"
-          ? pick<Shape>(["rounded", "oval", "rect", "double"])
-          : pick<Shape>(["circle", "double", "rect", "rounded", "oval", "hex"]);
+      stamp.kind === "first_entry" ? "seal" : pick<Shape>(["circle", "double", "rect", "rounded", "oval", "hex"]);
     const date = new Date(stamp.t_ms);
     return {
       shape,
@@ -41,12 +37,8 @@
 
   const id = $derived(`s${stamp.seed}`);
   const upper = (s: string) => s.toLocaleUpperCase("en-US");
-  const place = $derived(
-    upper(stamp.kind === "regional" && stamp.region_name ? stamp.region_name : stamp.country_name || stamp.country),
-  );
-  const word = $derived(
-    { departure: "DEPARTED", arrival: "ADMITTED", first_entry: "FIRST ENTRY", regional: "WELCOME" }[stamp.kind],
-  );
+  const place = $derived(upper(stamp.country_name || stamp.country));
+  const word = $derived({ departure: "DEPARTED", arrival: "ADMITTED", first_entry: "FIRST ENTRY" }[stamp.kind]);
   const going = $derived(stamp.kind === "departure");
   /** Long names get smaller letters so they still fit. */
   const fit = (s: string, base: number, room: number) => Math.min(base, (room / Math.max(s.length, 1)) * 1.75);
@@ -67,7 +59,7 @@
   style:transform="rotate({d.tilt}deg)"
   style:opacity={d.opacity}
   role="img"
-  aria-label="{stamp.kind.replace('_', ' ')} stamp, {stamp.region_name || stamp.country_name}, {d.date}"
+  aria-label="{stamp.kind.replace('_', ' ')} stamp, {stamp.country_name}, {d.date}"
 >
   <defs>
     <filter id="ink-{id}" x="-8%" y="-8%" width="116%" height="116%">
@@ -122,7 +114,7 @@
       <text x="96" y="88" stroke="none" font-size="19" letter-spacing="1.5">{word}</text>
       <text x="120" y="114" stroke="none" font-size="16" letter-spacing="1" text-anchor="middle">{d.date}</text>
       <text x="120" y={d.shape === "oval" ? 134 : 137} stroke="none" font-size="14" letter-spacing="3" text-anchor="middle">
-        {stamp.icao}{stamp.kind === "regional" && stamp.country ? `  ${stamp.country}` : ""}
+        {stamp.icao}{stamp.aircraft_type ? `  ${upper(stamp.aircraft_type)}` : ""}
       </text>
     {/if}
   </g>

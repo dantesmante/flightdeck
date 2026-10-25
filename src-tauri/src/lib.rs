@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex};
 use engine::{Command, FullStatus, SharedState};
 use std::collections::HashMap;
 
-use store::book::{HangarRow, LogPatch, LogRow, Pilot};
+use store::book::{HangarRow, LogPatch, LogRow, Pilot, RouteRow};
 use store::passport::{self, CountryVisit, Stamp};
 use store::{FlightRow, Store, Totals};
 use tauri::Manager;
@@ -95,7 +95,7 @@ fn get_settings(state: tauri::State<AppState>) -> CmdResult<HashMap<String, Stri
 
 #[tauri::command]
 fn set_setting(state: tauri::State<AppState>, key: String, value: String) -> CmdResult<()> {
-    const ALLOWED: &[&str] = &["distance_unit", "logbook_layout", "logbook_hand", "regional_stamps"];
+    const ALLOWED: &[&str] = &["distance_unit", "logbook_layout", "logbook_hand"];
     if !ALLOWED.contains(&key.as_str()) {
         return Err(format!("unknown setting {key}"));
     }
@@ -155,9 +155,8 @@ fn country_name(r: &refdata::RefData, code: &str) -> String {
 fn get_passport(state: tauri::State<AppState>) -> CmdResult<PassportData> {
     let db = state.db.lock().unwrap();
     let r = &state.refdata;
-    let regional = db.settings().map_err(err)?.get("regional_stamps").is_none_or(|v| v != "false");
     let flights = db.stamp_flights().map_err(err)?;
-    let stamps = passport::derive_stamps(&flights, regional)
+    let stamps = passport::derive_stamps(&flights)
         .into_iter()
         .map(|s| NamedStamp {
             country_name: country_name(r, &s.country),
@@ -199,6 +198,48 @@ fn get_hangar(state: tauri::State<AppState>) -> CmdResult<Vec<HangarItem>> {
             last_country_name: row.last_country.as_deref().map(|c| country_name(r, c)),
             last_region_name: row.last_region.as_deref().and_then(|c| r.region_name(c)).map(str::to_string),
             row,
+        })
+        .collect())
+}
+
+#[derive(serde::Serialize)]
+struct Route {
+    flight_id: i64,
+    dep_icao: Option<String>,
+    arr_icao: Option<String>,
+    /// [lon, lat]
+    from: [f64; 2],
+    to: [f64; 2],
+    date_ms: i64,
+    aircraft_type: String,
+}
+
+/// Every flight as a line from its departure to its arrival airport. Ends
+/// sit on the airports' published positions when the ICAO code is known.
+#[tauri::command]
+fn get_routes(state: tauri::State<AppState>) -> CmdResult<Vec<Route>> {
+    let rows: Vec<RouteRow> = state.db.lock().unwrap().routes().map_err(err)?;
+    let r = &state.refdata;
+    let at = |icao: &Option<String>, lat: Option<f64>, lon: Option<f64>| -> Option<[f64; 2]> {
+        icao.as_deref()
+            .and_then(|i| r.airport(i))
+            .map(|a| [a.lon, a.lat])
+            .or(lat.zip(lon).map(|(la, lo)| [lo, la]))
+    };
+    Ok(rows
+        .into_iter()
+        .filter_map(|row| {
+            let from = at(&row.dep_icao, row.dep_lat, row.dep_lon)?;
+            let to = at(&row.arr_icao, row.arr_lat, row.arr_lon)?;
+            Some(Route {
+                flight_id: row.flight_id,
+                dep_icao: row.dep_icao,
+                arr_icao: row.arr_icao,
+                from,
+                to,
+                date_ms: row.date_ms,
+                aircraft_type: row.aircraft_type,
+            })
         })
         .collect())
 }
@@ -265,6 +306,7 @@ pub fn run() {
             update_log_entry,
             get_passport,
             get_hangar,
+            get_routes,
             get_aircraft_photo,
             set_aircraft_photo,
             add_sample_flights,

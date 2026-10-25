@@ -84,6 +84,10 @@ export async function mockCall<T>(cmd: string, _args?: Record<string, unknown>):
       track: track.map(([lon, lat], i) => ({ t_ms: i, lat, lon, alt_ft: 1000, gs_kt: 300, vs_fpm: 0, hdg_deg: 180, on_ground: false })),
       landings: [],
     },
+    get_routes: [
+      { flight_id: 3, dep_icao: "KPDX", arr_icao: "KSFO", from: [-122.5975, 45.5887], to: [-122.375, 37.6188], date_ms: now, aircraft_type: "A20N" },
+      { flight_id: 2, dep_icao: "EGLL", arr_icao: "LFPG", from: [-0.4619, 51.4706], to: [2.5479, 49.0097], date_ms: now, aircraft_type: "A320" },
+    ],
     demo_routes: ["KSEA to KPDX", "EGLL to LFPG", "KSFO to KLAX", "EDDF to LOWW", "CYVR to KSEA"],
   };
   return (answers[cmd] ?? null) as T;

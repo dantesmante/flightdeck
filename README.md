@@ -25,6 +25,10 @@ MIT licensed.
 - **Live map** with MapLibre GL and OpenFreeMap vector tiles (OpenStreetMap
   data), no API key. If tiles cannot load, the map falls back to a plain
   grid and keeps drawing your flight.
+- **Route network**: every flight you have flown stays on the map as a faint
+  great-circle line between its airports. Hover a line to see the route and
+  date; click it to open that flight. Flights that land where they took off
+  show as a ring at the airport.
 - **Real airport names and countries** for every departure and arrival,
   from 72,635 airports (OurAirports, public domain) built into the app.
 - **Saved flights** with block and air times, distance, fuel, track and
@@ -38,9 +42,9 @@ MIT licensed.
   the tracker for testing (see below).
 - **Passport book**: a burgundy passport you open and page through, with a
   data page (your photo, details and a machine-readable zone), generated
-  rubber stamps and an index of countries. International flights earn
-  departure and arrival stamps (a first-entry seal the first time you land
-  in a country); domestic flights earn regional stamps.
+  rubber stamps and an index of countries. It is for international flights
+  only: each one earns a departure and an arrival stamp, and the first
+  landing in a country gets a first-entry seal.
 - **Paper logbook**: a two-page ruled logbook in FAA or EASA layout,
   handwritten or typed, with page totals carried forward. Night time and
   night landings come from the sun's position along your track. Click a
@@ -49,7 +53,7 @@ MIT licensed.
   sideways, with hours, distance, flights, best landing and where you last
   parked it. Each gets a drawn illustration; you can use your own photo.
 - **Settings**: pilot details and photo, nautical miles, statute miles or
-  kilometres, logbook layout, regional stamps, and **sample flights** to
+  kilometres, logbook layout, and **sample flights** to
   fill the passport, logbook and hangar for a quick look.
 
 ## Set up on Windows
@@ -179,8 +183,8 @@ cargo run -p refdata --features build-tool --bin build-refdata -- ourairports-da
    and X-Plane 12 (web API) connectors.
 3. **Pilot logbook**: a paper-style two-page logbook, FAA or EASA layout,
    night and cross-country time, PDF and CSV export.
-4. **Passport book**: generated SVG stamps, regional stamps for domestic
-   flights, international stamps on arrival in a new country.
+4. **Passport book**: generated SVG stamps for international flights
+   (first version done).
 5. **Polish and v1.0**: SimBrief import, landing analysis card, performance
    tuning, signed installer.
 

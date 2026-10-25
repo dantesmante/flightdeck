@@ -1,12 +1,10 @@
 //! Passport stamps, derived from the flight history.
 //!
-//! Rules (decided with the project owner):
-//! - A flight that lands in a different country earns a departure stamp for
-//!   the country left and an arrival stamp for the country entered. The
-//!   first ever arrival in a country gets the special first-entry design.
-//! - A domestic flight earns a regional stamp (state, province, region)
-//!   when it lands in a region other than the one it left, or in a region
-//!   visited for the first time. Regional stamps can be turned off.
+//! Rule (decided with the project owner): the passport is for international
+//! flights only. A flight that lands in a different country earns a
+//! departure stamp for the country left and an arrival stamp for the
+//! country entered. The first ever arrival in a country gets the special
+//! first-entry design. Domestic flights earn no stamps.
 //!
 //! Stamps are recomputed from flights, so editing or deleting a flight
 //! always leaves the passport consistent.
@@ -40,7 +38,6 @@ pub enum StampKind {
     Departure,
     Arrival,
     FirstEntry,
-    Regional,
 }
 
 impl StampKind {
@@ -49,7 +46,6 @@ impl StampKind {
             StampKind::Departure => "departure",
             StampKind::Arrival => "arrival",
             StampKind::FirstEntry => "first_entry",
-            StampKind::Regional => "regional",
         }
     }
 }
@@ -93,9 +89,8 @@ fn stamp(f: &StampFlight, kind: StampKind, place: &StampPlace, t_ms: i64) -> Sta
 }
 
 /// Stamps for `flights`, which must be in chronological order.
-pub fn derive_stamps(flights: &[StampFlight], regional: bool) -> Vec<Stamp> {
+pub fn derive_stamps(flights: &[StampFlight]) -> Vec<Stamp> {
     let mut countries: HashSet<String> = HashSet::new();
-    let mut regions: HashSet<String> = HashSet::new();
     let mut out = Vec::new();
     for f in flights {
         if f.dep.country.is_empty() || f.arr.country.is_empty() {
@@ -105,17 +100,9 @@ pub fn derive_stamps(flights: &[StampFlight], regional: bool) -> Vec<Stamp> {
             out.push(stamp(f, StampKind::Departure, &f.dep, f.dep_ms));
             let kind = if countries.contains(&f.arr.country) { StampKind::Arrival } else { StampKind::FirstEntry };
             out.push(stamp(f, kind, &f.arr, f.arr_ms));
-        } else if regional
-            && !f.arr.region.is_empty()
-            && (f.arr.region != f.dep.region || !regions.contains(&f.arr.region))
-        {
-            out.push(stamp(f, StampKind::Regional, &f.arr, f.arr_ms));
         }
         for p in [&f.dep, &f.arr] {
             countries.insert(p.country.clone());
-            if !p.region.is_empty() {
-                regions.insert(p.region.clone());
-            }
         }
     }
     out
@@ -125,7 +112,7 @@ pub fn derive_stamps(flights: &[StampFlight], regional: bool) -> Vec<Stamp> {
 pub struct CountryVisit {
     pub country: String,
     pub first_ms: i64,
-    /// Arrivals (international and regional) in this country.
+    /// Arrivals in this country (international or domestic).
     pub arrivals: i64,
 }
 
@@ -166,7 +153,7 @@ mod tests {
     fn international_trip_and_return() {
         let kord = || place("KORD", "US", "US-IL");
         let cyyz = || place("CYYZ", "CA", "CA-ON");
-        let s = derive_stamps(&[flight(1, kord(), cyyz()), flight(2, cyyz(), kord()), flight(3, kord(), cyyz())], true);
+        let s = derive_stamps(&[flight(1, kord(), cyyz()), flight(2, cyyz(), kord()), flight(3, kord(), cyyz())]);
         assert_eq!(
             kinds(&s),
             vec![
@@ -181,23 +168,13 @@ mod tests {
     }
 
     #[test]
-    fn domestic_flights_earn_regional_stamps() {
+    fn domestic_flights_earn_no_stamps() {
         let kc81 = || place("KC81", "US", "US-IL");
         let kmke = || place("KMKE", "US", "US-WI");
-        let s = derive_stamps(
-            &[
-                flight(1, kc81(), kc81()), // first time in Illinois
-                flight(2, kc81(), kc81()), // pattern again: nothing new
-                flight(3, kc81(), kmke()), // into Wisconsin
-                flight(4, kmke(), kc81()), // back into Illinois
-            ],
-            true,
-        );
-        assert_eq!(
-            kinds(&s),
-            vec![(StampKind::Regional, "KC81"), (StampKind::Regional, "KMKE"), (StampKind::Regional, "KC81")]
-        );
-        assert!(derive_stamps(&[flight(1, kc81(), kmke())], false).is_empty());
+        assert!(derive_stamps(&[flight(1, kc81(), kc81()), flight(2, kc81(), kmke())]).is_empty());
+        // ...but a later trip abroad still gets its first-entry seal.
+        let s = derive_stamps(&[flight(1, kc81(), kmke()), flight(2, kmke(), place("CYYZ", "CA", "CA-ON"))]);
+        assert_eq!(kinds(&s), vec![(StampKind::Departure, "KMKE"), (StampKind::FirstEntry, "CYYZ")]);
     }
 
     #[test]

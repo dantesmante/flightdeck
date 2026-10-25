@@ -8,9 +8,12 @@
 
   interface Props {
     refreshKey: number;
-    onselect: (track: [number, number][] | null) => void;
+    onselect: (track: [number, number][] | null, flightId: number | null) => void;
+    /** Open this flight (set when a route is clicked on the map). */
+    request?: { id: number; n: number } | null;
+    ondelete?: () => void;
   }
-  let { refreshKey, onselect }: Props = $props();
+  let { refreshKey, onselect, request = null, ondelete }: Props = $props();
 
   let flights = $state<FlightRow[]>([]);
   let totals = $state<Totals | null>(null);
@@ -29,12 +32,16 @@
   async function open(id: number) {
     confirmDelete = false;
     selected = await api.flight(id);
-    onselect(selected ? selected.track.map((p) => [p.lon, p.lat]) : null);
+    onselect(selected ? selected.track.map((p) => [p.lon, p.lat]) : null, selected?.flight.id ?? null);
   }
+
+  $effect(() => {
+    if (request) open(request.id);
+  });
 
   function close() {
     selected = null;
-    onselect(null);
+    onselect(null, null);
   }
 
   async function remove() {
@@ -42,6 +49,7 @@
     await api.deleteFlight(selected.flight.id);
     close();
     await load();
+    ondelete?.();
   }
 
   const route = (f: FlightRow) => `${f.dep_icao ?? "????"} to ${f.arr_icao ?? "????"}`;

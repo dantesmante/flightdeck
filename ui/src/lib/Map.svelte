@@ -3,6 +3,7 @@
   // (OpenStreetMap data), recoloured at load into a night-chart palette.
   import maplibregl, { type GeoJSONSource, type LngLatBoundsLike } from "maplibre-gl";
   import { onDestroy, onMount } from "svelte";
+  import type { Route } from "./api";
 
   interface Props {
     /** Live track, [lon, lat] pairs. */
@@ -13,8 +14,14 @@
     origin: [number, number] | null;
     /** A saved flight's track to show instead of the live one. */
     history: [number, number][] | null;
+    /** Every flight flown, drawn faintly between its airports. */
+    routes?: Route[];
+    /** The flight whose route should stand out. */
+    selected?: number | null;
+    /** A route line was clicked. */
+    onroute?: (flightId: number) => void;
   }
-  let { live, aircraft, origin, history }: Props = $props();
+  let { live, aircraft, origin, history, routes = [], selected = null, onroute }: Props = $props();
 
   const STYLE = "https://tiles.openfreemap.org/styles/positron";
   const C = {
@@ -29,7 +36,78 @@
     text: "#8fa3b3",
     halo: "#0d1820",
     track: "#e2468f",
+    route: "#a9bfd1",
+    routeHot: "#f0b23a",
   };
+
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+
+  /** Points along the great circle from a to b, longitudes unwrapped so the
+   * line never jumps across the antimeridian. */
+  function greatCircle(a: [number, number], b: [number, number], n = 64): [number, number][] {
+    const rad = Math.PI / 180;
+    const v = ([lon, lat]: [number, number]) => [
+      Math.cos(lat * rad) * Math.cos(lon * rad),
+      Math.cos(lat * rad) * Math.sin(lon * rad),
+      Math.sin(lat * rad),
+    ];
+    const p = v(a);
+    const q = v(b);
+    const dot = Math.min(1, Math.max(-1, p[0] * q[0] + p[1] * q[1] + p[2] * q[2]));
+    const w = Math.acos(dot);
+    if (w < 1e-6) return [a, b];
+    const out: [number, number][] = [];
+    let prev = a[0];
+    for (let i = 0; i <= n; i++) {
+      const f = i / n;
+      const s1 = Math.sin((1 - f) * w) / Math.sin(w);
+      const s2 = Math.sin(f * w) / Math.sin(w);
+      const x = s1 * p[0] + s2 * q[0];
+      const y = s1 * p[1] + s2 * q[1];
+      const z = s1 * p[2] + s2 * q[2];
+      let lon = Math.atan2(y, x) / rad;
+      const lat = Math.atan2(z, Math.hypot(x, y)) / rad;
+      while (lon - prev > 180) lon -= 360;
+      while (lon - prev < -180) lon += 360;
+      prev = lon;
+      out.push([lon, lat]);
+    }
+    return out;
+  }
+
+  function routeFeatures(list: Route[]): GeoJSON.FeatureCollection {
+    const features: GeoJSON.Feature[] = [];
+    const airports = new globalThis.Map<string, [number, number]>();
+    for (const r of list) {
+      const label = `${r.dep_icao ?? "?"} to ${r.arr_icao ?? "?"}`;
+      const d = new Date(r.date_ms);
+      const props = {
+        id: r.flight_id,
+        label,
+        sub: `${d.getUTCDate()} ${months[d.getUTCMonth()]} ${d.getUTCFullYear()}${r.aircraft_type ? `, ${r.aircraft_type}` : ""}`,
+      };
+      const same = Math.abs(r.from[0] - r.to[0]) < 0.02 && Math.abs(r.from[1] - r.to[1]) < 0.02;
+      if (same) {
+        // Took off and landed at the same place: a ring at the airport.
+        features.push({ type: "Feature", id: r.flight_id, properties: { ...props, kind: "loop" }, geometry: { type: "Point", coordinates: r.from } });
+      } else {
+        features.push({
+          type: "Feature",
+          id: r.flight_id,
+          properties: { ...props, kind: "route" },
+          geometry: { type: "LineString", coordinates: greatCircle(r.from, r.to) },
+        });
+      }
+      airports.set(`${r.from[0].toFixed(3)},${r.from[1].toFixed(3)}`, r.from);
+      airports.set(`${r.to[0].toFixed(3)},${r.to[1].toFixed(3)}`, r.to);
+    }
+    let k = 0;
+    for (const at of airports.values()) {
+      features.push({ type: "Feature", id: -(++k), properties: { kind: "airport" }, geometry: { type: "Point", coordinates: at } });
+    }
+    return { type: "FeatureCollection", features };
+  }
 
   let el: HTMLDivElement;
   let map: maplibregl.Map | undefined;
@@ -89,6 +167,52 @@
 
   function addOverlays() {
     if (!map) return;
+    // Every past flight, faint, under the live track.
+    map.addSource("routes", { type: "geojson", data: routeFeatures(routes) });
+    const hot: maplibregl.ExpressionSpecification = [
+      "any",
+      ["boolean", ["feature-state", "hover"], false],
+      ["boolean", ["feature-state", "sel"], false],
+    ];
+    map.addLayer({
+      id: "routes-line",
+      type: "line",
+      source: "routes",
+      filter: ["==", ["get", "kind"], "route"],
+      paint: {
+        "line-color": ["case", hot, C.routeHot, C.route] as maplibregl.ExpressionSpecification,
+        "line-opacity": ["case", hot, 0.95, 0.32] as maplibregl.ExpressionSpecification,
+        "line-width": ["case", hot, 2.6, 1.4] as maplibregl.ExpressionSpecification,
+      },
+      layout: { "line-cap": "round" },
+    });
+    map.addLayer({
+      id: "routes-hit",
+      type: "line",
+      source: "routes",
+      filter: ["==", ["get", "kind"], "route"],
+      paint: { "line-color": "#000", "line-opacity": 0, "line-width": 14 },
+    });
+    map.addLayer({
+      id: "routes-loops",
+      type: "circle",
+      source: "routes",
+      filter: ["==", ["get", "kind"], "loop"],
+      paint: {
+        "circle-radius": 8,
+        "circle-color": "rgba(0,0,0,0)",
+        "circle-stroke-color": ["case", hot, C.routeHot, C.route] as maplibregl.ExpressionSpecification,
+        "circle-stroke-opacity": ["case", hot, 0.95, 0.45] as maplibregl.ExpressionSpecification,
+        "circle-stroke-width": ["case", hot, 2.4, 1.4] as maplibregl.ExpressionSpecification,
+      },
+    });
+    map.addLayer({
+      id: "routes-airports",
+      type: "circle",
+      source: "routes",
+      filter: ["==", ["get", "kind"], "airport"],
+      paint: { "circle-radius": 2.6, "circle-color": "#c9d6e0", "circle-opacity": 0.65 },
+    });
     map.addSource("track", {
       type: "geojson",
       data: { type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: [] } },
@@ -172,6 +296,38 @@
     const fallback = setTimeout(useOfflineStyle, 8000);
     map.once("style.load", () => clearTimeout(fallback));
     map.on("dragstart", () => (follow = false));
+
+    // Hover and click on past routes.
+    const tip = new maplibregl.Popup({ closeButton: false, closeOnClick: false, className: "route-tip", offset: 10 });
+    let hovered: number | null = null;
+    const clearHover = () => {
+      if (hovered != null) map?.setFeatureState({ source: "routes", id: hovered }, { hover: false });
+      hovered = null;
+      tip.remove();
+      map!.getCanvas().style.cursor = "";
+    };
+    for (const layer of ["routes-hit", "routes-loops"]) {
+      map.on("mousemove", layer, (e) => {
+        const f = e.features?.[0];
+        if (!f || f.id == null || !map) return;
+        const id = Number(f.id);
+        if (hovered !== id) {
+          clearHover();
+          hovered = id;
+          map.setFeatureState({ source: "routes", id }, { hover: true });
+        }
+        map.getCanvas().style.cursor = "pointer";
+        const p = f.properties as { label: string; sub: string };
+        tip.setLngLat(e.lngLat).setHTML(`<strong>${esc(p.label)}</strong><span>${esc(p.sub)}</span><em>Click for flight details</em>`).addTo(map);
+      });
+      map.on("mouseleave", layer, clearHover);
+      map.on("click", layer, (e) => {
+        const f = e.features?.[0];
+        clearHover();
+        if (f?.id != null) onroute?.(Number(f.id));
+      });
+    }
+    map.on("movestart", () => tip.remove());
     // Stop drawing while the window is hidden.
     const vis = () => (document.hidden ? map?.stop() : map?.triggerRepaint());
     document.addEventListener("visibilitychange", vis);
@@ -185,7 +341,7 @@
     src?.setData({ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: coords } });
   }
 
-  function fit(coords: [number, number][]) {
+  function fit(coords: [number, number][], maxZoom = 11) {
     if (!map || coords.length < 2) return;
     let [x0, y0, x1, y1] = [180, 90, -180, -90];
     for (const [x, y] of coords) {
@@ -198,8 +354,31 @@
       [x0, y0],
       [x1, y1],
     ];
-    map.fitBounds(b, { padding: 80, maxZoom: 11, duration: 600 });
+    map.fitBounds(b, { padding: 80, maxZoom, duration: 600 });
   }
+
+  // Keep the route network current, and show the whole network once when
+  // the map first opens with nothing in flight.
+  let fittedRoutes = false;
+  $effect(() => {
+    const list = routes;
+    if (!loaded || !map) return;
+    (map.getSource("routes") as GeoJSONSource | undefined)?.setData(routeFeatures(list));
+    if (!fittedRoutes && list.length && !aircraft && !history) {
+      fittedRoutes = true;
+      fit(list.flatMap((r) => [r.from, r.to]), 6);
+    }
+  });
+
+  // The selected flight's route stands out.
+  let lastSel: number | null = null;
+  $effect(() => {
+    const sel = selected;
+    if (!loaded || !map || !map.getSource("routes")) return;
+    if (lastSel != null) map.setFeatureState({ source: "routes", id: lastSel }, { sel: false });
+    if (sel != null) map.setFeatureState({ source: "routes", id: sel }, { sel: true });
+    lastSel = sel;
+  });
 
   // Which line to draw: a selected saved flight, else the live track.
   $effect(() => {
@@ -292,6 +471,34 @@
   }
   .map :global(.maplibregl-ctrl-attrib a) {
     color: var(--ink-dim);
+  }
+  .map :global(.route-tip .maplibregl-popup-content) {
+    background: var(--panel-2);
+    color: var(--ink);
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    padding: 7px 10px;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    font-family: var(--sans);
+    font-size: 13px;
+  }
+  .map :global(.route-tip strong) {
+    font-family: var(--cond);
+    font-size: 17px;
+  }
+  .map :global(.route-tip span) {
+    color: var(--ink-dim);
+  }
+  .map :global(.route-tip em) {
+    font-style: normal;
+    font-size: 11px;
+    color: var(--amber);
+  }
+  .map :global(.route-tip .maplibregl-popup-tip) {
+    display: none;
   }
   .follow {
     position: absolute;

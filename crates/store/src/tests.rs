@@ -198,7 +198,7 @@ fn stamps_come_from_saved_flights() {
     let mut db = Store::open_in_memory().unwrap();
     db.save_flight(&fly(1), &SaveContext { dep: place("EGLL", "GB"), arr: place("LFPG", "FR"), ..Default::default() }).unwrap();
     let flights = db.stamp_flights().unwrap();
-    let stamps = passport::derive_stamps(&flights, true);
+    let stamps = passport::derive_stamps(&flights);
     assert_eq!(stamps.len(), 2);
     assert_eq!(stamps[1].kind, passport::StampKind::FirstEntry);
     assert_eq!(stamps[1].country, "FR");
@@ -266,4 +266,16 @@ fn a_version_1_database_is_upgraded_with_night_time() {
     let arr_lat: Option<f64> = db.conn.query_row("SELECT arr_lat FROM flight", [], |r| r.get(0)).unwrap();
     assert!((arr_lat.unwrap() - 49.0).abs() < 0.1, "landing point near LFPG");
     let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn routes_list_every_flight_with_end_points() {
+    let mut db = Store::open_in_memory().unwrap();
+    let id = db.save_flight(&fly(1), &SaveContext { dep: place("EGLL", "GB"), arr: place("LFPG", "FR"), ..Default::default() }).unwrap();
+    let r = db.routes().unwrap();
+    assert_eq!(r.len(), 1);
+    assert_eq!(r[0].flight_id, id);
+    assert_eq!(r[0].arr_icao.as_deref(), Some("LFPG"));
+    assert!((r[0].dep_lat.unwrap() - 51.47).abs() < 0.1);
+    assert!((r[0].arr_lon.unwrap() - 2.55).abs() < 0.2);
 }
