@@ -40,8 +40,9 @@ MIT licensed.
   30 times real speed, so you can try everything without a sim.
 - **Telemetry recorder**: record a real flight once, then replay it through
   the tracker for testing (see below).
-- **Passport book**: a burgundy passport you open and page through, with a
-  data page (your photo, details and a machine-readable zone), generated
+- **Passport book**: a burgundy passport you open and page through. Inside
+  the cover, a world map spread over both pages shades every country you
+  have flown in. Then a data page (your photo, details and a machine-readable zone), generated
   rubber stamps and an index of countries. It is for international flights
   only: each one earns a departure and an arrival stamp, and the first
   landing in a country gets a first-entry seal.
@@ -193,4 +194,6 @@ cargo run -p refdata --features build-tool --bin build-refdata -- ourairports-da
 - Map data © OpenStreetMap contributors; tiles by OpenFreeMap; rendering
   by MapLibre GL JS.
 - Airport data from OurAirports (public domain).
+- Country outlines from Natural Earth (public domain), projected with the
+  Equal Earth projection by `tools/build_world.py`.
 - Fonts: Barlow and Barlow Condensed (SIL Open Font License).

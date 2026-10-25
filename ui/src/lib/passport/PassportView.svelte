@@ -6,6 +6,7 @@
   import Emblem from "./Emblem.svelte";
   import { mrz, paperPattern, passportNumber } from "./paper";
   import Stamp from "./Stamp.svelte";
+  import WorldMap from "./WorldMap.svelte";
 
   let { onsettings }: { onsettings: () => void } = $props();
 
@@ -15,6 +16,7 @@
   const INDEX_ROWS = 16;
 
   type Page =
+    | { kind: "map"; half: "left" | "right" }
     | { kind: "inner" }
     | { kind: "data" }
     | { kind: "visa"; stamps: StampT[]; no: number }
@@ -22,6 +24,8 @@
     | { kind: "blank" };
 
   let data = $state<PassportData | null>(null);
+  type World = { w: number; h: number; countries: { c: string; n: string; d: string; dot?: [number, number] }[] };
+  let world = $state<World | null>(null);
   let open = $state(false);
   let opening = $state(false);
   let spread = $state(0);
@@ -30,12 +34,16 @@
   let wrapH = $state(0);
 
   onMount(async () => {
-    data = await api.passport();
+    const [d, w] = await Promise.all([api.passport(), import("./world.json")]);
+    data = d;
+    world = w.default as World;
   });
+
+  const visited = $derived(new Set((data?.countries ?? []).map((c) => c.country)));
 
   const pages = $derived.by<Page[]>(() => {
     if (!data) return [];
-    const out: Page[] = [{ kind: "inner" }, { kind: "data" }];
+    const out: Page[] = [{ kind: "map", half: "left" }, { kind: "map", half: "right" }, { kind: "inner" }, { kind: "data" }];
     const n = Math.max(2, Math.ceil(data.stamps.length / PER_PAGE));
     for (let i = 0; i < n; i++) {
       out.push({ kind: "visa", stamps: data.stamps.slice(i * PER_PAGE, (i + 1) * PER_PAGE), no: i + 1 });
@@ -105,7 +113,25 @@
 
 {#snippet pageView(i: number)}
   {@const p = pages[i]}
-  {#if p.kind === "inner"}
+  {#if p.kind === "map"}
+    {@const mp = p}
+    {#snippet mapPage()}
+      <div class="endpaper" class:right={mp.half === "right"}>
+        <h3>{mp.half === "left" ? "Countries visited" : visited.size ? `${visited.size} ${visited.size === 1 ? "country" : "countries"}` : "No countries yet"}</h3>
+        <div class="mapbox">
+          {#if world}
+            <WorldMap {world} {visited} half={mp.half} width={340} />
+          {/if}
+        </div>
+        {#if mp.half === "left"}
+          <p class="legend"><span class="swatch"></span>Countries you have flown in</p>
+        {:else if data && data.countries.length}
+          <p class="legend first">First country: {data.countries[0].name}</p>
+        {/if}
+      </div>
+    {/snippet}
+    {@render paper(mapPage)}
+  {:else if p.kind === "inner"}
     {#snippet inner()}
       <div class="inner">
         <div class="watermark"><Emblem size={260} color="#7f9f9b" /></div>
@@ -396,6 +422,44 @@
     text-align: center;
     font-size: 11px;
     color: #8a8296;
+  }
+  .endpaper {
+    position: relative;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    padding: 18px 0 0 20px;
+  }
+  .endpaper.right {
+    padding: 18px 20px 0 0;
+  }
+  .endpaper h3 {
+    padding: 0 20px;
+  }
+  .mapbox {
+    margin-top: 72px;
+    display: flex;
+  }
+  .endpaper:not(.right) .mapbox {
+    justify-content: flex-end;
+  }
+  .legend {
+    margin: 34px 24px 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    font-style: italic;
+    color: #5f5770;
+  }
+  .legend.first {
+    justify-content: flex-end;
+  }
+  .swatch {
+    width: 22px;
+    height: 13px;
+    border: 1px solid #2f5a55;
+    background: repeating-linear-gradient(45deg, #5f8f88 0 2px, #3f6f69 2px 3px);
   }
   .inner {
     padding: 70px 44px;
