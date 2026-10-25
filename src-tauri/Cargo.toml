@@ -1,0 +1,27 @@
+[package]
+name = "flightdeck"
+description = "FlightDeck: a light, local-first flight tracker for MSFS and X-Plane"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "flightdeck_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde.workspace = true
+serde_json.workspace = true
+log.workspace = true
+env_logger.workspace = true
+telemetry.workspace = true
+tracker.workspace = true
+store.workspace = true
+refdata.workspace = true
+conn-simconnect.workspace = true
+conn-demo.workspace = true
+watcher.workspace = true

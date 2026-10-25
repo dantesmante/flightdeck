@@ -1,0 +1,10 @@
+[package]
+name = "telemetry"
+description = "Sim-agnostic telemetry model shared by every FlightDeck connector"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+thiserror.workspace = true

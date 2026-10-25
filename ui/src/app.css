@@ -1,0 +1,70 @@
+:root {
+  /* Night instrument panel */
+  --panel: #172430;
+  --panel-2: #1e2f3d;
+  --panel-3: #263b4c;
+  --rule: #2e4658;
+  --ink: #e6edf2;
+  --ink-dim: #8fa3b3;
+  --ink-faint: #5d7385;
+  /* Backlit annunciator: the active state */
+  --amber: #f0b23a;
+  --amber-glow: rgba(240, 178, 58, 0.16);
+  /* Sectional-chart magenta: tracks and routes */
+  --magenta: #e2468f;
+  --good: #5cc08a;
+  --warn: #f0b23a;
+  --bad: #e26a5a;
+  /* Flight strip paper */
+  --strip: #f3ecd8;
+  --strip-ink: #2a2a24;
+  --strip-rule: #c9bd9c;
+
+  --sans: "Barlow", system-ui, sans-serif;
+  --cond: "Barlow Condensed", "Barlow", system-ui, sans-serif;
+
+  color-scheme: dark;
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.45;
+  color: var(--ink);
+  background: var(--panel);
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+:focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: 2px;
+}
+
+.num {
+  font-family: var(--cond);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

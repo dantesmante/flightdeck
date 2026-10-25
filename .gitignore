@@ -1,0 +1,12 @@
+/target
+node_modules/
+/ui/dist
+/src-tauri/gen
+*.log
+.DS_Store
+Thumbs.db
+
+# Never commit SimConnect SDK files.
+SimConnect.dll
+SimConnect.lib
+SimConnect.h

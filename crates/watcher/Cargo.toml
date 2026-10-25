@@ -1,0 +1,10 @@
+[package]
+name = "watcher"
+description = "Detects running flight simulators by process name"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+telemetry.workspace = true
+sysinfo.workspace = true

@@ -1,0 +1,11 @@
+[package]
+name = "conn-simconnect"
+description = "MSFS 2020 / 2024 connector over SimConnect, loaded at runtime"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+telemetry.workspace = true
+libloading.workspace = true
+log.workspace = true

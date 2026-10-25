@@ -1,0 +1,19 @@
+[package]
+name = "flightdeck-recorder"
+description = "Record sim telemetry to a file and replay it through the tracker"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "fd-recorder"
+path = "src/main.rs"
+
+[dependencies]
+telemetry.workspace = true
+tracker.workspace = true
+refdata.workspace = true
+conn-simconnect.workspace = true
+conn-demo.workspace = true
+serde_json.workspace = true
+env_logger.workspace = true

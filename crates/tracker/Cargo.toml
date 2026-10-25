@@ -1,0 +1,14 @@
+[package]
+name = "tracker"
+description = "Flight phase state machine and landing analysis"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+telemetry.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+conn-demo.workspace = true

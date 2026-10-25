@@ -1,0 +1,20 @@
+[package]
+name = "refdata"
+description = "Airport, country and region reference data (from OurAirports, public domain)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+telemetry.workspace = true
+serde.workspace = true
+zstd.workspace = true
+csv = { workspace = true, optional = true }
+
+[features]
+# Only needed to rebuild the embedded data from fresh OurAirports CSVs.
+build-tool = ["dep:csv"]
+
+[[bin]]
+name = "build-refdata"
+required-features = ["build-tool"]

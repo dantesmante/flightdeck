@@ -1,0 +1,10 @@
+[package]
+name = "conn-demo"
+description = "Built-in simulated flight, for development and demos without a simulator"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+telemetry.workspace = true
+serde.workspace = true
