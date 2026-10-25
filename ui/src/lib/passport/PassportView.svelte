@@ -1,0 +1,603 @@
+<script lang="ts">
+  import { onMount, type Snippet } from "svelte";
+  import { api, type CountryVisit, type PassportData, type Stamp as StampT } from "../api";
+  import Book from "../Book.svelte";
+  import { hoursMinutes } from "../format";
+  import Emblem from "./Emblem.svelte";
+  import { mrz, paperPattern, passportNumber } from "./paper";
+  import Stamp from "./Stamp.svelte";
+
+  let { onsettings }: { onsettings: () => void } = $props();
+
+  const W = 360;
+  const H = 510;
+  const PER_PAGE = 6;
+  const INDEX_ROWS = 16;
+
+  type Page =
+    | { kind: "inner" }
+    | { kind: "data" }
+    | { kind: "visa"; stamps: StampT[]; no: number }
+    | { kind: "index"; countries: CountryVisit[]; first: boolean }
+    | { kind: "blank" };
+
+  let data = $state<PassportData | null>(null);
+  let open = $state(false);
+  let opening = $state(false);
+  let spread = $state(0);
+  let book = $state<Book | null>(null);
+  let wrapW = $state(0);
+  let wrapH = $state(0);
+
+  onMount(async () => {
+    data = await api.passport();
+  });
+
+  const pages = $derived.by<Page[]>(() => {
+    if (!data) return [];
+    const out: Page[] = [{ kind: "inner" }, { kind: "data" }];
+    const n = Math.max(2, Math.ceil(data.stamps.length / PER_PAGE));
+    for (let i = 0; i < n; i++) {
+      out.push({ kind: "visa", stamps: data.stamps.slice(i * PER_PAGE, (i + 1) * PER_PAGE), no: i + 1 });
+    }
+    if (out.length % 2 === 1) out.push({ kind: "visa", stamps: [], no: n + 1 });
+    const c = data.countries;
+    const indexPages = Math.max(1, Math.ceil(c.length / INDEX_ROWS));
+    for (let i = 0; i < indexPages; i++) {
+      out.push({ kind: "index", countries: c.slice(i * INDEX_ROWS, (i + 1) * INDEX_ROWS), first: i === 0 });
+    }
+    if (out.length % 2 === 1) out.push({ kind: "blank" });
+    return out;
+  });
+
+  const coverScale = $derived(wrapW && wrapH ? Math.min((wrapH - 110) / H, (wrapW - 40) / W, 1.4) : 1);
+
+  function openBook() {
+    if (opening) return;
+    const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    if (reduced) {
+      open = true;
+      return;
+    }
+    opening = true;
+  }
+
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const printed = (ms: number | null | undefined) => {
+    if (ms == null) return "–";
+    const d = new Date(ms);
+    return `${String(d.getUTCDate()).padStart(2, "0")} ${months[d.getUTCMonth()].toUpperCase()} ${d.getUTCFullYear()}`;
+  };
+
+  /** Seeded spot for each stamp: a 2 x 3 grid, nudged so it looks hand-placed. */
+  function slot(s: StampT, i: number) {
+    const col = i % 2;
+    const row = Math.floor(i / 2);
+    const jx = (((s.seed >>> 3) % 29) - 14) * 1.0;
+    const jy = (((s.seed >>> 9) % 23) - 11) * 1.0;
+    return { x: 24 + col * 160 + 78 + jx, y: 60 + row * 140 + 68 + jy };
+  }
+
+  const nameParts = $derived.by(() => {
+    const parts = (data?.pilot.name ?? "").trim().split(/\s+/).filter(Boolean);
+    return parts.length > 1
+      ? { surname: parts[parts.length - 1], given: parts.slice(0, -1).join(" ") }
+      : { surname: parts[0] ?? "", given: "" };
+  });
+  const number = $derived(data ? passportNumber(data.pilot.pilot_id, data.pilot.name) : "");
+  const lines = $derived(
+    data
+      ? mrz({ name: data.pilot.name || "Pilot", nationality: data.pilot.nationality, number, issued: data.first_flight_ms ?? Date.now() })
+      : ["", ""],
+  );
+  const stateCode = $derived(
+    data && /^[A-Za-z]{3}$/.test(data.pilot.nationality) ? data.pilot.nationality.toUpperCase() : "UTO",
+  );
+  const pageLabel = $derived(`Pages ${spread * 2 + 1} and ${spread * 2 + 2} of ${pages.length}`);
+</script>
+
+{#snippet paper(content: Snippet, no: number | null = null)}
+  <div class="paper" style:background-image={paperPattern()}>
+    {@render content()}
+    {#if no != null}<span class="folio">{no}</span>{/if}
+  </div>
+{/snippet}
+
+{#snippet pageView(i: number)}
+  {@const p = pages[i]}
+  {#if p.kind === "inner"}
+    {#snippet inner()}
+      <div class="inner">
+        <div class="watermark"><Emblem size={260} color="#7f9f9b" /></div>
+        <p class="lead">This passport records every country and region its bearer has flown into.</p>
+        <p>A stamp is issued on landing: an international stamp when you arrive in another country, and a regional stamp when you land in a new state, province or region at home.</p>
+        <p>The first arrival in any country receives a first-entry seal.</p>
+        <p class="small">Issued by FlightDeck. Valid for all simulators.</p>
+      </div>
+    {/snippet}
+    {@render paper(inner)}
+  {:else if p.kind === "data" && data}
+    {#snippet dataPage()}
+      <div class="data">
+        <div class="head">
+          <span class="type">Pilot passport</span>
+          <span class="mini"><Emblem size={30} color="#5d4a7a" /></span>
+        </div>
+        <div class="grid">
+          <div class="photo">
+            {#if data!.pilot.photo_url}
+              <img src={data!.pilot.photo_url} alt="Pilot" />
+            {:else}
+              <button class="photo-empty" onclick={onsettings}>
+                <svg viewBox="0 0 100 120" aria-hidden="true"><circle cx="50" cy="42" r="22" /><path d="M10 120 C 12 82, 88 82, 90 120 Z" /></svg>
+                <span>Add a photo</span>
+              </button>
+            {/if}
+          </div>
+          <dl>
+            <div class="row3">
+              <div><dt>Type</dt><dd>P</dd></div>
+              <div><dt>Code</dt><dd>{stateCode}</dd></div>
+              <div><dt>Passport no.</dt><dd>{number}</dd></div>
+            </div>
+            <div><dt>Surname</dt><dd>{nameParts.surname.toUpperCase() || "—"}</dd></div>
+            <div><dt>Given names</dt><dd>{nameParts.given.toUpperCase() || "—"}</dd></div>
+            <div><dt>Nationality</dt><dd>{data!.pilot.nationality.toUpperCase() || "—"}</dd></div>
+            <div><dt>Date of first flight</dt><dd>{printed(data!.first_flight_ms)}</dd></div>
+            <div><dt>Home airport</dt><dd>{data!.pilot.home_icao || "—"}{data!.home_name ? ` ${data!.home_name.toUpperCase()}` : ""}</dd></div>
+            <div class="row2">
+              <div><dt>Flight time</dt><dd>{hoursMinutes(data!.totals.minutes).toUpperCase()}</dd></div>
+              <div><dt>Countries</dt><dd>{data!.countries.length}</dd></div>
+            </div>
+          </dl>
+        </div>
+        <div class="sig">
+          <dt>Holder's signature</dt>
+          <div class="hand">{data!.pilot.name || ""}</div>
+        </div>
+        {#if !data!.pilot.name}
+          <button class="fill-in" onclick={onsettings}>Fill in your details</button>
+        {/if}
+        <div class="mrz" aria-label="Machine-readable zone">
+          <div>{lines[0]}</div>
+          <div>{lines[1]}</div>
+        </div>
+      </div>
+    {/snippet}
+    {@render paper(dataPage)}
+  {:else if p.kind === "visa"}
+    {@const vp = p}
+    {#snippet visa()}
+      <div class="visa">
+        <h3>Visas</h3>
+        {#if vp.stamps.length === 0 && vp.no === 1}
+          <p class="empty">No stamps yet. Land in a new region or another country and your first stamp appears here.</p>
+        {/if}
+        {#each vp.stamps as s, j (`${s.flight_id}-${s.kind}`)}
+          {@const at = slot(s, j)}
+          <div class="slot" style:left="{at.x}px" style:top="{at.y}px">
+            <Stamp stamp={s} size={s.kind === "first_entry" ? 142 : 132} />
+          </div>
+        {/each}
+      </div>
+    {/snippet}
+    {@render paper(visa, i + 1)}
+  {:else if p.kind === "index"}
+    {@const ip = p}
+    {#snippet index()}
+      <div class="index">
+        <h3>{ip.first ? "Countries visited" : "Countries visited, continued"}</h3>
+        {#if ip.countries.length === 0}
+          <p class="empty">Countries appear here as you fly into them.</p>
+        {:else}
+          <ol>
+            {#each ip.countries as c (c.country)}
+              <li>
+                <span class="cn">{c.name}</span>
+                <span class="dots"></span>
+                <span class="since">{printed(c.first_ms)}</span>
+              </li>
+            {/each}
+          </ol>
+        {/if}
+      </div>
+    {/snippet}
+    {@render paper(index, i + 1)}
+  {:else}
+    {#snippet blank()}<div></div>{/snippet}
+    {@render paper(blank, i + 1)}
+  {/if}
+{/snippet}
+
+<section class="passport" bind:clientWidth={wrapW} bind:clientHeight={wrapH}>
+  {#if !data}
+    <p class="loading">Opening your passport…</p>
+  {:else if !open}
+    <div class="closed">
+      <div class="cover-holder" style:transform="scale({coverScale})" style:--k={coverScale}>
+        <button
+          class="cover"
+          class:opening
+          onclick={openBook}
+          ontransitionend={() => opening && (open = true)}
+          aria-label="Open passport"
+        >
+          <span class="foil title">Pilot passport</span>
+          <span class="foil-emblem"><Emblem size={170} color="#d8b46a" /></span>
+          <span class="foil brand">FlightDeck</span>
+          <span class="chip" aria-hidden="true"><svg viewBox="0 0 40 26"><rect x="1" y="1" width="38" height="24" rx="3" /><circle cx="20" cy="13" r="6" /><path d="M1 13h13M26 13h13" /></svg></span>
+        </button>
+      </div>
+      <p class="hint">
+        {data.stamps.length} {data.stamps.length === 1 ? "stamp" : "stamps"}, {data.countries.length}
+        {data.countries.length === 1 ? "country" : "countries"}. Click the cover to open.
+      </p>
+    </div>
+  {:else}
+    <div class="toolbar">
+      <button class="ghost" onclick={() => ((open = false), (opening = false), (spread = 0))}>Close passport</button>
+      <span class="where">{pageLabel}</span>
+      <span class="nav">
+        <button class="ghost" onclick={() => book?.prev()} disabled={spread === 0} aria-label="Previous pages">Previous</button>
+        <button class="ghost" onclick={() => book?.next()} disabled={spread >= pages.length / 2 - 1} aria-label="Next pages">Next</button>
+      </span>
+    </div>
+    <div class="stage">
+      <Book bind:this={book} bind:spread pageCount={pages.length} pageWidth={W} pageHeight={H} page={pageView} label="Passport" />
+    </div>
+  {/if}
+</section>
+
+<style>
+  .passport {
+    position: relative;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    background:
+      radial-gradient(ellipse at 50% 40%, rgba(240, 178, 58, 0.06), transparent 60%),
+      linear-gradient(180deg, #14212b, #101a22);
+  }
+  .loading {
+    margin: auto;
+    color: var(--ink-dim);
+  }
+
+  /* Cover ------------------------------------------------------------ */
+  .closed {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 18px;
+    perspective: 2400px;
+  }
+  .cover-holder {
+    width: 360px;
+    height: 510px;
+    flex: none;
+    transform-origin: center;
+    margin: calc(510px * (var(--k) - 1) / 2) 0;
+  }
+  .cover {
+    position: relative;
+    width: 360px;
+    height: 510px;
+    border: none;
+    border-radius: 6px 14px 14px 6px;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: space-between;
+    padding: 58px 0 52px;
+    color: #d8b46a;
+    background-color: #5a1e2a;
+    background-image:
+      linear-gradient(90deg, rgba(0, 0, 0, 0.35), rgba(0, 0, 0, 0) 7%, rgba(255, 255, 255, 0.05) 9%, rgba(0, 0, 0, 0) 12%),
+      radial-gradient(ellipse at 30% 20%, rgba(255, 255, 255, 0.09), transparent 55%),
+      url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.35 0'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E");
+    box-shadow:
+      inset 0 0 0 2px rgba(0, 0, 0, 0.25),
+      inset -6px 0 12px rgba(0, 0, 0, 0.35),
+      0 22px 40px rgba(0, 0, 0, 0.55);
+    transform-origin: left center;
+    transition: transform 0.85s cubic-bezier(0.45, 0.05, 0.3, 1);
+    cursor: pointer;
+  }
+  .cover:hover {
+    transform: rotateY(-8deg);
+  }
+  .cover.opening {
+    transform: rotateY(-178deg);
+  }
+  .foil {
+    font-family: "Source Serif 4", Georgia, serif;
+    font-weight: 600;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    background: linear-gradient(180deg, #f3dc9e 0%, #c99a48 45%, #f0d48d 60%, #a87a35 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    filter: drop-shadow(0 1px 0 rgba(0, 0, 0, 0.45));
+  }
+  .title {
+    font-size: 25px;
+  }
+  .brand {
+    font-size: 17px;
+    letter-spacing: 0.32em;
+  }
+  .foil-emblem {
+    filter: drop-shadow(0 1px 0 rgba(0, 0, 0, 0.5)) drop-shadow(0 -1px 0 rgba(255, 230, 170, 0.15));
+  }
+  .chip svg {
+    width: 34px;
+    fill: none;
+    stroke: #d8b46a;
+    stroke-width: 1.6;
+  }
+  .hint {
+    margin: 0;
+    color: var(--ink-dim);
+  }
+
+  /* Open book -------------------------------------------------------- */
+  .toolbar {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 14px 20px 0;
+  }
+  .where {
+    color: var(--ink-dim);
+    font-size: 13px;
+  }
+  .nav {
+    margin-left: auto;
+    display: flex;
+    gap: 8px;
+  }
+  .ghost {
+    border: 1px solid var(--rule);
+    background: transparent;
+    color: var(--ink-dim);
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-weight: 600;
+  }
+  .ghost:hover:not(:disabled) {
+    color: var(--ink);
+  }
+  .ghost:disabled {
+    opacity: 0.4;
+  }
+  .stage {
+    flex: 1;
+    min-height: 0;
+  }
+
+  /* Paper ------------------------------------------------------------ */
+  .paper {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    background-color: #f3eedf;
+    color: #3a3446;
+    font-family: "Source Serif 4", Georgia, serif;
+  }
+  .folio {
+    position: absolute;
+    bottom: 12px;
+    left: 0;
+    right: 0;
+    text-align: center;
+    font-size: 11px;
+    color: #8a8296;
+  }
+  .inner {
+    padding: 70px 44px;
+    position: relative;
+    height: 100%;
+  }
+  .inner p {
+    position: relative;
+    font-size: 14px;
+    line-height: 1.6;
+    max-width: 30ch;
+    margin: 0 0 14px;
+  }
+  .inner .lead {
+    font-size: 17px;
+    font-style: italic;
+  }
+  .inner .small {
+    font-size: 12px;
+    color: #6f6880;
+    margin-top: 26px;
+  }
+  .watermark {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    opacity: 0.18;
+  }
+
+  .data {
+    position: relative;
+    height: 100%;
+    padding: 26px 24px 18px;
+    display: flex;
+    flex-direction: column;
+  }
+  .head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid #b9b0c6;
+    padding-bottom: 8px;
+  }
+  .type {
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #5d4a7a;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: 108px 1fr;
+    gap: 14px;
+    margin-top: 14px;
+  }
+  .photo {
+    width: 108px;
+    height: 140px;
+    border-radius: 4px;
+    overflow: hidden;
+    background: #ddd6e6;
+  }
+  .photo img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    filter: grayscale(0.25) contrast(1.05);
+  }
+  .photo-empty {
+    width: 100%;
+    height: 100%;
+    border: none;
+    background: #ddd6e6;
+    color: #6f6880;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 2px;
+    padding: 0;
+    font-family: var(--sans);
+    font-size: 11px;
+  }
+  .photo-empty svg {
+    width: 84px;
+    fill: #b9b0c6;
+  }
+  .photo-empty span {
+    padding-bottom: 6px;
+  }
+  dl {
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .row3,
+  .row2 {
+    display: grid;
+    gap: 8px;
+  }
+  .row3 {
+    grid-template-columns: 0.5fr 0.7fr 1.4fr;
+  }
+  .row2 {
+    grid-template-columns: 1fr 1fr;
+  }
+  dt {
+    font-size: 9.5px;
+    font-style: italic;
+    color: #7a7189;
+  }
+  dd {
+    margin: 0;
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 11.5px;
+    color: #232030;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .sig {
+    margin-top: 14px;
+  }
+  .hand {
+    font-family: "Caveat", cursive;
+    font-size: 30px;
+    line-height: 1;
+    color: #213a7a;
+    border-bottom: 1px solid #b9b0c6;
+    min-height: 34px;
+  }
+  .fill-in {
+    align-self: flex-start;
+    margin-top: 10px;
+    border: 1px solid #5d4a7a;
+    background: transparent;
+    color: #5d4a7a;
+    border-radius: 6px;
+    padding: 5px 10px;
+    font-family: var(--sans);
+    font-weight: 600;
+  }
+  .mrz {
+    margin-top: auto;
+    padding-top: 10px;
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 10.6px;
+    letter-spacing: 0;
+    color: #1d1b26;
+    white-space: pre;
+    overflow: hidden;
+  }
+
+  .visa,
+  .index {
+    position: relative;
+    height: 100%;
+    padding: 18px 24px;
+  }
+  h3 {
+    margin: 0;
+    text-align: center;
+    font-weight: 600;
+    font-size: 12px;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    color: #8a8296;
+  }
+  .empty {
+    margin: 120px auto 0;
+    max-width: 24ch;
+    text-align: center;
+    font-style: italic;
+    color: #7a7189;
+  }
+  .slot {
+    position: absolute;
+    transform: translate(-50%, -50%);
+  }
+  .index ol {
+    list-style: none;
+    margin: 18px 0 0;
+    padding: 0;
+  }
+  .index li {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    padding: 5px 0;
+    font-size: 14px;
+  }
+  .dots {
+    flex: 1;
+    border-bottom: 1px dotted #b9b0c6;
+    transform: translateY(-3px);
+  }
+  .since {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 11px;
+    color: #6f6880;
+  }
+</style>

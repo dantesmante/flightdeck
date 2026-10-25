@@ -1,11 +1,16 @@
 //! FlightDeck desktop app: Tauri commands and startup.
 
 mod engine;
+mod samples;
 
 use std::sync::mpsc::{channel, Sender};
 use std::sync::{Arc, Mutex};
 
 use engine::{Command, FullStatus, SharedState};
+use std::collections::HashMap;
+
+use store::book::{HangarRow, LogPatch, LogRow, Pilot};
+use store::passport::{self, CountryVisit, Stamp};
 use store::{FlightRow, Store, Totals};
 use tauri::Manager;
 use telemetry::TrackPoint;
@@ -13,6 +18,7 @@ use tracker::LandingReport;
 
 struct AppState {
     db: Arc<Mutex<Store>>,
+    refdata: Arc<refdata::RefData>,
     shared: SharedState,
     tx: Mutex<Sender<Command>>,
 }
@@ -82,6 +88,146 @@ fn demo_routes() -> Vec<String> {
     conn_demo::sample_routes().iter().map(|r| format!("{} to {}", r.from.icao, r.to.icao)).collect()
 }
 
+#[tauri::command]
+fn get_settings(state: tauri::State<AppState>) -> CmdResult<HashMap<String, String>> {
+    state.db.lock().unwrap().settings().map_err(err)
+}
+
+#[tauri::command]
+fn set_setting(state: tauri::State<AppState>, key: String, value: String) -> CmdResult<()> {
+    const ALLOWED: &[&str] = &["distance_unit", "logbook_layout", "logbook_hand", "regional_stamps"];
+    if !ALLOWED.contains(&key.as_str()) {
+        return Err(format!("unknown setting {key}"));
+    }
+    state.db.lock().unwrap().set_setting(&key, &value).map_err(err)
+}
+
+#[tauri::command]
+fn get_pilot(state: tauri::State<AppState>) -> CmdResult<Pilot> {
+    state.db.lock().unwrap().pilot().map_err(err)
+}
+
+#[tauri::command]
+fn set_pilot(state: tauri::State<AppState>, pilot: Pilot) -> CmdResult<()> {
+    state.db.lock().unwrap().set_pilot(&pilot).map_err(err)
+}
+
+#[tauri::command]
+fn get_logbook(state: tauri::State<AppState>) -> CmdResult<Vec<LogRow>> {
+    state.db.lock().unwrap().logbook().map_err(err)
+}
+
+#[tauri::command]
+fn update_log_entry(state: tauri::State<AppState>, flight_id: i64, patch: LogPatch) -> CmdResult<bool> {
+    state.db.lock().unwrap().update_log_entry(flight_id, &patch).map_err(err)
+}
+
+#[derive(serde::Serialize)]
+struct NamedStamp {
+    #[serde(flatten)]
+    stamp: Stamp,
+    country_name: String,
+    region_name: String,
+}
+
+#[derive(serde::Serialize)]
+struct NamedVisit {
+    #[serde(flatten)]
+    visit: CountryVisit,
+    name: String,
+}
+
+#[derive(serde::Serialize)]
+struct PassportData {
+    pilot: Pilot,
+    stamps: Vec<NamedStamp>,
+    countries: Vec<NamedVisit>,
+    first_flight_ms: Option<i64>,
+    home_name: Option<String>,
+    totals: Totals,
+}
+
+fn country_name(r: &refdata::RefData, code: &str) -> String {
+    r.country_name(code).unwrap_or(code).to_string()
+}
+
+#[tauri::command]
+fn get_passport(state: tauri::State<AppState>) -> CmdResult<PassportData> {
+    let db = state.db.lock().unwrap();
+    let r = &state.refdata;
+    let regional = db.settings().map_err(err)?.get("regional_stamps").is_none_or(|v| v != "false");
+    let flights = db.stamp_flights().map_err(err)?;
+    let stamps = passport::derive_stamps(&flights, regional)
+        .into_iter()
+        .map(|s| NamedStamp {
+            country_name: country_name(r, &s.country),
+            region_name: r.region_name(&s.region).unwrap_or("").to_string(),
+            stamp: s,
+        })
+        .collect();
+    let countries = passport::country_visits(&flights)
+        .into_iter()
+        .map(|v| NamedVisit { name: country_name(r, &v.country), visit: v })
+        .collect();
+    let pilot = db.pilot().map_err(err)?;
+    let home_name = r.airport(&pilot.home_icao).map(|a| a.name.clone());
+    Ok(PassportData {
+        first_flight_ms: flights.first().map(|f| f.dep_ms),
+        stamps,
+        countries,
+        home_name,
+        totals: db.totals().map_err(err)?,
+        pilot,
+    })
+}
+
+#[derive(serde::Serialize)]
+struct HangarItem {
+    #[serde(flatten)]
+    row: HangarRow,
+    last_country_name: Option<String>,
+    last_region_name: Option<String>,
+}
+
+#[tauri::command]
+fn get_hangar(state: tauri::State<AppState>) -> CmdResult<Vec<HangarItem>> {
+    let rows = state.db.lock().unwrap().hangar().map_err(err)?;
+    let r = &state.refdata;
+    Ok(rows
+        .into_iter()
+        .map(|row| HangarItem {
+            last_country_name: row.last_country.as_deref().map(|c| country_name(r, c)),
+            last_region_name: row.last_region.as_deref().and_then(|c| r.region_name(c)).map(str::to_string),
+            row,
+        })
+        .collect())
+}
+
+#[tauri::command]
+fn get_aircraft_photo(state: tauri::State<AppState>, id: i64) -> CmdResult<Option<String>> {
+    state.db.lock().unwrap().aircraft_photo(id).map_err(err)
+}
+
+#[tauri::command]
+fn set_aircraft_photo(state: tauri::State<AppState>, id: i64, data_url: Option<String>) -> CmdResult<bool> {
+    if let Some(d) = &data_url {
+        if !d.starts_with("data:image/") || d.len() > 4_000_000 {
+            return Err("Pictures must be images under about 3 MB.".into());
+        }
+    }
+    state.db.lock().unwrap().set_aircraft_photo(id, data_url.as_deref()).map_err(err)
+}
+
+#[tauri::command]
+fn add_sample_flights(state: tauri::State<AppState>) -> usize {
+    samples::add(&state.db, &state.refdata)
+}
+
+#[tauri::command]
+fn remove_sample_flights(state: tauri::State<AppState>) -> usize {
+    samples::remove(&state.db)
+}
+
 pub fn run() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
@@ -96,8 +242,9 @@ pub fn run() {
 
             let shared: SharedState = Default::default();
             let (tx, rx) = channel();
+            let refdata_for_state = refdata.clone();
             engine::spawn(app.handle().clone(), shared.clone(), db.clone(), refdata, data_dir, rx);
-            app.manage(AppState { db, shared, tx: Mutex::new(tx) });
+            app.manage(AppState { db, refdata: refdata_for_state, shared, tx: Mutex::new(tx) });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -109,7 +256,19 @@ pub fn run() {
             start_demo,
             stop_demo,
             end_flight,
-            demo_routes
+            demo_routes,
+            get_settings,
+            set_setting,
+            get_pilot,
+            set_pilot,
+            get_logbook,
+            update_log_entry,
+            get_passport,
+            get_hangar,
+            get_aircraft_photo,
+            set_aircraft_photo,
+            add_sample_flights,
+            remove_sample_flights
         ])
         .run(tauri::generate_context!())
         .expect("error while running FlightDeck");

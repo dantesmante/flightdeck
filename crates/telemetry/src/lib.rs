@@ -7,6 +7,7 @@
 use serde::{Deserialize, Serialize};
 
 pub mod geo;
+pub mod sun;
 pub mod units;
 
 /// Which simulator produced the data.

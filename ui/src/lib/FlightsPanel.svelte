@@ -4,6 +4,7 @@
   import { api, type FlightDetail, type FlightRow, type Totals } from "./api";
   import { day, dec, gradeTone, hhmm, hoursMinutes, int, zulu } from "./format";
   import LandingCard from "./LandingCard.svelte";
+  import { distance } from "./prefs.svelte";
 
   interface Props {
     refreshKey: number;
@@ -62,7 +63,7 @@
       <div><dt>Landing</dt><dd class="num">{zulu(f.landing)}</dd></div>
       <div><dt>Block in</dt><dd class="num">{zulu(f.block_in)}</dd></div>
       <div><dt>Total</dt><dd class="num">{hhmm(f.total_min)}</dd></div>
-      <div><dt>Distance</dt><dd class="num">{int(f.distance_nm)} nm</dd></div>
+      <div><dt>Distance</dt><dd class="num">{distance(f.distance_nm).value} {distance(f.distance_nm).unit}</dd></div>
       <div><dt>Max altitude</dt><dd class="num">{int(f.max_alt_ft)} ft</dd></div>
       <div><dt>Fuel used</dt><dd class="num">{int(f.fuel_used_kg)} kg</dd></div>
     </dl>
@@ -86,7 +87,7 @@
       {#if totals && totals.flights > 0}
         <p class="totals">
           {totals.flights} {totals.flights === 1 ? "flight" : "flights"}, {hoursMinutes(totals.minutes)},
-          {int(totals.distance_nm)} nm, {totals.countries} {totals.countries === 1 ? "country" : "countries"}
+          {distance(totals.distance_nm).value} {distance(totals.distance_nm).unit}, {totals.countries} {totals.countries === 1 ? "country" : "countries"}
         </p>
       {/if}
     </header>

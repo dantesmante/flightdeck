@@ -1,6 +1,7 @@
 <script lang="ts">
   import { api, type FlightDetail, type Status } from "./api";
-  import { hhmm, int } from "./format";
+  import { hhmm } from "./format";
+  import { distance } from "./prefs.svelte";
   import FlightStrip from "./FlightStrip.svelte";
   import LandingCard from "./LandingCard.svelte";
   import PhaseLadder from "./PhaseLadder.svelte";
@@ -77,7 +78,7 @@
     <header>
       <h2>Flight complete</h2>
       <p class="sub">
-        {f.dep_icao ?? "????"} to {f.arr_icao ?? "????"} in {hhmm(f.total_min)}, {int(f.distance_nm)} nm.
+        {f.dep_icao ?? "????"} to {f.arr_icao ?? "????"} in {hhmm(f.total_min)}, {distance(f.distance_nm).value} {distance(f.distance_nm).unit}.
         Saved to your flights{f.status !== "complete" ? ` as ${f.status}` : ""}.
       </p>
     </header>

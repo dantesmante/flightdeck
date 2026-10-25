@@ -149,6 +149,104 @@ export interface Totals {
   countries: number;
 }
 
+export interface Pilot {
+  name: string;
+  pilot_id: string;
+  home_icao: string;
+  nationality: string;
+  photo_url: string | null;
+  signature_svg: string | null;
+}
+
+export interface LogRow {
+  flight_id: number;
+  date_ms: number;
+  sim: string;
+  status: string;
+  aircraft_type: string;
+  ident: string;
+  category_class: string;
+  engine_count: number;
+  from_icao: string;
+  to_icao: string;
+  out_ms: number | null;
+  in_ms: number | null;
+  total_min: number;
+  night_min: number;
+  ifr_min: number;
+  xc_min: number;
+  pic_min: number;
+  dual_min: number;
+  sim_inst_min: number;
+  act_inst_min: number;
+  day_landings: number;
+  night_landings: number;
+  approaches: number;
+  remarks: string;
+}
+
+export type LogPatch = Partial<Omit<LogRow, "flight_id" | "date_ms" | "sim" | "status" | "aircraft_type" | "ident" | "category_class" | "engine_count" | "from_icao" | "to_icao" | "out_ms" | "in_ms">>;
+
+export type StampKind = "departure" | "arrival" | "first_entry" | "regional";
+
+export interface Stamp {
+  flight_id: number;
+  kind: StampKind;
+  country: string;
+  region: string;
+  icao: string;
+  airport_name: string;
+  t_ms: number;
+  aircraft_type: string;
+  seed: number;
+  country_name: string;
+  region_name: string;
+}
+
+export interface CountryVisit {
+  country: string;
+  name: string;
+  first_ms: number;
+  arrivals: number;
+}
+
+export interface PassportData {
+  pilot: Pilot;
+  stamps: Stamp[];
+  countries: CountryVisit[];
+  first_flight_ms: number | null;
+  home_name: string | null;
+  totals: Totals;
+}
+
+export interface HangarItem {
+  id: number;
+  title: string;
+  icao_type: string;
+  registration: string;
+  engine_type: string;
+  engine_count: number;
+  category_class: string;
+  has_photo: boolean;
+  flights: number;
+  minutes: number;
+  distance_nm: number;
+  landings: number;
+  first_flight_ms: number;
+  last_flight_ms: number;
+  best_landing_fpm: number | null;
+  last_icao: string | null;
+  last_name: string | null;
+  last_country: string | null;
+  last_country_name: string | null;
+  last_region_name: string | null;
+  last_lat: number | null;
+  last_lon: number | null;
+  last_sim: string;
+}
+
+export type Settings = Record<string, string>;
+
 export const inTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
 async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
@@ -167,6 +265,18 @@ export const api = {
   stopDemo: () => call<void>("stop_demo"),
   endFlight: () => call<void>("end_flight"),
   demoRoutes: () => call<string[]>("demo_routes"),
+  settings: () => call<Settings>("get_settings"),
+  setSetting: (key: string, value: string) => call<void>("set_setting", { key, value }),
+  pilot: () => call<Pilot>("get_pilot"),
+  setPilot: (pilot: Pilot) => call<void>("set_pilot", { pilot }),
+  logbook: () => call<LogRow[]>("get_logbook"),
+  updateLogEntry: (flightId: number, patch: LogPatch) => call<boolean>("update_log_entry", { flightId, patch }),
+  passport: () => call<PassportData>("get_passport"),
+  hangar: () => call<HangarItem[]>("get_hangar"),
+  aircraftPhoto: (id: number) => call<string | null>("get_aircraft_photo", { id }),
+  setAircraftPhoto: (id: number, dataUrl: string | null) => call<boolean>("set_aircraft_photo", { id, dataUrl }),
+  addSampleFlights: () => call<number>("add_sample_flights"),
+  removeSampleFlights: () => call<number>("remove_sample_flights"),
 };
 
 export async function on<T>(event: string, cb: (payload: T) => void): Promise<UnlistenFn> {

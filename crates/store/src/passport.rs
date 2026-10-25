@@ -1,0 +1,219 @@
+//! Passport stamps, derived from the flight history.
+//!
+//! Rules (decided with the project owner):
+//! - A flight that lands in a different country earns a departure stamp for
+//!   the country left and an arrival stamp for the country entered. The
+//!   first ever arrival in a country gets the special first-entry design.
+//! - A domestic flight earns a regional stamp (state, province, region)
+//!   when it lands in a region other than the one it left, or in a region
+//!   visited for the first time. Regional stamps can be turned off.
+//!
+//! Stamps are recomputed from flights, so editing or deleting a flight
+//! always leaves the passport consistent.
+
+use std::collections::HashSet;
+
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct StampPlace {
+    pub icao: String,
+    pub name: String,
+    pub country: String,
+    pub region: String,
+}
+
+/// The facts about one flight that stamps need.
+#[derive(Debug, Clone, Default)]
+pub struct StampFlight {
+    pub flight_id: i64,
+    pub dep_ms: i64,
+    pub arr_ms: i64,
+    pub dep: StampPlace,
+    pub arr: StampPlace,
+    pub aircraft_type: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StampKind {
+    Departure,
+    Arrival,
+    FirstEntry,
+    Regional,
+}
+
+impl StampKind {
+    fn as_str(&self) -> &'static str {
+        match self {
+            StampKind::Departure => "departure",
+            StampKind::Arrival => "arrival",
+            StampKind::FirstEntry => "first_entry",
+            StampKind::Regional => "regional",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Stamp {
+    pub flight_id: i64,
+    pub kind: StampKind,
+    pub country: String,
+    pub region: String,
+    pub icao: String,
+    pub airport_name: String,
+    pub t_ms: i64,
+    pub aircraft_type: String,
+    /// Stable per stamp, so its shape, ink and tilt never change.
+    pub seed: u32,
+}
+
+/// FNV-1a: tiny, stable across versions and platforms.
+fn seed(flight_id: i64, kind: StampKind) -> u32 {
+    let mut h: u32 = 0x811c_9dc5;
+    for b in flight_id.to_le_bytes().iter().chain(kind.as_str().as_bytes()) {
+        h ^= *b as u32;
+        h = h.wrapping_mul(0x0100_0193);
+    }
+    h
+}
+
+fn stamp(f: &StampFlight, kind: StampKind, place: &StampPlace, t_ms: i64) -> Stamp {
+    Stamp {
+        flight_id: f.flight_id,
+        kind,
+        country: place.country.clone(),
+        region: place.region.clone(),
+        icao: place.icao.clone(),
+        airport_name: place.name.clone(),
+        t_ms,
+        aircraft_type: f.aircraft_type.clone(),
+        seed: seed(f.flight_id, kind),
+    }
+}
+
+/// Stamps for `flights`, which must be in chronological order.
+pub fn derive_stamps(flights: &[StampFlight], regional: bool) -> Vec<Stamp> {
+    let mut countries: HashSet<String> = HashSet::new();
+    let mut regions: HashSet<String> = HashSet::new();
+    let mut out = Vec::new();
+    for f in flights {
+        if f.dep.country.is_empty() || f.arr.country.is_empty() {
+            continue;
+        }
+        if f.dep.country != f.arr.country {
+            out.push(stamp(f, StampKind::Departure, &f.dep, f.dep_ms));
+            let kind = if countries.contains(&f.arr.country) { StampKind::Arrival } else { StampKind::FirstEntry };
+            out.push(stamp(f, kind, &f.arr, f.arr_ms));
+        } else if regional
+            && !f.arr.region.is_empty()
+            && (f.arr.region != f.dep.region || !regions.contains(&f.arr.region))
+        {
+            out.push(stamp(f, StampKind::Regional, &f.arr, f.arr_ms));
+        }
+        for p in [&f.dep, &f.arr] {
+            countries.insert(p.country.clone());
+            if !p.region.is_empty() {
+                regions.insert(p.region.clone());
+            }
+        }
+    }
+    out
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CountryVisit {
+    pub country: String,
+    pub first_ms: i64,
+    /// Arrivals (international and regional) in this country.
+    pub arrivals: i64,
+}
+
+/// Countries in the order they were first visited.
+pub fn country_visits(flights: &[StampFlight]) -> Vec<CountryVisit> {
+    let mut out: Vec<CountryVisit> = Vec::new();
+    for f in flights {
+        for (p, t, arrival) in [(&f.dep, f.dep_ms, false), (&f.arr, f.arr_ms, true)] {
+            if p.country.is_empty() {
+                continue;
+            }
+            match out.iter_mut().find(|v| v.country == p.country) {
+                Some(v) => v.arrivals += arrival as i64,
+                None => out.push(CountryVisit { country: p.country.clone(), first_ms: t, arrivals: arrival as i64 }),
+            }
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn place(icao: &str, country: &str, region: &str) -> StampPlace {
+        StampPlace { icao: icao.into(), name: format!("{icao} airport"), country: country.into(), region: region.into() }
+    }
+
+    fn flight(id: i64, dep: StampPlace, arr: StampPlace) -> StampFlight {
+        StampFlight { flight_id: id, dep_ms: id * 1000, arr_ms: id * 1000 + 500, dep, arr, aircraft_type: "C172".into() }
+    }
+
+    fn kinds(s: &[Stamp]) -> Vec<(StampKind, &str)> {
+        s.iter().map(|s| (s.kind, s.icao.as_str())).collect()
+    }
+
+    #[test]
+    fn international_trip_and_return() {
+        let kord = || place("KORD", "US", "US-IL");
+        let cyyz = || place("CYYZ", "CA", "CA-ON");
+        let s = derive_stamps(&[flight(1, kord(), cyyz()), flight(2, cyyz(), kord()), flight(3, kord(), cyyz())], true);
+        assert_eq!(
+            kinds(&s),
+            vec![
+                (StampKind::Departure, "KORD"),
+                (StampKind::FirstEntry, "CYYZ"),
+                (StampKind::Departure, "CYYZ"),
+                (StampKind::Arrival, "KORD"),
+                (StampKind::Departure, "KORD"),
+                (StampKind::Arrival, "CYYZ"),
+            ]
+        );
+    }
+
+    #[test]
+    fn domestic_flights_earn_regional_stamps() {
+        let kc81 = || place("KC81", "US", "US-IL");
+        let kmke = || place("KMKE", "US", "US-WI");
+        let s = derive_stamps(
+            &[
+                flight(1, kc81(), kc81()), // first time in Illinois
+                flight(2, kc81(), kc81()), // pattern again: nothing new
+                flight(3, kc81(), kmke()), // into Wisconsin
+                flight(4, kmke(), kc81()), // back into Illinois
+            ],
+            true,
+        );
+        assert_eq!(
+            kinds(&s),
+            vec![(StampKind::Regional, "KC81"), (StampKind::Regional, "KMKE"), (StampKind::Regional, "KC81")]
+        );
+        assert!(derive_stamps(&[flight(1, kc81(), kmke())], false).is_empty());
+    }
+
+    #[test]
+    fn seeds_are_stable_and_distinct() {
+        assert_eq!(seed(7, StampKind::Arrival), seed(7, StampKind::Arrival));
+        assert_ne!(seed(7, StampKind::Arrival), seed(7, StampKind::Departure));
+        assert_ne!(seed(7, StampKind::Arrival), seed(8, StampKind::Arrival));
+    }
+
+    #[test]
+    fn visits_in_first_seen_order() {
+        let v = country_visits(&[
+            flight(1, place("KORD", "US", ""), place("CYYZ", "CA", "")),
+            flight(2, place("CYYZ", "CA", ""), place("KORD", "US", "")),
+        ]);
+        let got: Vec<_> = v.iter().map(|v| (v.country.as_str(), v.arrivals)).collect();
+        assert_eq!(got, vec![("US", 1), ("CA", 1)]);
+    }
+}

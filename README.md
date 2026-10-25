@@ -5,9 +5,9 @@ your sim on its own, logs every flight gate to gate, analyses each landing
 and draws the flight on an open-source map. Everything stays on your PC in
 one SQLite file.
 
-This is **Milestone 1: core tracking with MSFS**. The passport book, the
-paper logbook and X-Plane support follow in later milestones (see the
-roadmap at the bottom).
+This release has core tracking with MSFS plus a first version of the
+passport book, the paper logbook and the hangar. X-Plane support follows
+(see the roadmap at the bottom).
 
 MIT licensed.
 
@@ -36,6 +36,21 @@ MIT licensed.
   30 times real speed, so you can try everything without a sim.
 - **Telemetry recorder**: record a real flight once, then replay it through
   the tracker for testing (see below).
+- **Passport book**: a burgundy passport you open and page through, with a
+  data page (your photo, details and a machine-readable zone), generated
+  rubber stamps and an index of countries. International flights earn
+  departure and arrival stamps (a first-entry seal the first time you land
+  in a country); domestic flights earn regional stamps.
+- **Paper logbook**: a two-page ruled logbook in FAA or EASA layout,
+  handwritten or typed, with page totals carried forward. Night time and
+  night landings come from the sun's position along your track. Click a
+  line to correct it.
+- **Hangar**: every aircraft you have flown as a large picture you scroll
+  sideways, with hours, distance, flights, best landing and where you last
+  parked it. Each gets a drawn illustration; you can use your own photo.
+- **Settings**: pilot details and photo, nautical miles, statute miles or
+  kilometres, logbook layout, regional stamps, and **sample flights** to
+  fill the passport, logbook and hangar for a quick look.
 
 ## Set up on Windows
 

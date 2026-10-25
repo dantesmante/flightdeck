@@ -2,10 +2,15 @@
   import { onMount } from "svelte";
   import { api, on, type FlightDetail, type Status } from "./lib/api";
   import FlightsPanel from "./lib/FlightsPanel.svelte";
+  import HangarView from "./lib/hangar/HangarView.svelte";
   import LivePanel from "./lib/LivePanel.svelte";
+  import LogbookView from "./lib/logbook/LogbookView.svelte";
   import Map from "./lib/Map.svelte";
+  import PassportView from "./lib/passport/PassportView.svelte";
+  import { loadPrefs } from "./lib/prefs.svelte";
+  import SettingsView from "./lib/SettingsView.svelte";
 
-  type View = "live" | "flights";
+  type View = "live" | "flights" | "logbook" | "passport" | "hangar" | "settings";
   let view = $state<View>("live");
   let status = $state<Status | null>(null);
   let liveTrack = $state<[number, number][]>([]);
@@ -27,7 +32,10 @@
     setTimeout(() => (toast = null), 5000);
   }
 
+  const full = $derived(view !== "live" && view !== "flights");
+
   onMount(() => {
+    loadPrefs();
     const offs: Promise<() => void>[] = [];
     api.status().then((s) => {
       if (!s) return;
@@ -72,6 +80,14 @@
     history = v === "live" && completed ? completed.track.map((p) => [p.lon, p.lat]) : null;
   }
 
+  const NAV: { id: View; label: string; icon: string }[] = [
+    { id: "live", label: "Map", icon: "M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2zM9 4v14M15 6v14" },
+    { id: "flights", label: "Flights", icon: "M5 4h14v16H5zM8 8h8M8 12h8M8 16h5" },
+    { id: "logbook", label: "Logbook", icon: "M4 5h7a2 2 0 012 2v13a2 2 0 00-2-2H4zM20 5h-7a2 2 0 00-2 2v13a2 2 0 012-2h7z" },
+    { id: "passport", label: "Passport", icon: "M6 3h11a1 1 0 011 1v16a1 1 0 01-1 1H6zM12 9a3 3 0 100 6 3 3 0 000-6zM9 18h6" },
+    { id: "hangar", label: "Hangar", icon: "M3 20V9l9-5 9 5v11M7 20v-6h10v6M3 20h18" },
+  ];
+
   const linkText = $derived(
     !status || status.link === "waiting"
       ? "Waiting for a simulator"
@@ -81,7 +97,7 @@
   );
 </script>
 
-<div class="shell">
+<div class="shell" class:full>
   <nav class="rail" aria-label="Main">
     <div class="mark" aria-hidden="true">
       <svg viewBox="0 0 1024 1024" width="30" height="30">
@@ -89,36 +105,46 @@
         <path d="M190 700 C 360 520, 560 640, 820 330" fill="none" stroke="#E2468F" stroke-width="70" stroke-linecap="round" />
       </svg>
     </div>
-    <button class:on={view === "live"} onclick={() => go("live")} aria-current={view === "live" ? "page" : undefined}>
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2zM9 4v14M15 6v14" /></svg>
-      Map
-    </button>
-    <button class:on={view === "flights"} onclick={() => go("flights")} aria-current={view === "flights" ? "page" : undefined}>
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14v16H5zM8 8h8M8 12h8M8 16h5" /></svg>
-      Flights
-    </button>
-    <button disabled title="The passport book arrives in Milestone 4">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h11a1 1 0 011 1v16a1 1 0 01-1 1H6zM12 9a3 3 0 100 6 3 3 0 000-6zM9 18h6" /></svg>
-      Passport
-    </button>
-    <button disabled title="The paper logbook arrives in Milestone 3">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h7a2 2 0 012 2v13a2 2 0 00-2-2H4zM20 5h-7a2 2 0 00-2 2v13a2 2 0 012-2h7z" /></svg>
-      Logbook
+    {#each NAV as item (item.id)}
+      <button class:on={view === item.id} onclick={() => go(item.id)} aria-current={view === item.id ? "page" : undefined}>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d={item.icon} /></svg>
+        {item.label}
+      </button>
+    {/each}
+    <span class="grow"></span>
+    <button class:on={view === "settings"} onclick={() => go("settings")} aria-current={view === "settings" ? "page" : undefined}>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15a3 3 0 100-6 3 3 0 000 6zM19.4 13.5l1.6 1.2-2 3.4-1.9-.7a7 7 0 01-2 1.2L14.8 21h-4l-.3-2a7 7 0 01-2-1.2l-1.9.7-2-3.4 1.6-1.2a7 7 0 010-2.6L4.6 9.9l2-3.4 1.9.7a7 7 0 012-1.2l.3-2h4l.3 2a7 7 0 012 1.2l1.9-.7 2 3.4-1.6 1.2a7 7 0 010 2.6z" /></svg>
+      Settings
     </button>
   </nav>
 
-  <main class="stage">
+  <main class="stage" class:hidden={full}>
     <Map live={liveTrack} {aircraft} {origin} {history} />
     <footer class="status-line">
       <span class="lamp {status?.link ?? 'waiting'}"></span>
       <span>{linkText}</span>
     </footer>
-    {#if toast}
-      <div class="toast" role="status">{toast}</div>
-    {/if}
   </main>
 
-  <aside class="panel">
+  {#if full}
+    <div class="fullview">
+      {#if view === "logbook"}
+        {#key refreshKey}<LogbookView />{/key}
+      {:else if view === "passport"}
+        {#key refreshKey}<PassportView onsettings={() => go("settings")} />{/key}
+      {:else if view === "hangar"}
+        {#key refreshKey}<HangarView onsettings={() => go("settings")} />{/key}
+      {:else}
+        <SettingsView />
+      {/if}
+    </div>
+  {/if}
+
+  {#if toast}
+    <div class="toast" role="status">{toast}</div>
+  {/if}
+
+  <aside class="panel" class:hidden={full}>
     {#if view === "live"}
       <LivePanel {status} {completed} ondismiss={dismiss} />
     {:else}
@@ -129,9 +155,24 @@
 
 <style>
   .shell {
+    position: relative;
     display: grid;
     grid-template-columns: 76px 1fr 380px;
     height: 100%;
+  }
+  .shell.full {
+    grid-template-columns: 76px 1fr;
+  }
+  .hidden {
+    display: none;
+  }
+  .fullview {
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+  }
+  .grow {
+    flex: 1;
   }
   .rail {
     display: flex;
@@ -214,7 +255,8 @@
   }
   .toast {
     position: absolute;
-    left: 50%;
+    z-index: 30;
+    left: calc(50% + 38px);
     bottom: 18px;
     transform: translateX(-50%);
     padding: 10px 16px;

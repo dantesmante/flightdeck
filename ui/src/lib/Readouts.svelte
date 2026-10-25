@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { LiveFlight, Telemetry } from "./api";
-  import { dec, heading, hhmm, int, signed } from "./format";
+  import { heading, hhmm, int, signed } from "./format";
+  import { distance } from "./prefs.svelte";
 
   interface Props {
     telemetry: Telemetry | null;
@@ -25,7 +26,7 @@
     { label: "Ground speed", value: int(t?.gs_kt), unit: "kt" },
     { label: "Vertical speed", value: t ? signed(Math.abs(t.vs_fpm) < 50 ? 0 : t.vs_fpm) : "–", unit: "fpm" },
     { label: "Heading", value: heading(t?.hdg_true_deg), unit: "°T" },
-    { label: "Distance flown", value: dec(live?.distance_nm), unit: "nm" },
+    { label: "Distance flown", value: distance(live?.distance_nm).value, unit: distance(live?.distance_nm).unit },
     { label: live?.block_out_ms ? "Block time" : "Time", value: elapsed, unit: "" },
   ]);
 </script>

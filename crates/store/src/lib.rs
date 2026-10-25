@@ -1,8 +1,11 @@
 //! Local storage: one SQLite file holds every flight, its logbook line, its
 //! compressed track and its events.
 
+pub mod book;
 pub mod codec;
 pub mod journal;
+pub mod night;
+pub mod passport;
 
 use std::path::Path;
 
@@ -12,7 +15,8 @@ use telemetry::{geo, AircraftInfo, EngineType, TrackPoint};
 use tracker::{FlightStatus, FlightSummary, LandingReport};
 
 const SCHEMA_V1: &str = include_str!("schema.sql");
-const SCHEMA_VERSION: i64 = 1;
+const MIGRATE_V2: &str = include_str!("migrate_v2.sql");
+const SCHEMA_VERSION: i64 = 2;
 /// Tolerance for track simplification.
 const SIMPLIFY_M: f64 = 15.0;
 
@@ -95,7 +99,7 @@ pub struct Store {
     conn: Connection,
 }
 
-fn now_ms() -> i64 {
+pub(crate) fn now_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
@@ -135,7 +139,11 @@ impl Store {
         if version < 1 {
             conn.execute_batch(&format!("BEGIN; {SCHEMA_V1} PRAGMA user_version = 1; COMMIT;"))?;
         }
-        // Future migrations go here: if version < 2 { ... }
+        if version < 2 {
+            conn.execute_batch(&format!("BEGIN; {MIGRATE_V2} COMMIT;"))?;
+            backfill_v2(&conn)?;
+            conn.pragma_update(None, "user_version", 2)?;
+        }
         Ok(Store { conn })
     }
 
@@ -236,9 +244,9 @@ impl StoreTx<'_> {
                 dep_icao, dep_name, dep_country, dep_region, arr_icao, arr_name, arr_country, arr_region,
                 planned_arr_icao, start_ms, end_ms, block_out, takeoff, landing, block_in,
                 distance_nm, fuel_used_kg, max_alt_ft, landing_rate_fpm, landing_g, paused_ms, max_sim_rate,
-                started_airborne, status, end_reason, created_at, updated_at)
+                started_airborne, status, end_reason, created_at, updated_at, dep_lat, dep_lon, arr_lat, arr_lon)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19,
-                     ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?30)",
+                     ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?30, ?31, ?32, ?33, ?34)",
             params![
                 f.sim.as_str(),
                 aircraft_id,
@@ -270,12 +278,19 @@ impl StoreTx<'_> {
                 status,
                 f.end_reason,
                 now,
+                f.dep_lat,
+                f.dep_lon,
+                f.arr_lat,
+                f.arr_lon,
             ],
         )?;
         let id = self.conn.last_insert_rowid();
 
-        // Logbook line. Night time and IFR arrive with the logbook milestone.
+        // Logbook line. IFR, approaches and role are left for the pilot.
         let total = f.total_minutes().round() as i64;
+        let night = night::night_minutes(&f.track, f.block_out_ms.or(Some(f.start_ms)), f.block_in_ms.or(Some(f.end_ms)))
+            .min(total);
+        let (day_ldg, night_ldg) = night::landing_split(f.landings.iter().map(|l| (l.t_ms, l.lat, l.lon)));
         let direct = geo::distance_nm(f.dep_lat, f.dep_lon, f.arr_lat, f.arr_lon);
         let xc = if direct > 50.0 { total } else { 0 };
         let mut remarks = String::new();
@@ -291,9 +306,9 @@ impl StoreTx<'_> {
             remarks.push_str(&format!(" · sim rate up to {:.0}x", f.max_sim_rate));
         }
         self.conn.execute(
-            "INSERT INTO log_entry (flight_id, total_min, xc_min, pic_min, day_landings, remarks)
-             VALUES (?1, ?2, ?3, ?2, ?4, ?5)",
-            params![id, total, xc, f.landings.len() as i64, remarks],
+            "INSERT INTO log_entry (flight_id, total_min, xc_min, pic_min, day_landings, night_landings, night_min, remarks)
+             VALUES (?1, ?2, ?3, ?2, ?4, ?5, ?6, ?7)",
+            params![id, total, xc, day_ldg, night_ldg, night, remarks],
         )?;
 
         // Track: keep full resolution around each touchdown.
@@ -324,6 +339,44 @@ impl StoreTx<'_> {
         }
         Ok(id)
     }
+}
+
+/// Version 2 adds flight end points and night time. Work them out for
+/// flights saved before it, from their stored tracks and landings.
+/// (id, block out, block in, start, end, total minutes)
+type BackfillRow = (i64, Option<i64>, Option<i64>, i64, i64, i64);
+
+fn backfill_v2(conn: &Connection) -> Result<()> {
+    let mut st = conn.prepare(
+        "SELECT f.id, f.block_out, f.block_in, f.start_ms, f.end_ms, l.total_min
+         FROM flight f JOIN log_entry l ON l.flight_id = f.id",
+    )?;
+    let flights: Vec<BackfillRow> = st
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)))?
+        .collect::<std::result::Result<_, _>>()?;
+    for (id, out, inn, start, end, total) in flights {
+        let blob: Option<Vec<u8>> =
+            conn.query_row("SELECT points FROM track WHERE flight_id = ?1", params![id], |r| r.get(0)).optional()?;
+        let track = blob.map(|b| codec::decode(&b)).transpose()?.unwrap_or_default();
+        let mut ev = conn.prepare("SELECT data FROM flight_event WHERE flight_id = ?1 AND kind = 'landing_report'")?;
+        let landings: Vec<LandingReport> = ev
+            .query_map(params![id], |r| r.get::<_, String>(0))?
+            .filter_map(|r| r.ok().and_then(|s| serde_json::from_str(&s).ok()))
+            .collect();
+        let night = night::night_minutes(&track, out.or(Some(start)), inn.or(Some(end))).min(total);
+        let (day_ldg, night_ldg) = night::landing_split(landings.iter().map(|l| (l.t_ms, l.lat, l.lon)));
+        conn.execute(
+            "UPDATE log_entry SET night_min = ?2, day_landings = ?3, night_landings = ?4 WHERE flight_id = ?1",
+            params![id, night, day_ldg, night_ldg],
+        )?;
+        let first = track.first();
+        let last = landings.iter().rev().find(|l| !l.touch_and_go).map(|l| (l.lat, l.lon)).or(track.last().map(|p| (p.lat, p.lon)));
+        conn.execute(
+            "UPDATE flight SET dep_lat = ?2, dep_lon = ?3, arr_lat = ?4, arr_lon = ?5 WHERE id = ?1",
+            params![id, first.map(|p| p.lat), first.map(|p| p.lon), last.map(|p| p.0), last.map(|p| p.1)],
+        )?;
+    }
+    Ok(())
 }
 
 impl Store {

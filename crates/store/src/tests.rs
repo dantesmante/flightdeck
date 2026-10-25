@@ -1,4 +1,5 @@
 use super::*;
+use rusqlite::Connection;
 use conn_demo::{sample_routes, DemoFlight, DemoOptions};
 use telemetry::SimKind;
 use tracker::{Config, Tracker, TrackerOutput};
@@ -120,5 +121,149 @@ fn journal_recovers_a_crashed_flight() {
     let sum = tr.end("recovered after crash").expect("airborne flight should be saved");
     assert_eq!(sum.status, tracker::FlightStatus::Partial);
     assert!(recover(&dir).is_none(), "journal is removed after recovery");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn settings_have_defaults_and_persist() {
+    let db = Store::open_in_memory().unwrap();
+    assert_eq!(db.settings().unwrap()["distance_unit"], "nm");
+    db.set_setting("distance_unit", "km").unwrap();
+    db.set_setting("distance_unit", "mi").unwrap();
+    assert_eq!(db.settings().unwrap()["distance_unit"], "mi");
+}
+
+#[test]
+fn pilot_profile_round_trip() {
+    let db = Store::open_in_memory().unwrap();
+    let mut p = db.pilot().unwrap();
+    p.name = "Dante".into();
+    p.home_icao = "kc81".into();
+    p.photo_url = Some("data:image/jpeg;base64,AAAA".into());
+    db.set_pilot(&p).unwrap();
+    let back = db.pilot().unwrap();
+    assert_eq!((back.name.as_str(), back.home_icao.as_str()), ("Dante", "KC81"));
+    assert!(back.photo_url.is_some());
+}
+
+#[test]
+fn logbook_rows_are_chronological_and_editable() {
+    let mut db = Store::open_in_memory().unwrap();
+    let a = db.save_flight(&fly(0), &SaveContext { dep: place("KSEA", "US"), arr: place("KPDX", "US"), ..Default::default() }).unwrap();
+    let mut later = fly(2);
+    for p in later.track.iter_mut() {
+        p.t_ms += 86_400_000;
+    }
+    later.start_ms += 86_400_000;
+    later.end_ms += 86_400_000;
+    later.block_out_ms = later.block_out_ms.map(|t| t + 86_400_000);
+    later.block_in_ms = later.block_in_ms.map(|t| t + 86_400_000);
+    later.takeoff_ms = later.takeoff_ms.map(|t| t + 86_400_000);
+    later.landing_ms = later.landing_ms.map(|t| t + 86_400_000);
+    let b = db.save_flight(&later, &SaveContext::default()).unwrap();
+    let rows = db.logbook().unwrap();
+    assert_eq!(rows.iter().map(|r| r.flight_id).collect::<Vec<_>>(), vec![a, b]);
+    assert_eq!(rows[0].from_icao, "KSEA");
+    assert_eq!(rows[0].category_class, "MEL");
+    assert!(rows[0].xc_min > 0, "KSEA to KPDX is over 50 nm");
+
+    let patch = LogPatchAlias { approaches: Some(2), remarks: Some("ILS 10R".into()), ..Default::default() };
+    assert!(db.update_log_entry(a, &patch).unwrap());
+    let r = &db.logbook().unwrap()[0];
+    assert_eq!((r.approaches, r.remarks.as_str()), (2, "ILS 10R"));
+    assert_eq!(r.total_min, rows[0].total_min, "unpatched fields stay");
+}
+
+use book::LogPatch as LogPatchAlias;
+
+#[test]
+fn hangar_totals_and_last_place() {
+    let mut db = Store::open_in_memory().unwrap();
+    db.save_flight(&fly(0), &SaveContext { dep: place("KSEA", "US"), arr: place("KPDX", "US"), ..Default::default() }).unwrap();
+    db.save_flight(&fly(1), &SaveContext { dep: place("EGLL", "GB"), arr: place("LFPG", "FR"), ..Default::default() }).unwrap();
+    let h = db.hangar().unwrap();
+    assert_eq!(h.len(), 1);
+    assert_eq!(h[0].flights, 2);
+    assert!(h[0].distance_nm > 300.0);
+    assert!(h[0].last_icao.is_some());
+    assert!(h[0].last_lat.is_some());
+    assert!(!h[0].has_photo);
+    assert!(db.set_aircraft_photo(h[0].id, Some("data:image/png;base64,AA")).unwrap());
+    assert!(db.hangar().unwrap()[0].has_photo);
+    assert!(db.aircraft_photo(h[0].id).unwrap().is_some());
+}
+
+#[test]
+fn stamps_come_from_saved_flights() {
+    let mut db = Store::open_in_memory().unwrap();
+    db.save_flight(&fly(1), &SaveContext { dep: place("EGLL", "GB"), arr: place("LFPG", "FR"), ..Default::default() }).unwrap();
+    let flights = db.stamp_flights().unwrap();
+    let stamps = passport::derive_stamps(&flights, true);
+    assert_eq!(stamps.len(), 2);
+    assert_eq!(stamps[1].kind, passport::StampKind::FirstEntry);
+    assert_eq!(stamps[1].country, "FR");
+}
+
+#[test]
+fn clearing_sample_flights_removes_their_aircraft() {
+    let mut db = Store::open_in_memory().unwrap();
+    db.save_flight(&fly(0), &SaveContext::default()).unwrap();
+    assert_eq!(db.delete_flights_from_sim("demo").unwrap(), 1);
+    assert!(db.hangar().unwrap().is_empty());
+}
+
+#[test]
+fn a_version_1_database_is_upgraded_with_night_time() {
+    let dir = std::env::temp_dir().join(format!("fd-migrate-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("flightdeck.db");
+    {
+        // Build a version 1 database by hand and save one flight into it.
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&format!("BEGIN; {SCHEMA_V1} PRAGMA user_version = 1; COMMIT;")).unwrap();
+        let mut f = fly(1);
+        // Move the flight to midnight UTC so it is flown at night over Europe.
+        let shift = 1_782_000_000_000 - f.start_ms;
+        f.start_ms += shift;
+        f.end_ms += shift;
+        for t in [&mut f.block_out_ms, &mut f.block_in_ms, &mut f.takeoff_ms, &mut f.landing_ms] {
+            *t = t.map(|v| v + shift);
+        }
+        for p in f.track.iter_mut() {
+            p.t_ms += shift;
+        }
+        for l in f.landings.iter_mut() {
+            l.t_ms += shift;
+        }
+        conn.execute(
+            "INSERT INTO flight (sim, start_ms, end_ms, block_out, takeoff, landing, block_in, status, created_at, updated_at)
+             VALUES ('demo', ?1, ?2, ?3, ?4, ?5, ?6, 'complete', 0, 0)",
+            params![f.start_ms, f.end_ms, f.block_out_ms, f.takeoff_ms, f.landing_ms, f.block_in_ms],
+        )
+        .unwrap();
+        let id = conn.last_insert_rowid();
+        conn.execute(
+            "INSERT INTO log_entry (flight_id, total_min, day_landings) VALUES (?1, ?2, 1)",
+            params![id, f.total_minutes().round() as i64],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO track (flight_id, points, point_count, bbox) VALUES (?1, ?2, ?3, '[]')",
+            params![id, codec::encode(&f.track).unwrap(), f.track.len() as i64],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO flight_event (flight_id, t, kind, data) VALUES (?1, ?2, 'landing_report', ?3)",
+            params![id, f.landings[0].t_ms, serde_json::to_string(&f.landings[0]).unwrap()],
+        )
+        .unwrap();
+    }
+    let db = Store::open(&path).unwrap();
+    let r = &db.logbook().unwrap()[0];
+    assert!(r.night_min > 30, "night {}", r.night_min);
+    assert_eq!((r.day_landings, r.night_landings), (0, 1));
+    let arr_lat: Option<f64> = db.conn.query_row("SELECT arr_lat FROM flight", [], |r| r.get(0)).unwrap();
+    assert!((arr_lat.unwrap() - 49.0).abs() < 0.1, "landing point near LFPG");
     let _ = std::fs::remove_dir_all(dir);
 }
