@@ -185,9 +185,19 @@ export interface LogRow {
   remarks: string;
 }
 
+export interface FlightEdit {
+  date_ms?: number;
+  out_min?: number;
+  in_min?: number;
+  from_icao?: string;
+  to_icao?: string;
+  aircraft_type?: string;
+  ident?: string;
+}
+
 export type LogPatch = Partial<Omit<LogRow, "flight_id" | "date_ms" | "sim" | "status" | "aircraft_type" | "ident" | "category_class" | "engine_count" | "from_icao" | "to_icao" | "out_ms" | "in_ms">>;
 
-export type StampKind = "departure" | "arrival" | "first_entry";
+export type StampKind = "arrival" | "first_entry";
 
 export interface Route {
   flight_id: number;
@@ -291,6 +301,7 @@ export const api = {
   setPilot: (pilot: Pilot) => call<void>("set_pilot", { pilot }),
   logbook: () => call<LogRow[]>("get_logbook"),
   updateLogEntry: (flightId: number, patch: LogPatch) => call<boolean>("update_log_entry", { flightId, patch }),
+  updateFlight: (flightId: number, edit: FlightEdit) => call<boolean>("update_flight", { flightId, edit }),
   passport: () => call<PassportData>("get_passport"),
   hangar: () => call<HangarItem[]>("get_hangar"),
   routes: () => call<Route[]>("get_routes"),

@@ -136,7 +136,7 @@
       <div class="inner">
         <div class="watermark"><Emblem size={260} color="#7f9f9b" /></div>
         <p class="lead">This passport records every border its bearer has crossed by air.</p>
-        <p>Each international flight is stamped twice: on departure from one country and on arrival in the next.</p>
+        <p>A stamp is issued each time you land in a different country from the one you left.</p>
         <p>The first arrival in any country receives a first-entry seal.</p>
         <p class="small">Issued by FlightDeck. Valid for all simulators.</p>
       </div>
@@ -263,10 +263,6 @@
     <div class="toolbar">
       <button class="ghost" onclick={() => ((open = false), (opening = false), (spread = 0))}>Close passport</button>
       <span class="where">{pageLabel}</span>
-      <span class="nav">
-        <button class="ghost" onclick={() => book?.prev()} disabled={spread === 0} aria-label="Previous pages">Previous</button>
-        <button class="ghost" onclick={() => book?.next()} disabled={spread >= pages.length / 2 - 1} aria-label="Next pages">Next</button>
-      </span>
     </div>
     <div class="stage">
       <Book bind:this={book} bind:spread pageCount={pages.length} pageWidth={W} pageHeight={H} page={pageView} label="Passport" />
@@ -380,11 +376,6 @@
   .where {
     color: var(--ink-dim);
     font-size: 13px;
-  }
-  .nav {
-    margin-left: auto;
-    display: flex;
-    gap: 8px;
   }
   .ghost {
     border: 1px solid var(--rule);

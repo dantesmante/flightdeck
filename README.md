@@ -43,13 +43,15 @@ MIT licensed.
 - **Passport book**: a burgundy passport you open and page through. Inside
   the cover, a world map spread over both pages shades every country you
   have flown in. Then a data page (your photo, details and a machine-readable zone), generated
-  rubber stamps and an index of countries. It is for international flights
-  only: each one earns a departure and an arrival stamp, and the first
-  landing in a country gets a first-entry seal.
+  rubber stamps and an index of countries. It is for international arrivals
+  only: landing in a different country from the one you left earns a stamp,
+  and the first landing in a country gets a first-entry seal.
 - **Paper logbook**: a two-page ruled logbook in FAA or EASA layout,
   handwritten or typed, with page totals carried forward. Night time and
   night landings come from the sun's position along your track. Click a
-  line to correct it.
+  line to see the flight on a mini map, edit any field (date, times,
+  airports, aircraft, hours, remarks) or delete it everywhere. Arrows beside
+  the book turn the pages.
 - **Hangar**: every aircraft you have flown as a large picture you scroll
   sideways, with hours, distance, flights, best landing and where you last
   parked it. Each gets a drawn illustration; you can use your own photo.

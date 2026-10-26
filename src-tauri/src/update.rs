@@ -51,7 +51,12 @@ pub fn is_newer(latest: &str, current: &str) -> bool {
 }
 
 fn agent() -> ureq::Agent {
+    // Trust the certificates Windows trusts (so antivirus HTTPS scanning and
+    // company proxies work), and use the system proxy settings.
+    let tls = ureq::tls::TlsConfig::builder().root_certs(ureq::tls::RootCerts::PlatformVerifier).build();
     ureq::Agent::config_builder()
+        .tls_config(tls)
+        .proxy(ureq::Proxy::try_from_env())
         .timeout_global(Some(std::time::Duration::from_secs(30)))
         .user_agent(concat!("FlightDeck/", env!("CARGO_PKG_VERSION")))
         .build()

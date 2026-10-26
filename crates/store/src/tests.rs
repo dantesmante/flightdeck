@@ -199,9 +199,9 @@ fn stamps_come_from_saved_flights() {
     db.save_flight(&fly(1), &SaveContext { dep: place("EGLL", "GB"), arr: place("LFPG", "FR"), ..Default::default() }).unwrap();
     let flights = db.stamp_flights().unwrap();
     let stamps = passport::derive_stamps(&flights);
-    assert_eq!(stamps.len(), 2);
-    assert_eq!(stamps[1].kind, passport::StampKind::FirstEntry);
-    assert_eq!(stamps[1].country, "FR");
+    assert_eq!(stamps.len(), 1);
+    assert_eq!(stamps[0].kind, passport::StampKind::FirstEntry);
+    assert_eq!(stamps[0].country, "FR");
 }
 
 #[test]
@@ -278,4 +278,51 @@ fn routes_list_every_flight_with_end_points() {
     assert_eq!(r[0].arr_icao.as_deref(), Some("LFPG"));
     assert!((r[0].dep_lat.unwrap() - 51.47).abs() < 0.1);
     assert!((r[0].arr_lon.unwrap() - 2.55).abs() < 0.2);
+}
+
+#[test]
+fn every_logbook_field_can_be_edited() {
+    use book::FlightPatch;
+    let mut db = Store::open_in_memory().unwrap();
+    let a = db.save_flight(&fly(0), &SaveContext { dep: place("KSEA", "US"), arr: place("KPDX", "US"), ..Default::default() }).unwrap();
+    let b = db.save_flight(&fly(2), &SaveContext::default()).unwrap();
+    let before = db.logbook().unwrap().into_iter().find(|r| r.flight_id == a).unwrap();
+
+    // 1 Jan 2026, out 14:05Z, in 01:10Z (next day), new airports and aircraft.
+    let jan1 = 1_767_225_600_000;
+    let patch = FlightPatch {
+        date_ms: Some(jan1),
+        out_min: Some(14 * 60 + 5),
+        in_min: Some(70),
+        dep: place("KORD", "US"),
+        arr: place("CYYZ", "CA"),
+        aircraft_type: Some("B38M".into()),
+        ident: Some("N12345".into()),
+    };
+    assert!(db.update_flight(a, &patch).unwrap());
+    let r = db.logbook().unwrap().into_iter().find(|r| r.flight_id == a).unwrap();
+    assert_eq!(r.date_ms / 86_400_000, jan1 / 86_400_000);
+    assert_eq!(r.out_ms, Some(jan1 + (14 * 60 + 5) * 60_000));
+    assert_eq!(r.in_ms, Some(jan1 + 86_400_000 + 70 * 60_000));
+    assert_eq!((r.from_icao.as_str(), r.to_icao.as_str()), ("KORD", "CYYZ"));
+    assert_eq!((r.aircraft_type.as_str(), r.ident.as_str()), ("B38M", "N12345"));
+    assert_eq!(r.total_min, before.total_min, "times in the log columns are kept");
+
+    // The other flight still has its own aircraft.
+    let other = db.logbook().unwrap().into_iter().find(|r| r.flight_id == b).unwrap();
+    assert_eq!(other.aircraft_type, "A320");
+    // The edited route now earns a Canada stamp.
+    let stamps = passport::derive_stamps(&db.stamp_flights().unwrap());
+    assert!(stamps.iter().any(|s| s.country == "CA"));
+}
+
+#[test]
+fn deleting_an_entry_removes_the_flight_everywhere() {
+    let mut db = Store::open_in_memory().unwrap();
+    let a = db.save_flight(&fly(1), &SaveContext { dep: place("EGLL", "GB"), arr: place("LFPG", "FR"), ..Default::default() }).unwrap();
+    assert!(db.delete_flight(a).unwrap());
+    assert!(db.logbook().unwrap().is_empty());
+    assert!(db.routes().unwrap().is_empty());
+    assert!(db.stamp_flights().unwrap().is_empty());
+    assert!(db.hangar().unwrap().is_empty());
 }

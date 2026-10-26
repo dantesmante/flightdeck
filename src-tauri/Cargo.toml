@@ -25,4 +25,4 @@ refdata.workspace = true
 conn-simconnect.workspace = true
 conn-demo.workspace = true
 watcher.workspace = true
-ureq = { version = "3", features = ["json"] }
+ureq = { version = "3", features = ["json", "platform-verifier", "win-system-proxy"] }

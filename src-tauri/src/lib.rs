@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 use engine::{Command, FullStatus, SharedState};
 use std::collections::HashMap;
 
-use store::book::{HangarRow, LogPatch, LogRow, Pilot, RouteRow};
+use store::book::{FlightPatch, HangarRow, LogPatch, LogRow, Pilot, RouteRow};
 use store::passport::{self, CountryVisit, Stamp};
 use store::{FlightRow, Store, Totals};
 use tauri::Manager;
@@ -121,6 +121,40 @@ fn get_logbook(state: tauri::State<AppState>) -> CmdResult<Vec<LogRow>> {
 #[tauri::command]
 fn update_log_entry(state: tauri::State<AppState>, flight_id: i64, patch: LogPatch) -> CmdResult<bool> {
     state.db.lock().unwrap().update_log_entry(flight_id, &patch).map_err(err)
+}
+
+/// What the logbook's edit form sends: airports as ICAO codes.
+#[derive(serde::Deserialize)]
+struct FlightEdit {
+    date_ms: Option<i64>,
+    out_min: Option<i64>,
+    in_min: Option<i64>,
+    from_icao: Option<String>,
+    to_icao: Option<String>,
+    aircraft_type: Option<String>,
+    ident: Option<String>,
+}
+
+#[tauri::command]
+fn update_flight(state: tauri::State<AppState>, flight_id: i64, edit: FlightEdit) -> CmdResult<bool> {
+    let place = |code: &Option<String>| -> CmdResult<Option<store::Place>> {
+        let Some(code) = code.as_deref().map(str::trim).filter(|c| !c.is_empty()) else { return Ok(None) };
+        let a = state
+            .refdata
+            .airport(code)
+            .ok_or_else(|| format!("{} is not an airport code FlightDeck knows. Use the ICAO code, e.g. KORD.", code.to_uppercase()))?;
+        Ok(Some(store::Place { icao: a.ident.clone(), name: a.name.clone(), country: a.country.clone(), region: a.region.clone() }))
+    };
+    let patch = FlightPatch {
+        date_ms: edit.date_ms,
+        out_min: edit.out_min,
+        in_min: edit.in_min,
+        dep: place(&edit.from_icao)?,
+        arr: place(&edit.to_icao)?,
+        aircraft_type: edit.aircraft_type,
+        ident: edit.ident,
+    };
+    state.db.lock().unwrap().update_flight(flight_id, &patch).map_err(err)
 }
 
 #[derive(serde::Serialize)]
@@ -326,6 +360,7 @@ pub fn run() {
             set_pilot,
             get_logbook,
             update_log_entry,
+            update_flight,
             get_passport,
             get_hangar,
             get_routes,

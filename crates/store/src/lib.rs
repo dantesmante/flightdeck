@@ -191,8 +191,15 @@ impl Store {
         Ok(out)
     }
 
+    /// Remove a flight from everything: logbook, map, passport and hangar.
+    /// An aircraft with no flights left leaves the hangar too.
     pub fn delete_flight(&mut self, id: i64) -> Result<bool> {
-        Ok(self.conn.execute("DELETE FROM flight WHERE id = ?1", params![id])? > 0)
+        let n = self.conn.execute("DELETE FROM flight WHERE id = ?1", params![id])?;
+        self.conn.execute(
+            "DELETE FROM aircraft WHERE id NOT IN (SELECT DISTINCT aircraft_id FROM flight WHERE aircraft_id IS NOT NULL)",
+            [],
+        )?;
+        Ok(n > 0)
     }
 
     pub fn totals(&self) -> Result<Totals> {

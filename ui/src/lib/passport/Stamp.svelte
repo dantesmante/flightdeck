@@ -38,8 +38,8 @@
   const id = $derived(`s${stamp.seed}`);
   const upper = (s: string) => s.toLocaleUpperCase("en-US");
   const place = $derived(upper(stamp.country_name || stamp.country));
-  const word = $derived({ departure: "DEPARTED", arrival: "ADMITTED", first_entry: "FIRST ENTRY" }[stamp.kind]);
-  const going = $derived(stamp.kind === "departure");
+  const word = $derived({ arrival: "ADMITTED", first_entry: "FIRST ENTRY" }[stamp.kind]);
+  const going = false;
   /** Long names get smaller letters so they still fit. */
   const fit = (s: string, base: number, room: number) => Math.min(base, (room / Math.max(s.length, 1)) * 1.75);
   const wide = $derived(d.shape === "rect" || d.shape === "rounded" || d.shape === "oval");

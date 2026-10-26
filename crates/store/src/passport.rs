@@ -1,10 +1,10 @@
 //! Passport stamps, derived from the flight history.
 //!
 //! Rule (decided with the project owner): the passport is for international
-//! flights only. A flight that lands in a different country earns a
-//! departure stamp for the country left and an arrival stamp for the
-//! country entered. The first ever arrival in a country gets the special
-//! first-entry design. Domestic flights earn no stamps.
+//! arrivals only. A flight that lands in a different country from the one it
+//! left earns one arrival stamp for the country entered; the first ever
+//! arrival in a country gets the special first-entry design. Departures and
+//! domestic flights earn no stamps.
 //!
 //! Stamps are recomputed from flights, so editing or deleting a flight
 //! always leaves the passport consistent.
@@ -35,7 +35,6 @@ pub struct StampFlight {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum StampKind {
-    Departure,
     Arrival,
     FirstEntry,
 }
@@ -43,7 +42,6 @@ pub enum StampKind {
 impl StampKind {
     fn as_str(&self) -> &'static str {
         match self {
-            StampKind::Departure => "departure",
             StampKind::Arrival => "arrival",
             StampKind::FirstEntry => "first_entry",
         }
@@ -97,7 +95,6 @@ pub fn derive_stamps(flights: &[StampFlight]) -> Vec<Stamp> {
             continue;
         }
         if f.dep.country != f.arr.country {
-            out.push(stamp(f, StampKind::Departure, &f.dep, f.dep_ms));
             let kind = if countries.contains(&f.arr.country) { StampKind::Arrival } else { StampKind::FirstEntry };
             out.push(stamp(f, kind, &f.arr, f.arr_ms));
         }
@@ -150,20 +147,13 @@ mod tests {
     }
 
     #[test]
-    fn international_trip_and_return() {
+    fn only_arrivals_are_stamped() {
         let kord = || place("KORD", "US", "US-IL");
         let cyyz = || place("CYYZ", "CA", "CA-ON");
         let s = derive_stamps(&[flight(1, kord(), cyyz()), flight(2, cyyz(), kord()), flight(3, kord(), cyyz())]);
         assert_eq!(
             kinds(&s),
-            vec![
-                (StampKind::Departure, "KORD"),
-                (StampKind::FirstEntry, "CYYZ"),
-                (StampKind::Departure, "CYYZ"),
-                (StampKind::Arrival, "KORD"),
-                (StampKind::Departure, "KORD"),
-                (StampKind::Arrival, "CYYZ"),
-            ]
+            vec![(StampKind::FirstEntry, "CYYZ"), (StampKind::Arrival, "KORD"), (StampKind::Arrival, "CYYZ")]
         );
     }
 
@@ -174,13 +164,13 @@ mod tests {
         assert!(derive_stamps(&[flight(1, kc81(), kc81()), flight(2, kc81(), kmke())]).is_empty());
         // ...but a later trip abroad still gets its first-entry seal.
         let s = derive_stamps(&[flight(1, kc81(), kmke()), flight(2, kmke(), place("CYYZ", "CA", "CA-ON"))]);
-        assert_eq!(kinds(&s), vec![(StampKind::Departure, "KMKE"), (StampKind::FirstEntry, "CYYZ")]);
+        assert_eq!(kinds(&s), vec![(StampKind::FirstEntry, "CYYZ")]);
     }
 
     #[test]
     fn seeds_are_stable_and_distinct() {
         assert_eq!(seed(7, StampKind::Arrival), seed(7, StampKind::Arrival));
-        assert_ne!(seed(7, StampKind::Arrival), seed(7, StampKind::Departure));
+        assert_ne!(seed(7, StampKind::Arrival), seed(7, StampKind::FirstEntry));
         assert_ne!(seed(7, StampKind::Arrival), seed(8, StampKind::Arrival));
     }
 

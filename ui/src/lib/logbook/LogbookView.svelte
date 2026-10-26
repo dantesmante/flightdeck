@@ -1,9 +1,10 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { api, type LogPatch, type LogRow } from "../api";
+  import { api, type LogRow } from "../api";
   import Book from "../Book.svelte";
   import { prefs, setPref } from "../prefs.svelte";
   import { groups, LAYOUTS, printValue, type Col, type Layout } from "./columns";
+  import EntryCard from "./EntryCard.svelte";
 
   const W = 560;
   const H = 470;
@@ -14,7 +15,7 @@
   let spread = $state(0);
   let book = $state<Book | null>(null);
   let hover = $state<number | null>(null);
-  let editing = $state<LogRow | null>(null);
+  let opened = $state<LogRow | null>(null);
 
   const layout = $derived((prefs.s.logbook_layout as Layout) ?? "faa");
   const hand = $derived(prefs.s.logbook_hand !== "type");
@@ -52,77 +53,12 @@
     };
   }
 
-  // --- editing -----------------------------------------------------------
-  type Field = { key: keyof LogPatch; label: string; kind: "time" | "count" | "text" };
-  const FIELDS: Field[] = [
-    { key: "total_min", label: "Total time", kind: "time" },
-    { key: "pic_min", label: "Pilot in command", kind: "time" },
-    { key: "dual_min", label: "Dual received", kind: "time" },
-    { key: "night_min", label: "Night", kind: "time" },
-    { key: "xc_min", label: "Cross-country", kind: "time" },
-    { key: "ifr_min", label: "IFR", kind: "time" },
-    { key: "act_inst_min", label: "Actual instrument", kind: "time" },
-    { key: "sim_inst_min", label: "Simulated instrument", kind: "time" },
-    { key: "day_landings", label: "Day landings", kind: "count" },
-    { key: "night_landings", label: "Night landings", kind: "count" },
-    { key: "approaches", label: "Instrument approaches", kind: "count" },
-  ];
-  let draft = $state<Record<string, string>>({});
-  let error = $state<string | null>(null);
-
-  const asTime = (m: number) => `${Math.floor(m / 60)}:${String(m % 60).padStart(2, "0")}`;
-
-  function edit(r: LogRow) {
-    editing = r;
-    error = null;
-    const d: Record<string, string> = { remarks: r.remarks };
-    for (const f of FIELDS) {
-      const v = Number(r[f.key as keyof LogRow]) || 0;
-      d[f.key] = f.kind === "time" ? asTime(v) : String(v);
-    }
-    draft = d;
-  }
-
-  /** Accepts "1:24", "1.4" (hours) or "84m". */
-  function parseTime(s: string): number | null {
-    const t = s.trim();
-    if (!t) return 0;
-    let m = t.match(/^(\d+):(\d{1,2})$/);
-    if (m) return +m[1] * 60 + +m[2];
-    m = t.match(/^(\d+)m$/);
-    if (m) return +m[1];
-    if (/^\d+(\.\d+)?$/.test(t)) return Math.round(parseFloat(t) * 60);
-    return null;
-  }
-
-  async function save() {
-    if (!editing) return;
-    const patch: LogPatch = { remarks: draft.remarks };
-    for (const f of FIELDS) {
-      const raw = draft[f.key] ?? "";
-      const v = f.kind === "time" ? parseTime(raw) : /^\d+$/.test(raw.trim()) ? +raw : raw.trim() === "" ? 0 : null;
-      if (v == null) {
-        error = `${f.label}: use hours and minutes like 1:25, or decimal hours like 1.4.`;
-        return;
-      }
-      (patch as Record<string, unknown>)[f.key] = v;
-    }
-    await api.updateLogEntry(editing.flight_id, patch);
-    editing = null;
-    await load();
-  }
-
-  function key(e: KeyboardEvent) {
-    if (editing && e.key === "Escape") editing = null;
-  }
-
   const year = (s: number) => {
     const r = rows[s * ROWS];
     return r ? new Date(r.date_ms).getUTCFullYear() : new Date().getUTCFullYear();
   };
 </script>
 
-<svelte:window onkeydown={key} />
 
 {#snippet header(cs: Col[])}
   <div class="hdr" style:grid-template-columns={template(cs)}>
@@ -170,11 +106,11 @@
           style:grid-template-columns={template(side)}
           role={r ? "button" : undefined}
           tabindex={r ? 0 : undefined}
-          aria-label={r ? `Edit entry ${r.from_icao} to ${r.to_icao}` : undefined}
+          aria-label={r ? `Open entry ${r.from_icao} to ${r.to_icao}` : undefined}
           onmouseenter={() => r && (hover = r.flight_id)}
           onmouseleave={() => (hover = null)}
-          onclick={() => r && edit(r)}
-          onkeydown={(e) => r && (e.key === "Enter" || e.key === " ") && (e.preventDefault(), edit(r))}
+          onclick={() => r && (opened = r)}
+          onkeydown={(e) => r && (e.key === "Enter" || e.key === " ") && (e.preventDefault(), (opened = r))}
         >
           {#each side as c (c.key)}
             <div class="cell" class:num={c.kind !== "text"} class:flex={c.flex} title={r && c.flex ? String(c.value(r)) : undefined}>
@@ -217,10 +153,6 @@
       <button class:on={hand} onclick={() => setPref("logbook_hand", "hand")}>Handwritten</button>
       <button class:on={!hand} onclick={() => setPref("logbook_hand", "type")}>Typed</button>
     </div>
-    <span class="nav">
-      <button class="ghost" onclick={() => book?.prev()} disabled={spread === 0}>Previous</button>
-      <button class="ghost" onclick={() => book?.next()} disabled={spread >= spreads - 1}>Next</button>
-    </span>
   </div>
   {#if loaded && rows.length === 0}
     <p class="note">Your logbook is empty. Each flight writes its own line when you park. Settings has sample flights if you want to see it filled in.</p>
@@ -231,34 +163,12 @@
     {/if}
   </div>
   {#if rows.length}
-    <p class="tip">Click any line to correct it. Approaches, IFR and instrument time are yours to fill in.</p>
+    <p class="tip">Click any line to see the flight, edit it or delete it.</p>
   {/if}
 </section>
 
-{#if editing}
-  {@const e = editing}
-  <div class="scrim" role="presentation" onclick={() => (editing = null)}></div>
-  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="edit-title">
-    <h3 id="edit-title">{e.from_icao || "????"} to {e.to_icao || "????"}, {new Date(e.date_ms).toUTCString().slice(5, 16)}</h3>
-    <p class="sub">{e.aircraft_type} {e.ident}</p>
-    <div class="fields">
-      {#each FIELDS as f (f.key)}
-        <label>
-          <span>{f.label}</span>
-          <input bind:value={draft[f.key]} inputmode={f.kind === "count" ? "numeric" : "text"} placeholder={f.kind === "time" ? "0:00" : "0"} />
-        </label>
-      {/each}
-      <label class="wide">
-        <span>Remarks</span>
-        <input bind:value={draft.remarks} maxlength="120" />
-      </label>
-    </div>
-    {#if error}<p class="error">{error}</p>{/if}
-    <div class="actions">
-      <button class="primary" onclick={save}>Save entry</button>
-      <button class="ghost" onclick={() => (editing = null)}>Cancel</button>
-    </div>
-  </div>
+{#if opened}
+  <EntryCard row={opened} onclose={() => (opened = null)} onchanged={() => load()} />
 {/if}
 
 <style>
@@ -311,22 +221,6 @@
   .seg button.on {
     background: var(--panel-3);
     color: var(--amber);
-  }
-  .nav {
-    margin-left: auto;
-    display: flex;
-    gap: 8px;
-  }
-  .ghost {
-    border: 1px solid var(--rule);
-    background: transparent;
-    color: var(--ink-dim);
-    border-radius: 6px;
-    padding: 6px 12px;
-    font-weight: 600;
-  }
-  .ghost:disabled {
-    opacity: 0.4;
   }
   .stage {
     flex: 1;
@@ -481,78 +375,4 @@
     color: var(--print);
   }
 
-  /* Edit dialog -------------------------------------------------------- */
-  .scrim {
-    position: fixed;
-    inset: 0;
-    background: rgba(5, 10, 14, 0.55);
-    z-index: 20;
-  }
-  .dialog {
-    position: fixed;
-    z-index: 21;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    width: min(560px, 92vw);
-    background: var(--panel);
-    border: 1px solid var(--rule);
-    border-radius: 10px;
-    padding: 20px 22px;
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
-  }
-  .dialog h3 {
-    margin: 0;
-    font-family: var(--cond);
-    font-size: 24px;
-    font-weight: 600;
-  }
-  .sub {
-    margin: 2px 0 14px;
-    color: var(--ink-dim);
-  }
-  .fields {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 10px 12px;
-  }
-  label {
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-    font-size: 12px;
-    color: var(--ink-dim);
-  }
-  label.wide {
-    grid-column: 1 / -1;
-  }
-  input {
-    width: 100%;
-    min-width: 0;
-    box-sizing: border-box;
-    font: inherit;
-    font-size: 14px;
-    color: var(--ink);
-    background: var(--panel-2);
-    border: 1px solid var(--rule);
-    border-radius: 6px;
-    padding: 6px 8px;
-  }
-  .error {
-    color: var(--bad);
-    margin: 10px 0 0;
-  }
-  .actions {
-    display: flex;
-    gap: 8px;
-    margin-top: 16px;
-  }
-  .primary {
-    border: none;
-    background: var(--amber);
-    color: #1b1406;
-    border-radius: 6px;
-    padding: 8px 14px;
-    font-weight: 600;
-  }
 </style>

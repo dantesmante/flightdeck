@@ -71,6 +71,21 @@ pub struct LogPatch {
     pub remarks: Option<String>,
 }
 
+/// Flight facts the pilot may correct from the logbook. `None` = unchanged.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct FlightPatch {
+    /// Any time on the new date (UTC); every time of the flight moves with it.
+    pub date_ms: Option<i64>,
+    /// Block out and block in, minutes after midnight UTC. An in time
+    /// earlier than the out time is taken as the next day.
+    pub out_min: Option<i64>,
+    pub in_min: Option<i64>,
+    pub dep: Option<crate::Place>,
+    pub arr: Option<crate::Place>,
+    pub aircraft_type: Option<String>,
+    pub ident: Option<String>,
+}
+
 /// One aircraft in the hangar, with its totals and last known place.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HangarRow {
@@ -261,6 +276,119 @@ impl Store {
             )?;
         }
         Ok(n > 0)
+    }
+
+    /// Correct a flight's facts (date, times, airports, aircraft).
+    pub fn update_flight(&mut self, flight_id: i64, p: &FlightPatch) -> Result<bool> {
+        const DAY: i64 = 86_400_000;
+        let tx = self.conn.transaction()?;
+        // (date anchor, block out, block in, aircraft)
+        type Times = (i64, Option<i64>, Option<i64>, Option<i64>);
+        let row: Option<Times> = tx
+            .query_row(
+                "SELECT COALESCE(block_out, takeoff, start_ms), block_out, block_in, aircraft_id FROM flight WHERE id = ?1",
+                params![flight_id],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )
+            .optional()?;
+        let Some((anchor, mut out, mut inn, aircraft_id)) = row else { return Ok(false) };
+
+        // Move the whole flight to the new date, keeping its times of day.
+        let mut day = anchor.div_euclid(DAY) * DAY;
+        if let Some(d) = p.date_ms {
+            let new_day = d.div_euclid(DAY) * DAY;
+            let shift = new_day - day;
+            if shift != 0 {
+                tx.execute(
+                    "UPDATE flight SET start_ms = start_ms + ?2, end_ms = end_ms + ?2,
+                        block_out = block_out + ?2, takeoff = takeoff + ?2,
+                        landing = landing + ?2, block_in = block_in + ?2 WHERE id = ?1",
+                    params![flight_id, shift],
+                )?;
+                tx.execute("UPDATE flight_event SET t = t + ?2 WHERE flight_id = ?1", params![flight_id, shift])?;
+                out = out.map(|t| t + shift);
+                inn = inn.map(|t| t + shift);
+                day = new_day;
+            }
+        }
+        if let Some(m) = p.out_min {
+            out = Some(day + m.clamp(0, 1439) * 60_000);
+        }
+        if let Some(m) = p.in_min {
+            let mut t = day + m.clamp(0, 1439) * 60_000;
+            if out.is_some_and(|o| t < o) {
+                t += DAY;
+            }
+            inn = Some(t);
+        }
+        if p.out_min.is_some() || p.in_min.is_some() {
+            tx.execute("UPDATE flight SET block_out = ?2, block_in = ?3 WHERE id = ?1", params![flight_id, out, inn])?;
+        }
+
+        let opt = |s: &str| (!s.is_empty()).then(|| s.to_string());
+        if let Some(d) = &p.dep {
+            tx.execute(
+                "UPDATE flight SET dep_icao = ?2, dep_name = ?3, dep_country = ?4, dep_region = ?5 WHERE id = ?1",
+                params![flight_id, opt(&d.icao), opt(&d.name), opt(&d.country), opt(&d.region)],
+            )?;
+        }
+        if let Some(a) = &p.arr {
+            tx.execute(
+                "UPDATE flight SET arr_icao = ?2, arr_name = ?3, arr_country = ?4, arr_region = ?5 WHERE id = ?1",
+                params![flight_id, opt(&a.icao), opt(&a.name), opt(&a.country), opt(&a.region)],
+            )?;
+        }
+
+        // A different type or registration points this flight (only) at the
+        // matching hangar aircraft, created if needed.
+        if p.aircraft_type.is_some() || p.ident.is_some() {
+            // (title, type, registration, engines, engine type, category/class)
+            type Ac = (String, String, String, i64, String, String);
+            let cur: Ac = match aircraft_id {
+                Some(id) => tx.query_row(
+                    "SELECT title, icao_type, registration, engine_count, engine_type, category_class FROM aircraft WHERE id = ?1",
+                    params![id],
+                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)),
+                )?,
+                None => (String::new(), String::new(), String::new(), 0, "unknown".into(), String::new()),
+            };
+            let ty = p.aircraft_type.clone().unwrap_or(cur.1.clone()).trim().to_uppercase();
+            let reg = p.ident.clone().unwrap_or(cur.2.clone()).trim().to_uppercase();
+            if ty != cur.1 || reg != cur.2 {
+                let title = if ty == cur.1 && !cur.0.is_empty() { cur.0.clone() } else { ty.clone() };
+                let existing: Option<i64> = tx
+                    .query_row(
+                        "SELECT id FROM aircraft WHERE icao_type = ?1 AND registration = ?2 ORDER BY id LIMIT 1",
+                        params![ty, reg],
+                        |r| r.get(0),
+                    )
+                    .optional()?;
+                let new_id = match existing {
+                    Some(id) => id,
+                    None => {
+                        tx.execute(
+                            "INSERT INTO aircraft (icao_type, title, registration, engine_count, engine_type, category_class)
+                             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                             ON CONFLICT(title, registration) DO UPDATE SET icao_type = excluded.icao_type",
+                            params![ty, title, reg, cur.3, cur.4, cur.5],
+                        )?;
+                        tx.query_row(
+                            "SELECT id FROM aircraft WHERE title = ?1 AND registration = ?2",
+                            params![title, reg],
+                            |r| r.get(0),
+                        )?
+                    }
+                };
+                tx.execute("UPDATE flight SET aircraft_id = ?2 WHERE id = ?1", params![flight_id, new_id])?;
+                tx.execute(
+                    "DELETE FROM aircraft WHERE id NOT IN (SELECT DISTINCT aircraft_id FROM flight WHERE aircraft_id IS NOT NULL)",
+                    [],
+                )?;
+            }
+        }
+        tx.execute("UPDATE flight SET updated_at = ?2 WHERE id = ?1", params![flight_id, crate::now_ms()])?;
+        tx.commit()?;
+        Ok(true)
     }
 
     /// Every aircraft flown, most recently flown first.

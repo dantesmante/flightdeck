@@ -4,6 +4,7 @@
   import maplibregl, { type GeoJSONSource, type LngLatBoundsLike } from "maplibre-gl";
   import { onDestroy, onMount } from "svelte";
   import type { Route } from "./api";
+  import { C as BASE, STYLE, offlineStyle, tintMap } from "./mapStyle";
 
   interface Props {
     /** Live track, [lon, lat] pairs. */
@@ -23,22 +24,7 @@
   }
   let { live, aircraft, origin, history, routes = [], selected = null, onroute }: Props = $props();
 
-  const STYLE = "https://tiles.openfreemap.org/styles/positron";
-  const C = {
-    land: "#132029",
-    water: "#0d1820",
-    green: "#16252f",
-    built: "#1a2a36",
-    road: "#22384a",
-    roadMajor: "#2b4558",
-    aeroway: "#4b6276",
-    border: "#3e5d73",
-    text: "#8fa3b3",
-    halo: "#0d1820",
-    track: "#e2468f",
-    route: "#a9bfd1",
-    routeHot: "#f0b23a",
-  };
+  const C = { ...BASE, route: "#a9bfd1", routeHot: "#f0b23a" };
 
   const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -118,51 +104,8 @@
   let follow = $state(true);
   let offline = $state(false);
 
-  function setPaint(id: string, prop: string, value: unknown) {
-    try {
-      map!.setPaintProperty(id, prop, value);
-    } catch {
-      /* property not valid for this layer */
-    }
-  }
-
-  /** Recolour every layer of the base style by what it draws. */
   function tint() {
-    if (!map) return;
-    for (const layer of map.getStyle().layers ?? []) {
-      const id = layer.id.toLowerCase();
-      const src = "source-layer" in layer ? String(layer["source-layer"] ?? "") : "";
-      const key = `${id} ${src}`;
-      if (layer.type === "background") setPaint(layer.id, "background-color", C.land);
-      else if (layer.type === "fill") {
-        const color = key.includes("water")
-          ? C.water
-          : key.includes("aeroway")
-            ? C.roadMajor
-            : key.match(/park|wood|grass|landcover|forest/)
-              ? C.green
-              : key.match(/building|landuse|residential/)
-                ? C.built
-                : C.land;
-        setPaint(layer.id, "fill-color", color);
-        setPaint(layer.id, "fill-outline-color", color);
-      } else if (layer.type === "line") {
-        const color = key.includes("water")
-          ? C.water
-          : key.includes("aeroway")
-            ? C.aeroway
-            : key.match(/boundary|admin/)
-              ? C.border
-              : key.match(/motorway|trunk|primary|major/)
-                ? C.roadMajor
-                : C.road;
-        setPaint(layer.id, "line-color", color);
-      } else if (layer.type === "symbol") {
-        if (key.match(/poi|shield|oneway/)) map.setLayoutProperty(layer.id, "visibility", "none");
-        setPaint(layer.id, "text-color", C.text);
-        setPaint(layer.id, "text-halo-color", C.halo);
-      }
-    }
+    if (map) tintMap(map);
   }
 
   function addOverlays() {
@@ -246,32 +189,11 @@
     return d;
   }
 
-  /** A 10° lat/lon grid, so the map still orients you with no tiles. */
-  function graticule(): GeoJSON.FeatureCollection {
-    const lines: GeoJSON.Feature[] = [];
-    for (let lon = -180; lon <= 180; lon += 10) {
-      lines.push({ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: [[lon, -85], [lon, 0], [lon, 85]] } });
-    }
-    for (let lat = -80; lat <= 80; lat += 10) {
-      const coords: [number, number][] = [];
-      for (let lon = -180; lon <= 180; lon += 5) coords.push([lon, lat]);
-      lines.push({ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: coords } });
-    }
-    return { type: "FeatureCollection", features: lines };
-  }
-
   /** Offline fallback: a plain chart, so the flight is still drawn. */
   function useOfflineStyle() {
     if (!map || loaded || offline) return;
     offline = true;
-    map.setStyle({
-      version: 8,
-      sources: { grid: { type: "geojson", data: graticule() } },
-      layers: [
-        { id: "bg", type: "background", paint: { "background-color": C.land } },
-        { id: "grid", type: "line", source: "grid", paint: { "line-color": C.road, "line-width": 1 } },
-      ],
-    });
+    map.setStyle(offlineStyle());
   }
 
   onMount(() => {
