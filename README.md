@@ -57,7 +57,18 @@ MIT licensed.
   kilometres, logbook layout, and **sample flights** to
   fill the passport, logbook and hangar for a quick look.
 
-## Set up on Windows
+## Install (the easy way)
+
+Download the latest `FlightDeck-…-setup.exe` from the
+[Releases page](https://github.com/dantesmante/flightdeck/releases/latest)
+and double-click it. If Windows shows "Windows protected your PC", click
+**More info**, then **Run anyway** (the app is not yet code-signed).
+
+After that FlightDeck updates itself: when a newer version is published it
+shows "FlightDeck … is ready to install" with an **Update now** button.
+Every change pushed to `main` publishes a new version automatically.
+
+## Build it yourself (developers)
 
 You need:
 

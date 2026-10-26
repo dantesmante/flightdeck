@@ -1,7 +1,6 @@
 name: CI
 
 on:
-  push:
   pull_request:
   workflow_dispatch:
 
@@ -28,23 +27,3 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace --exclude flightdeck
 
-  windows:
-    name: Windows installer
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - run: npm ci
-      - run: npm --prefix ui ci
-      - run: cargo test --workspace --exclude flightdeck
-      - run: npx tauri build
-      - uses: actions/upload-artifact@v4
-        with:
-          name: flightdeck-windows
-          path: |
-            target/release/bundle/msi/*.msi
-            target/release/bundle/nsis/*.exe

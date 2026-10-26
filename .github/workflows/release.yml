@@ -1,0 +1,71 @@
+name: Release
+
+# Every change pushed to main builds a Windows installer and publishes it as
+# the latest release. FlightDeck checks the latest release and offers a
+# one-click update when it is newer than the installed version.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  windows:
+    name: Build Windows installer
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install JavaScript packages
+        run: |
+          npm ci
+          npm --prefix ui ci
+
+      - name: Run tests
+        run: cargo test --workspace --exclude flightdeck
+
+      - name: Set version
+        shell: bash
+        run: |
+          VERSION="0.1.${{ github.run_number }}"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          node -e "const f='src-tauri/tauri.conf.json';const fs=require('fs');const c=JSON.parse(fs.readFileSync(f,'utf8'));c.version=process.argv[1];fs.writeFileSync(f,JSON.stringify(c,null,2))" "$VERSION"
+
+      - name: Build installer
+        run: npx tauri build --bundles nsis
+
+      - name: Name the installer
+        shell: bash
+        run: |
+          cp target/release/bundle/nsis/*-setup.exe "FlightDeck-${VERSION}-setup.exe"
+          ls -la FlightDeck-*-setup.exe
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.VERSION }}
+          name: FlightDeck ${{ env.VERSION }}
+          target_commitish: ${{ github.sha }}
+          make_latest: true
+          body: |
+            ${{ github.event.head_commit.message }}
+
+            **To install:** download `FlightDeck-${{ env.VERSION }}-setup.exe` below and double-click it.
+            If Windows shows "Windows protected your PC", click **More info**, then **Run anyway**.
+            Already have FlightDeck? It offers this update itself.
+          files: FlightDeck-${{ env.VERSION }}-setup.exe

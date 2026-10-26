@@ -88,6 +88,8 @@ export async function mockCall<T>(cmd: string, _args?: Record<string, unknown>):
       { flight_id: 3, dep_icao: "KPDX", arr_icao: "KSFO", from: [-122.5975, 45.5887], to: [-122.375, 37.6188], date_ms: now, aircraft_type: "A20N" },
       { flight_id: 2, dep_icao: "EGLL", arr_icao: "LFPG", from: [-0.4619, 51.4706], to: [2.5479, 49.0097], date_ms: now, aircraft_type: "A320" },
     ],
+    app_version: "0.1.0",
+    check_update: { current: "0.1.0", latest: "0.1.0", available: false, notes: "", download_url: null, size_mb: 0 },
     demo_routes: ["KSEA to KPDX", "EGLL to LFPG", "KSFO to KLAX", "EDDF to LOWW", "CYVR to KSEA"],
   };
   return (answers[cmd] ?? null) as T;

@@ -3,14 +3,17 @@
   import { api, type Pilot } from "./api";
   import { shrinkImage } from "./image";
   import { prefs, setPref } from "./prefs.svelte";
+  import { checkForUpdates, installUpdate, updates } from "./updates.svelte";
 
   let pilot = $state<Pilot | null>(null);
+  let version = $state("");
   let saved = $state<string | null>(null);
   let busy = $state(false);
   let sampleMsg = $state<string | null>(null);
 
   onMount(async () => {
     pilot = await api.pilot();
+    version = await api.version();
   });
 
   async function savePilot() {
@@ -116,6 +119,24 @@
   </div>
 
   <div class="group">
+    <h3>Updates</h3>
+    <p class="help">You have FlightDeck {version || "…"}. New versions install in one click and keep all your flights.</p>
+    <div class="row">
+      {#if updates.info?.available}
+        <button class="primary" onclick={installUpdate} disabled={updates.installing}>
+          {updates.installing ? "Downloading…" : `Install version ${updates.info.latest}`}
+        </button>
+      {:else}
+        <button class="ghost" onclick={checkForUpdates} disabled={updates.checking}>
+          {updates.checking ? "Checking…" : "Check for updates"}
+        </button>
+        {#if updates.info && !updates.checking}<span class="ok">You have the latest version.</span>{/if}
+      {/if}
+    </div>
+    {#if updates.error}<p class="err">{updates.error}</p>{/if}
+  </div>
+
+  <div class="group">
     <h3>Sample flights</h3>
     <p class="help">
       Five ready-made flights across the US, Canada and Europe in five different aircraft, one of them at night. Use them to
@@ -211,6 +232,10 @@
     align-items: center;
     gap: 10px;
     flex-wrap: wrap;
+  }
+  .err {
+    color: var(--bad);
+    margin: 0;
   }
   .ok {
     color: var(--good);

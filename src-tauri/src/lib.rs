@@ -2,6 +2,7 @@
 
 mod engine;
 mod samples;
+mod update;
 
 use std::sync::mpsc::{channel, Sender};
 use std::sync::{Arc, Mutex};
@@ -269,6 +270,27 @@ fn remove_sample_flights(state: tauri::State<AppState>) -> usize {
     samples::remove(&state.db)
 }
 
+#[tauri::command]
+async fn check_update(app: tauri::AppHandle) -> CmdResult<update::UpdateInfo> {
+    let current = app.package_info().version.to_string();
+    tauri::async_runtime::spawn_blocking(move || update::check(&current)).await.map_err(err)?
+}
+
+/// Download the new installer, start it, and close FlightDeck so it can
+/// replace the program files. Flights are stored elsewhere and are kept.
+#[tauri::command]
+async fn install_update(app: tauri::AppHandle, url: String) -> CmdResult<()> {
+    let path = tauri::async_runtime::spawn_blocking(move || update::download(&url)).await.map_err(err)??;
+    std::process::Command::new(&path).spawn().map_err(|e| format!("Could not start the installer: {e}"))?;
+    app.exit(0);
+    Ok(())
+}
+
+#[tauri::command]
+fn app_version(app: tauri::AppHandle) -> String {
+    app.package_info().version.to_string()
+}
+
 pub fn run() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
@@ -310,7 +332,10 @@ pub fn run() {
             get_aircraft_photo,
             set_aircraft_photo,
             add_sample_flights,
-            remove_sample_flights
+            remove_sample_flights,
+            check_update,
+            install_update,
+            app_version
         ])
         .run(tauri::generate_context!())
         .expect("error while running FlightDeck");

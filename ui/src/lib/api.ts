@@ -258,6 +258,15 @@ export interface HangarItem {
 
 export type Settings = Record<string, string>;
 
+export interface UpdateInfo {
+  current: string;
+  latest: string;
+  available: boolean;
+  notes: string;
+  download_url: string | null;
+  size_mb: number;
+}
+
 export const inTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
 async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
@@ -287,6 +296,9 @@ export const api = {
   routes: () => call<Route[]>("get_routes"),
   aircraftPhoto: (id: number) => call<string | null>("get_aircraft_photo", { id }),
   setAircraftPhoto: (id: number, dataUrl: string | null) => call<boolean>("set_aircraft_photo", { id, dataUrl }),
+  checkUpdate: () => call<UpdateInfo>("check_update"),
+  installUpdate: (url: string) => call<void>("install_update", { url }),
+  version: () => call<string>("app_version"),
   addSampleFlights: () => call<number>("add_sample_flights"),
   removeSampleFlights: () => call<number>("remove_sample_flights"),
 };

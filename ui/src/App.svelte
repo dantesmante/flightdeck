@@ -9,6 +9,8 @@
   import PassportView from "./lib/passport/PassportView.svelte";
   import { loadPrefs } from "./lib/prefs.svelte";
   import SettingsView from "./lib/SettingsView.svelte";
+  import UpdateBanner from "./lib/UpdateBanner.svelte";
+  import { checkForUpdates } from "./lib/updates.svelte";
 
   type View = "live" | "flights" | "logbook" | "passport" | "hangar" | "settings";
   let view = $state<View>("live");
@@ -50,6 +52,7 @@
   onMount(() => {
     loadPrefs();
     loadRoutes();
+    checkForUpdates();
     const offs: Promise<() => void>[] = [];
     api.status().then((s) => {
       if (!s) return;
@@ -160,6 +163,7 @@
   {#if toast}
     <div class="toast" role="status">{toast}</div>
   {/if}
+  <UpdateBanner />
 
   <aside class="panel" class:hidden={full}>
     {#if view === "live"}
