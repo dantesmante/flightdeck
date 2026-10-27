@@ -9,8 +9,10 @@
   interface Props {
     track: Pt[];
     height?: number;
+    /** Allow zooming and panning, with zoom buttons. */
+    interactive?: boolean;
   }
-  let { track, height = 220 }: Props = $props();
+  let { track, height = 220, interactive = false }: Props = $props();
 
   let el: HTMLDivElement;
   let map: maplibregl.Map | undefined;
@@ -58,12 +60,19 @@
     map = new maplibregl.Map({
       container: el,
       style: STYLE,
-      interactive: false,
+      interactive,
+      dragRotate: false,
+      pitchWithRotate: false,
+      touchPitch: false,
       attributionControl: { compact: true },
       fadeDuration: 0,
       center: track[0] ? [track[0][0], track[0][1]] : [0, 20],
       zoom: 3,
     });
+    if (interactive) {
+      map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-right");
+      map.touchZoomRotate.disableRotation();
+    }
     let fellBack = false;
     const fallback = () => {
       if (fellBack || ready || !map) return;
@@ -88,9 +97,46 @@
   onDestroy(() => map?.remove());
 </script>
 
-<div class="mini" style:height="{height}px" bind:this={el} role="img" aria-label="Map of the flight's route"></div>
+<div class="wrap">
+  <div class="mini" class:interactive style:height="{height}px" bind:this={el} role="img" aria-label="Map of the flight's route"></div>
+  {#if interactive}
+    <button class="reset" onclick={() => draw()} title="Show the whole flight">Whole flight</button>
+  {/if}
+</div>
 
 <style>
+  .wrap {
+    position: relative;
+  }
+  .reset {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    padding: 4px 9px;
+    border-radius: 6px;
+    border: 1px solid var(--rule);
+    background: rgba(23, 36, 48, 0.88);
+    color: var(--ink-dim);
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .reset:hover {
+    color: var(--ink);
+  }
+  .mini.interactive {
+    cursor: grab;
+  }
+  .mini :global(.maplibregl-ctrl-group) {
+    background: var(--panel-2);
+    border: 1px solid var(--rule);
+    box-shadow: none;
+  }
+  .mini :global(.maplibregl-ctrl-group button + button) {
+    border-top-color: var(--rule);
+  }
+  .mini :global(.maplibregl-ctrl-icon) {
+    filter: invert(0.85);
+  }
   .mini {
     width: 100%;
     border-radius: 8px;

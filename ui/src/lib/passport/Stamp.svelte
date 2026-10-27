@@ -3,7 +3,8 @@
   // wear are random but stable, so a stamp always looks the same.
   import type { Stamp } from "../api";
 
-  let { stamp, size = 150 }: { stamp: Stamp; size?: number } = $props();
+  /** `flag` is the country's flag as SVG markup, when known. */
+  let { stamp, size = 150, flag = null }: { stamp: Stamp; size?: number; flag?: string | null } = $props();
 
   function rng(seed: number) {
     let a = seed >>> 0;
@@ -43,7 +44,23 @@
   /** Long names get smaller letters so they still fit. */
   const fit = (s: string, base: number, room: number) => Math.min(base, (room / Math.max(s.length, 1)) * 1.75);
   const wide = $derived(d.shape === "rect" || d.shape === "rounded" || d.shape === "oval");
+  const flagUrl = $derived(flag ? `data:image/svg+xml;utf8,${encodeURIComponent(flag)}` : null);
+  /** Where the flag goes on each stamp shape: x, y, width (3:2 flags). */
+  const flagAt = $derived(
+    d.shape === "hex" ? { x: 96, y: 22, w: 28 } : wide ? { x: 180, y: 93, w: 27 } : { x: 95, y: 33, w: 30 },
+  );
+  const flagTilt = $derived(((stamp.seed >>> 13) % 9) - 4);
 </script>
+
+{#snippet flagMark()}
+  {#if flagUrl}
+    {@const f = flagAt}
+    <g transform="rotate({flagTilt} {f.x + f.w / 2} {f.y + f.w / 3})" filter="url(#flag-{id})" opacity="0.9">
+      <image href={flagUrl} x={f.x} y={f.y} width={f.w} height={(f.w * 2) / 3} preserveAspectRatio="none" />
+      <rect x={f.x} y={f.y} width={f.w} height={(f.w * 2) / 3} fill="none" stroke={d.ink} stroke-width="0.8" opacity="0.45" />
+    </g>
+  {/if}
+{/snippet}
 
 {#snippet plane(x: number, y: number, s: number)}
   <g transform="translate({x} {y}) rotate({going ? -22 : 22}) scale({s})">
@@ -68,6 +85,14 @@
       <feTurbulence type="fractalNoise" baseFrequency="0.03" numOctaves="3" seed={d.wear + 7} result="blot" />
       <feColorMatrix in="blot" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  -1.7 0 0 0 1.6" result="press" />
       <feComposite in="rough" in2="press" operator="in" />
+    </filter>
+    <!-- The flag: a slight wave and patchy ink, like a second colour stamp. -->
+    <filter id="flag-{id}" x="-10%" y="-15%" width="120%" height="130%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.06 0.12" numOctaves="1" seed={d.wear + 3} result="wave" />
+      <feDisplacementMap in="SourceGraphic" in2="wave" scale="3" xChannelSelector="R" yChannelSelector="G" result="waved" />
+      <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed={d.wear + 11} result="grain" />
+      <feColorMatrix in="grain" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 -2.2 2.1" result="speckle" />
+      <feComposite in="waved" in2="speckle" operator="in" />
     </filter>
     <path id="top-{id}" d="M 30 110 A 80 80 0 0 1 190 110" />
     <path id="bottom-{id}" d="M 36 110 A 74 74 0 0 0 184 110" />
@@ -118,6 +143,7 @@
       </text>
     {/if}
   </g>
+  {@render flagMark()}
 </svg>
 
 <style>

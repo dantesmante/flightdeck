@@ -31,6 +31,7 @@
 
   /** A route on the map was clicked: show that flight. */
   function showFlight(id: number) {
+    if (full) loadRoutes();
     view = "flights";
     openRequest = { id, n: (openRequest?.n ?? 0) + 1 };
   }
@@ -150,7 +151,7 @@
   {#if full}
     <div class="fullview">
       {#if view === "logbook"}
-        {#key refreshKey}<LogbookView />{/key}
+        {#key refreshKey}<LogbookView onflight={showFlight} />{/key}
       {:else if view === "passport"}
         {#key refreshKey}<PassportView onsettings={() => go("settings")} />{/key}
       {:else if view === "hangar"}

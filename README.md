@@ -56,7 +56,9 @@ MIT licensed.
   from the one you left earns a stamp, and the first landing in a country
   gets a first-entry seal. Overseas territories such as French Guiana,
   Réunion, Guadeloupe, Martinique, American Samoa and Guam are their own
-  places on the map, separate from France or the US.
+  places on the map, separate from France or the US. Each stamp carries a
+  small inked flag, and the photo on the data page has a holographic film
+  that shimmers when you move the mouse over it.
 - **Paper logbook**: a two-page ruled logbook in FAA or EASA layout,
   handwritten or typed, with page totals carried forward. Night time and
   night landings come from the sun's position along your track. Click a
@@ -220,4 +222,6 @@ cargo run -p refdata --features build-tool --bin build-refdata -- ourairports-da
 - Airport data from OurAirports (public domain).
 - Country outlines from Natural Earth (public domain), projected with the
   Equal Earth projection by `tools/build_world.py`.
+- Stamp flags from country-flag-icons by catamphetamine (MIT), bundled by
+  `tools/build_flags.py`.
 - Fonts: Barlow and Barlow Condensed (SIL Open Font License).

@@ -6,6 +6,8 @@
   import { groups, LAYOUTS, printValue, type Col, type Layout } from "./columns";
   import EntryCard from "./EntryCard.svelte";
 
+  let { onflight }: { onflight?: (flightId: number) => void } = $props();
+
   const W = 560;
   const H = 470;
   const ROWS = 12;
@@ -168,7 +170,7 @@
 </section>
 
 {#if opened}
-  <EntryCard row={opened} onclose={() => (opened = null)} onchanged={() => load()} />
+  <EntryCard row={opened} onclose={() => (opened = null)} onchanged={() => load()} onfull={onflight} />
 {/if}
 
 <style>

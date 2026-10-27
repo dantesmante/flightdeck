@@ -26,16 +26,17 @@ export const SPEED_COLOR = "#ffd447";
 
 /** The altitude range a flight's colours span: the lowest point flown
  * (about field elevation) up to its highest. */
-export function altRange(pts: Pt[]): { lo: number; hi: number } {
+export function altRange(pts: Pt[]): { lo: number; hi: number; top: number } {
   let lo = Infinity;
   let hi = -Infinity;
   for (const p of pts) {
     if (p[2] < lo) lo = p[2];
     if (p[2] > hi) hi = p[2];
   }
-  if (!isFinite(lo)) return { lo: 0, hi: 1 };
+  if (!isFinite(lo)) return { lo: 0, hi: 1, top: 0 };
   // A flight that never climbs much still reads as low (red), not green.
-  return { lo, hi: Math.max(hi, lo + 1500) };
+  // `top` is the real highest point, for labels.
+  return { lo, hi: Math.max(hi, lo + 1500), top: hi };
 }
 
 function hex(c: string): [number, number, number] {

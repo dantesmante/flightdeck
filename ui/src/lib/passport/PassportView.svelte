@@ -8,6 +8,7 @@
   import { mrz, paperPattern, passportNumber } from "./paper";
   import Stamp from "./Stamp.svelte";
   import WorldMap from "./WorldMap.svelte";
+  import holo from "./holo.jpg";
 
   let { onsettings }: { onsettings: () => void } = $props();
 
@@ -27,6 +28,15 @@
   let data = $state<PassportData | null>(null);
   type World = { w: number; h: number; countries: { c: string; n: string; d: string; dot?: [number, number] }[] };
   let world = $state<World | null>(null);
+  let flags = $state<Record<string, string>>({});
+  /** Pointer position over the photo, 0..100, for the hologram's shimmer. */
+  let mx = $state(50);
+  let my = $state(50);
+  function tilt(e: PointerEvent) {
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    mx = ((e.clientX - r.left) / r.width) * 100;
+    my = ((e.clientY - r.top) / r.height) * 100;
+  }
   let spread = $state(-1);
   let book = $state<Book | null>(null);
 
@@ -45,9 +55,10 @@
   const coverColor = $derived((COVERS.find((c) => c.id === coverId) ?? COVERS[0]).color);
 
   onMount(async () => {
-    const [d, w] = await Promise.all([api.passport(), import("./world.json")]);
+    const [d, w, f] = await Promise.all([api.passport(), import("./world.json"), import("./flags.json")]);
     data = d;
     world = w.default as World;
+    flags = f.default as Record<string, string>;
   });
 
   const visited = $derived(new Set((data?.countries ?? []).map((c) => c.country)));
@@ -146,7 +157,7 @@
         <div class="watermark"><Emblem size={260} color="#7f9f9b" /></div>
         <p class="lead">This passport records every border its bearer has crossed by air.</p>
         <p>A stamp is issued each time you land in a different country from the one you left.</p>
-        <p>The first arrival in any country receives a first-entry seal.</p>
+        <p>The first landing in any country receives a first-entry seal.</p>
         <p class="small">Issued by FlightDeck. Valid for all simulators.</p>
       </div>
     {/snippet}
@@ -159,7 +170,14 @@
           <span class="mini"><Emblem size={30} color="#5d4a7a" /></span>
         </div>
         <div class="grid">
-          <div class="photo">
+          <div
+            class="photo"
+            onpointermove={tilt}
+            style:--mx="{mx}%"
+            style:--my="{my}%"
+            style:--holo="url({holo})"
+            role="presentation"
+          >
             {#if data!.pilot.photo_url}
               <img src={data!.pilot.photo_url} alt="Pilot" />
             {:else}
@@ -168,6 +186,7 @@
                 <span>Add a photo</span>
               </button>
             {/if}
+            <span class="holo" aria-hidden="true"></span>
           </div>
           <dl>
             <div class="row3">
@@ -211,7 +230,7 @@
         {#each vp.stamps as s, j (`${s.flight_id}-${s.kind}`)}
           {@const at = slot(s, j)}
           <div class="slot" style:left="{at.x}px" style:top="{at.y}px">
-            <Stamp stamp={s} size={s.kind === "first_entry" ? 142 : 132} />
+            <Stamp stamp={s} size={s.kind === "first_entry" ? 142 : 132} flag={flags[s.country] ?? null} />
           </div>
         {/each}
       </div>
@@ -526,6 +545,44 @@
     border-radius: 4px;
     overflow: hidden;
     background: #ddd6e6;
+  }
+  /* Hologram: a translucent rainbow film over the photo that shows when
+     the pointer is over it and shimmers as the pointer moves. */
+  .photo {
+    position: relative;
+  }
+  .holo {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.35s ease;
+    background-image:
+      linear-gradient(
+        115deg,
+        transparent calc(var(--mx) - 38%),
+        rgba(255, 255, 255, 0.4) calc(var(--mx) - 6%),
+        transparent calc(var(--mx) + 26%)
+      ),
+      repeating-linear-gradient(60deg, rgba(255, 255, 255, 0.22) 0 1px, transparent 1px 4px),
+      repeating-radial-gradient(circle at 72% 30%, rgba(255, 255, 255, 0.28) 0 1px, transparent 1px 6px),
+      var(--holo);
+    background-size: 100% 100%, auto, auto, 260% 260%;
+    background-position: 0 0, 0 0, 0 0, var(--mx) var(--my);
+    mix-blend-mode: overlay;
+  }
+  .holo::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: var(--holo);
+    background-size: 200% 200%;
+    background-position: calc(100% - var(--mx)) calc(100% - var(--my));
+    mix-blend-mode: color-dodge;
+    opacity: 0.16;
+  }
+  .photo:hover .holo {
+    opacity: 0.68;
   }
   .photo img {
     width: 100%;

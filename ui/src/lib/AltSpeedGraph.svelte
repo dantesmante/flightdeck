@@ -13,6 +13,7 @@
 
   let width = $state(0);
   let hover = $state<number | null>(null);
+  let tipW = $state(0);
   const uid = `g${Math.random().toString(36).slice(2, 8)}`;
 
   const PAD = { l: 48, r: 44, t: 10, b: 24 };
@@ -161,7 +162,7 @@
       </svg>
       {#if hp}
         {@const hx = g.x(hp[4])}
-        <div class="tip" style:left="{Math.min(Math.max(hx, 70), width - 70)}px">
+        <div class="tip" bind:clientWidth={tipW} style:left="{Math.min(Math.max(hx - tipW / 2, 0), Math.max(0, width - tipW))}px">
           <span class="when">{zulu(hp[4])} <em>+{elapsed(hp[4])}</em></span>
           <span><i class="sw alt"></i><b>{Math.round(hp[2]).toLocaleString("en-US")}</b> ft</span>
           <span><i class="sw spd" style:background={SPEED_COLOR}></i><b>{Math.round(hp[3])}</b> kt</span>
@@ -174,6 +175,9 @@
 <style>
   .graph {
     margin: 0;
+    /* Nothing inside (like the hover readout) may ever push the page wider. */
+    overflow: hidden;
+    contain: layout paint;
     padding: 12px 12px 6px;
     border-radius: 10px;
     background: linear-gradient(180deg, #1a2a37, #15222d);
@@ -242,7 +246,6 @@
   .tip {
     position: absolute;
     top: -30px;
-    transform: translateX(-50%);
     display: flex;
     gap: 10px;
     align-items: center;

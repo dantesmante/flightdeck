@@ -5,7 +5,7 @@
   import { onDestroy, onMount } from "svelte";
   import type { Route } from "./api";
   import { C as BASE, STYLE, offlineStyle, tintMap } from "./mapStyle";
-  import { ALT_STOPS, altGradient, altLabel, altRange, lonLat, type Pt } from "./track";
+  import { altColor, altGradient, altLabel, altRange, lonLat, type Pt } from "./track";
 
   interface Props {
     /** Live track with altitude. */
@@ -27,7 +27,14 @@
 
   const shown = $derived(history ?? live);
   const range = $derived(altRange(shown));
-  const keyBar = `linear-gradient(90deg, ${ALT_STOPS.map(([f, c]) => `${c} ${f * 100}%`).join(", ")})`;
+  // The key runs from the lowest to the highest point actually flown, in
+  // the same colours the line uses (a low flight never reaches green).
+  const keyBar = $derived.by(() => {
+    const { lo, hi, top } = range;
+    const end = (top - lo) / (hi - lo || 1);
+    const stops = Array.from({ length: 9 }, (_, i) => `${altColor((i / 8) * end)} ${(i / 8) * 100}%`);
+    return `linear-gradient(90deg, ${stops.join(", ")})`;
+  });
 
   const C = { ...BASE, route: "#a9bfd1", routeHot: "#f0b23a" };
 
@@ -372,7 +379,7 @@
   <div class="alt-key" aria-label="Line colour shows altitude">
     <span class="t">Altitude</span>
     <span class="bar" style:background={keyBar}></span>
-    <span class="ends"><span>{altLabel(range.lo)}</span><span>{altLabel(range.hi)}</span></span>
+    <span class="ends"><span>{altLabel(range.lo)}</span><span>{altLabel(range.top)}</span></span>
   </div>
 {/if}
 {#if offline}

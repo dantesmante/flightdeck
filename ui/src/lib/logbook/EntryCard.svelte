@@ -14,8 +14,10 @@
     onclose: () => void;
     /** Something changed (edited or deleted): reload the logbook. */
     onchanged: () => void;
+    /** Open this flight's full details on the Flights page. */
+    onfull?: (flightId: number) => void;
   }
-  let { row, onclose, onchanged }: Props = $props();
+  let { row, onclose, onchanged, onfull }: Props = $props();
 
   let detail = $state<FlightDetail | null>(null);
   let mode = $state<"view" | "edit" | "delete">("view");
@@ -208,7 +210,7 @@
     <div class="map">
       {#if detail}
         {#if track.length}
-          <MiniMap {track} height={170} />
+          <MiniMap {track} height={170} interactive />
         {:else}
           <div class="nomap">No track was recorded for this flight.</div>
         {/if}
@@ -249,6 +251,12 @@
       <div class="actions">
         <button class="primary" onclick={startEdit}>Edit entry</button>
         <button class="ghost danger-text" onclick={() => (mode = "delete")}>Delete entry</button>
+        {#if onfull}
+          <button class="ghost full" onclick={() => onfull(row.flight_id)}>
+            Full flight info
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7" /></svg>
+          </button>
+        {/if}
       </div>
     {/if}
     {#if error}<p class="error" role="alert">{error}</p>{/if}
@@ -271,6 +279,7 @@
     width: min(620px, 94vw);
     max-height: 92vh;
     overflow-y: auto;
+    overflow-x: hidden;
     background: var(--panel);
     border: 1px solid var(--rule);
     border-radius: 12px;
@@ -465,5 +474,24 @@
   .error {
     color: var(--bad);
     margin: 10px 0 0;
+  }
+  .full {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .full svg {
+    width: 16px;
+    height: 16px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2.4;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    transition: transform 0.15s;
+  }
+  .full:hover svg {
+    transform: translateX(2px);
   }
 </style>
