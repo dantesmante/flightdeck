@@ -6,7 +6,7 @@
   <div class="banner" role="status">
     <span>
       {#if updates.installing}
-        Downloading FlightDeck {updates.info.latest}… The installer opens in a moment and FlightDeck closes. Your flights are kept.
+        Downloading FlightDeck {updates.info.latest}… FlightDeck closes, installs the update and opens again by itself. Your flights are kept.
       {:else}
         FlightDeck {updates.info.latest} is ready to install.
       {/if}

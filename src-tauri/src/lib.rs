@@ -315,7 +315,13 @@ async fn check_update(app: tauri::AppHandle) -> CmdResult<update::UpdateInfo> {
 #[tauri::command]
 async fn install_update(app: tauri::AppHandle, url: String) -> CmdResult<()> {
     let path = tauri::async_runtime::spawn_blocking(move || update::download(&url)).await.map_err(err)??;
-    std::process::Command::new(&path).spawn().map_err(|e| format!("Could not start the installer: {e}"))?;
+    // /P: progress bar only, no pages (so no "Already installed" question).
+    // /UPDATE: install over the current version without uninstalling it.
+    // /R: open FlightDeck again when done.
+    std::process::Command::new(&path)
+        .args(["/P", "/UPDATE", "/R"])
+        .spawn()
+        .map_err(|e| format!("Could not start the installer: {e}"))?;
     app.exit(0);
     Ok(())
 }
