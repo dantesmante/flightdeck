@@ -180,7 +180,7 @@
     contain: layout paint;
     padding: 12px 12px 6px;
     border-radius: 10px;
-    background: linear-gradient(180deg, #1a2a37, #15222d);
+    background: linear-gradient(180deg, #24272a, #1e2023);
     border: 1px solid var(--rule);
   }
   figcaption {
@@ -240,7 +240,7 @@
     stroke-dasharray: 3 3;
   }
   .dot {
-    stroke: #15222d;
+    stroke: #1e2023;
     stroke-width: 2;
   }
   .tip {
@@ -251,7 +251,7 @@
     align-items: center;
     padding: 5px 9px;
     border-radius: 6px;
-    background: rgba(13, 24, 32, 0.92);
+    background: rgba(17, 18, 20, 0.92);
     border: 1px solid var(--rule);
     font-size: 12px;
     color: var(--ink-dim);

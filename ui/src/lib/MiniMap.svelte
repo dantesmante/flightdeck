@@ -44,7 +44,7 @@
         id: "ends",
         type: "circle",
         source: "e",
-        paint: { "circle-radius": 5, "circle-color": C.land, "circle-stroke-color": "#e8eef2", "circle-stroke-width": 2.5 },
+        paint: { "circle-radius": 5, "circle-color": C.land, "circle-stroke-color": "#f0b23a", "circle-stroke-width": 2.5 },
       });
     }
     if (coords.length >= 2) {
@@ -115,7 +115,7 @@
     padding: 4px 9px;
     border-radius: 6px;
     border: 1px solid var(--rule);
-    background: rgba(23, 36, 48, 0.88);
+    background: rgba(28, 30, 33, 0.88);
     color: var(--ink-dim);
     font-size: 12px;
     font-weight: 600;
@@ -141,11 +141,11 @@
     width: 100%;
     border-radius: 8px;
     overflow: hidden;
-    background: #132029;
+    background: #17191b;
     border: 1px solid var(--rule);
   }
   .mini :global(.maplibregl-ctrl-attrib) {
-    background: rgba(23, 36, 48, 0.85);
+    background: rgba(28, 30, 33, 0.85);
     color: var(--ink-dim);
     font-size: 10px;
   }

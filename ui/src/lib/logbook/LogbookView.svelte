@@ -178,7 +178,7 @@
     height: 100%;
     display: flex;
     flex-direction: column;
-    background: linear-gradient(180deg, #14212b, #101a22);
+    background: linear-gradient(180deg, #1d1f22, #141517);
   }
   .toolbar {
     display: flex;

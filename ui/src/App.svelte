@@ -263,7 +263,7 @@
     gap: 8px;
     padding: 6px 11px;
     border-radius: 6px;
-    background: rgba(23, 36, 48, 0.92);
+    background: rgba(28, 30, 33, 0.92);
     border: 1px solid var(--rule);
     font-size: 13px;
     color: var(--ink-dim);

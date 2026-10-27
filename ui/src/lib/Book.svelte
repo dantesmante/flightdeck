@@ -363,7 +363,7 @@
     display: grid;
     place-items: center;
     border: 1.5px solid var(--rule);
-    background: rgba(23, 36, 48, 0.75);
+    background: rgba(28, 30, 33, 0.75);
     color: var(--ink-dim);
     transition:
       transform 0.25s cubic-bezier(0.3, 0.7, 0.4, 1.4),

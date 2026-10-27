@@ -1,12 +1,12 @@
 :root {
   /* Night instrument panel */
-  --panel: #172430;
-  --panel-2: #1e2f3d;
-  --panel-3: #263b4c;
-  --rule: #2e4658;
-  --ink: #e6edf2;
-  --ink-dim: #8fa3b3;
-  --ink-faint: #5d7385;
+  --panel: #1c1e21;
+  --panel-2: #232629;
+  --panel-3: #2c3034;
+  --rule: #34383d;
+  --ink: #ececed;
+  --ink-dim: #9ba0a7;
+  --ink-faint: #6a6f76;
   /* Backlit annunciator: the active state */
   --amber: #f0b23a;
   --amber-glow: rgba(240, 178, 58, 0.16);

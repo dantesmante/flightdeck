@@ -5,16 +5,18 @@ import type maplibregl from "maplibre-gl";
 export const STYLE = "https://tiles.openfreemap.org/styles/positron";
 
 export const C = {
-  land: "#132029",
-  water: "#0d1820",
-  green: "#16252f",
-  built: "#1a2a36",
-  road: "#22384a",
-  roadMajor: "#2b4558",
-  aeroway: "#4b6276",
-  border: "#3e5d73",
-  text: "#8fa3b3",
-  halo: "#0d1820",
+  // A quiet, low-contrast grey chart, so flights stand out on top of it.
+  land: "#1b1c1e",
+  water: "#141516",
+  green: "#1c1e1e",
+  built: "#1f2022",
+  road: "#242628",
+  roadMajor: "#2b2d30",
+  aeroway: "#3d4045",
+  border: "#34373b",
+  borderStrong: "#7a8089",
+  text: "#6c7076",
+  halo: "#141516",
   track: "#e2468f",
 };
 
@@ -88,4 +90,27 @@ export function offlineStyle(): maplibregl.StyleSpecification {
       { id: "grid", type: "line", source: "grid", paint: { "line-color": C.road, "line-width": 1 } },
     ],
   };
+}
+
+/** Country and state borders: faint by default, or picked out clearly. */
+const borderWidths = new WeakMap<maplibregl.Map, Map<string, unknown>>();
+export function setBorders(map: maplibregl.Map, strong: boolean) {
+  let widths = borderWidths.get(map);
+  if (!widths) borderWidths.set(map, (widths = new Map()));
+  for (const layer of map.getStyle().layers ?? []) {
+    if (layer.type !== "line") continue;
+    const src = "source-layer" in layer ? String(layer["source-layer"] ?? "") : "";
+    const key = `${layer.id} ${src}`.toLowerCase();
+    if (!key.match(/boundary|admin/)) continue;
+    setPaint(map, layer.id, "line-color", strong ? C.borderStrong : C.border);
+    setPaint(map, layer.id, "line-opacity", strong ? 0.9 : 1);
+    // Remember the style's own width so turning it off restores it.
+    if (!widths.has(layer.id)) widths.set(layer.id, map.getPaintProperty(layer.id, "line-width"));
+    setPaint(
+      map,
+      layer.id,
+      "line-width",
+      strong ? ["interpolate", ["linear"], ["zoom"], 2, 1, 6, 1.6, 10, 2.2] : widths.get(layer.id),
+    );
+  }
 }

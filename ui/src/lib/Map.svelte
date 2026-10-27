@@ -4,7 +4,10 @@
   import maplibregl, { type GeoJSONSource, type LngLatBoundsLike } from "maplibre-gl";
   import { onDestroy, onMount, untrack } from "svelte";
   import type { Route } from "./api";
-  import { C as BASE, STYLE, offlineStyle, tintMap } from "./mapStyle";
+  import { C as BASE, STYLE, offlineStyle, setBorders, tintMap } from "./mapStyle";
+  import MapLayers from "./MapLayers.svelte";
+  import { latestRadar } from "./radar";
+  import { nightShade } from "./terminator";
   import { prefs, setPref } from "./prefs.svelte";
   import { altColor, altGradient, altLabel, altRange, lonLat, sideOnBearing, wallFeatures, wallScale, type Pt } from "./track";
 
@@ -40,7 +43,20 @@
     return `linear-gradient(90deg, ${stops.join(", ")})`;
   });
 
-  const C = { ...BASE, route: "#a9bfd1", routeHot: "#f0b23a" };
+  const C = { ...BASE, route: "#c4c8ce", routeHot: "#f0b23a", airport: "#f0b23a" };
+
+  /** Optional layers, saved as a comma list. Past routes and airports are on
+   * unless switched off. */
+  const DEFAULT_LAYERS = "routes,airports";
+  const layers = $derived(new Set((prefs.s.map_layers ?? DEFAULT_LAYERS).split(",").filter(Boolean)));
+  function toggleLayer(key: string) {
+    const next = new Set(layers);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    setPref("map_layers", [...next].join(","));
+  }
+  let radarTime = $state<number | null>(null);
+  let radarError = $state(false);
 
   const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -126,6 +142,24 @@
 
   function addOverlays() {
     if (!map) return;
+    // Night side of the Earth, under everything else.
+    map.addSource("night", { type: "geojson", data: nightShade() });
+    map.addLayer({
+      id: "night",
+      type: "fill",
+      source: "night",
+      filter: ["==", ["get", "kind"], "night"],
+      layout: { visibility: "none" },
+      paint: { "fill-color": "#000000", "fill-opacity": 0.32 },
+    });
+    map.addLayer({
+      id: "night-edge",
+      type: "line",
+      source: "night",
+      filter: ["==", ["get", "kind"], "edge"],
+      layout: { visibility: "none" },
+      paint: { "line-color": "#f0b23a", "line-opacity": 0.35, "line-width": 1.2, "line-blur": 1 },
+    });
     // Every past flight, faint, under the live track.
     map.addSource("routes", { type: "geojson", data: routeFeatures(routes) });
     const hot: maplibregl.ExpressionSpecification = [
@@ -140,8 +174,8 @@
       filter: ["==", ["get", "kind"], "route"],
       paint: {
         "line-color": ["case", hot, C.routeHot, C.route] as maplibregl.ExpressionSpecification,
-        "line-opacity": ["case", hot, 0.95, 0.32] as maplibregl.ExpressionSpecification,
-        "line-width": ["case", hot, 2.6, 1.4] as maplibregl.ExpressionSpecification,
+        "line-opacity": ["case", hot, 0.95, 0.5] as maplibregl.ExpressionSpecification,
+        "line-width": ["case", hot, 2.6, 1.6] as maplibregl.ExpressionSpecification,
       },
       layout: { "line-cap": "round" },
     });
@@ -161,7 +195,7 @@
         "circle-radius": 8,
         "circle-color": "rgba(0,0,0,0)",
         "circle-stroke-color": ["case", hot, C.routeHot, C.route] as maplibregl.ExpressionSpecification,
-        "circle-stroke-opacity": ["case", hot, 0.95, 0.45] as maplibregl.ExpressionSpecification,
+        "circle-stroke-opacity": ["case", hot, 0.95, 0.6] as maplibregl.ExpressionSpecification,
         "circle-stroke-width": ["case", hot, 2.4, 1.4] as maplibregl.ExpressionSpecification,
       },
     });
@@ -170,7 +204,13 @@
       type: "circle",
       source: "routes",
       filter: ["==", ["get", "kind"], "airport"],
-      paint: { "circle-radius": 2.6, "circle-color": "#c9d6e0", "circle-opacity": 0.65 },
+      paint: {
+        "circle-radius": ["interpolate", ["linear"], ["zoom"], 2, 2.6, 8, 4],
+        "circle-color": C.airport,
+        "circle-opacity": 0.95,
+        "circle-stroke-color": C.land,
+        "circle-stroke-width": 1.2,
+      },
     });
     map.addSource("track", {
       type: "geojson",
@@ -215,7 +255,7 @@
   function planeEl() {
     const d = document.createElement("div");
     d.className = "plane";
-    d.innerHTML = `<svg viewBox="-24 -24 48 48" width="38" height="38" aria-hidden="true"><path d="M0 -20 L3.4 -6 L19 1.5 L19 5.5 L3.4 2.6 L2.4 13 L8 17 L8 19.6 L0 17.8 L-8 19.6 L-8 17 L-2.4 13 L-3.4 2.6 L-19 5.5 L-19 1.5 L-3.4 -6 Z" fill="#F0B23A" stroke="#0d1820" stroke-width="1.5" stroke-linejoin="round"/></svg>`;
+    d.innerHTML = `<svg viewBox="-24 -24 48 48" width="38" height="38" aria-hidden="true"><path d="M0 -20 L3.4 -6 L19 1.5 L19 5.5 L3.4 2.6 L2.4 13 L8 17 L8 19.6 L0 17.8 L-8 19.6 L-8 17 L-2.4 13 L-3.4 2.6 L-19 5.5 L-19 1.5 L-3.4 -6 Z" fill="#F0B23A" stroke="#111214" stroke-width="1.5" stroke-linejoin="round"/></svg>`;
     return d;
   }
 
@@ -317,6 +357,64 @@
   function setThree(on: boolean) {
     setPref("map_3d", on ? "1" : "0");
   }
+
+  // Optional layers: past routes, airports, borders, day/night, radar.
+  $effect(() => {
+    const on = layers;
+    if (!loaded || !map || !map.getLayer("routes-line")) return;
+    const vis = (id: string, v: boolean) => map!.getLayer(id) && map!.setLayoutProperty(id, "visibility", v ? "visible" : "none");
+    for (const id of ["routes-line", "routes-hit", "routes-loops"]) vis(id, on.has("routes"));
+    vis("routes-airports", on.has("airports"));
+    vis("night", on.has("night"));
+    vis("night-edge", on.has("night"));
+    setBorders(map, on.has("borders"));
+    showRadar(on.has("radar"));
+  });
+
+  // The night side moves; redraw it every minute.
+  $effect(() => {
+    if (!loaded || !layers.has("night")) return;
+    const t = setInterval(() => (map?.getSource("night") as GeoJSONSource | undefined)?.setData(nightShade()), 60_000);
+    (map?.getSource("night") as GeoJSONSource | undefined)?.setData(nightShade());
+    return () => clearInterval(t);
+  });
+
+  let radarTimer: ReturnType<typeof setInterval> | undefined;
+  async function refreshRadar() {
+    const f = await latestRadar();
+    if (!map || !untrack(() => layers.has("radar"))) return;
+    radarError = !f;
+    if (!f) return;
+    radarTime = f.time;
+    const src = map.getSource("radar") as maplibregl.RasterTileSource | undefined;
+    if (src) {
+      src.setTiles([f.tiles]);
+    } else {
+      // Radar sits above the land but below routes and the flight.
+      map.addSource("radar", { type: "raster", tiles: [f.tiles], tileSize: 256, maxzoom: 7, attribution: "Radar © RainViewer" });
+      map.addLayer(
+        { id: "radar", type: "raster", source: "radar", paint: { "raster-opacity": 0.6, "raster-fade-duration": 0 } },
+        map.getLayer("routes-line") ? "routes-line" : undefined,
+      );
+    }
+  }
+  function showRadar(on: boolean) {
+    if (!map) return;
+    if (on) {
+      if (!radarTimer) {
+        refreshRadar();
+        radarTimer = setInterval(refreshRadar, 10 * 60_000);
+      } else if (!map.getSource("radar")) {
+        refreshRadar();
+      }
+      if (map.getLayer("radar")) map.setLayoutProperty("radar", "visibility", "visible");
+    } else {
+      clearInterval(radarTimer);
+      radarTimer = undefined;
+      if (map.getLayer("radar")) map.setLayoutProperty("radar", "visibility", "none");
+    }
+  }
+  onDestroy(() => clearInterval(radarTimer));
 
   // Switch between flat and 3D: tilt the camera and raise or hide the wall.
   let wasThree: boolean | null = null;
@@ -438,10 +536,7 @@
 {#if aircraft && !follow && !history}
   <button class="follow" onclick={() => (follow = true)}>Follow aircraft</button>
 {/if}
-<div class="view-toggle" role="radiogroup" aria-label="Map view">
-  <button role="radio" aria-checked={!three} class:on={!three} onclick={() => setThree(false)}>2D</button>
-  <button role="radio" aria-checked={three} class:on={three} onclick={() => setThree(true)}>3D</button>
-</div>
+<MapLayers {three} on={layers} onthree={setThree} ontoggle={toggleLayer} {radarTime} {radarError} />
 {#if shown.length > 1}
   <div class="alt-key" aria-label="Line colour shows altitude">
     <span class="t">Altitude{#if three && stretch > 1}<em>heights ×{stretch}</em>{/if}</span>
@@ -457,7 +552,7 @@
   .map {
     position: absolute;
     inset: 0;
-    background: #132029;
+    background: #17191b;
   }
   .map :global(.plane) {
     filter: drop-shadow(0 0 6px rgba(240, 178, 58, 0.55));
@@ -466,7 +561,7 @@
     width: 14px;
     height: 14px;
     border-radius: 50%;
-    border: 3px solid #e8eef2;
+    border: 3px solid var(--amber);
     background: var(--panel);
   }
   .map :global(.maplibregl-ctrl-group) {
@@ -481,7 +576,7 @@
     filter: invert(0.85);
   }
   .map :global(.maplibregl-ctrl-attrib) {
-    background: rgba(23, 36, 48, 0.85);
+    background: rgba(28, 30, 33, 0.85);
     color: var(--ink-dim);
   }
   .map :global(.maplibregl-ctrl-attrib a) {
@@ -522,7 +617,7 @@
     width: 190px;
     padding: 8px 10px 7px;
     border-radius: 8px;
-    background: rgba(23, 36, 48, 0.88);
+    background: rgba(28, 30, 33, 0.88);
     border: 1px solid var(--rule);
     display: flex;
     flex-direction: column;
@@ -543,35 +638,6 @@
     margin-left: 8px;
     color: var(--ink-dim);
     opacity: 0.8;
-  }
-  .view-toggle {
-    position: absolute;
-    top: 16px;
-    right: 16px;
-    display: flex;
-    padding: 3px;
-    gap: 2px;
-    border-radius: 8px;
-    background: rgba(23, 36, 48, 0.9);
-    border: 1px solid var(--rule);
-  }
-  .view-toggle button {
-    border: none;
-    background: transparent;
-    color: var(--ink-dim);
-    font-family: var(--cond);
-    font-weight: 600;
-    font-size: 15px;
-    padding: 5px 12px;
-    border-radius: 6px;
-    cursor: pointer;
-  }
-  .view-toggle button:hover {
-    color: var(--ink);
-  }
-  .view-toggle button.on {
-    background: var(--amber);
-    color: #1b1406;
   }
   .alt-key .bar {
     height: 6px;

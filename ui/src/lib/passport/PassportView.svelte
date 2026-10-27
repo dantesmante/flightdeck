@@ -306,7 +306,7 @@
     flex-direction: column;
     background:
       radial-gradient(ellipse at 50% 40%, rgba(240, 178, 58, 0.06), transparent 60%),
-      linear-gradient(180deg, #14212b, #101a22);
+      linear-gradient(180deg, #1d1f22, #141517);
   }
   .loading {
     margin: auto;

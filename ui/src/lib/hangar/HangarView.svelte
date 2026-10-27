@@ -185,7 +185,7 @@
     background:
       radial-gradient(ellipse 40% 30% at 25% 0%, rgba(255, 244, 214, 0.08), transparent 70%),
       radial-gradient(ellipse 40% 30% at 75% 0%, rgba(255, 244, 214, 0.08), transparent 70%),
-      linear-gradient(180deg, #15222c 0%, #121c24 62%, #0e161c 62%, #172530 100%);
+      linear-gradient(180deg, #1c1e21 0%, #17181a 62%, #0e161c 62%, #212326 100%);
     overflow: hidden;
   }
   header {
@@ -243,7 +243,7 @@
   .picture {
     position: relative;
     aspect-ratio: 16 / 9;
-    background: #0d1820;
+    background: #111214;
   }
   .picture img {
     width: 100%;
@@ -257,7 +257,7 @@
     top: 10px;
     padding: 2px 9px;
     border-radius: 4px;
-    background: rgba(13, 24, 32, 0.72);
+    background: rgba(17, 18, 20, 0.72);
     color: #fff;
     font-size: 20px;
     font-weight: 600;

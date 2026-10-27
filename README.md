@@ -38,6 +38,9 @@ MIT licensed.
 - **Altitude & speed graph** for the live flight, every saved flight and
   each logbook entry: altitude as a filled profile in the same colours,
   ground speed as a yellow line. Hover for exact values at any moment.
+- **Map layers** panel: 3D flight, a live day/night line, stronger
+  borders, past routes, airports, and live **rain radar** (RainViewer,
+  refreshed every 10 minutes). Your choices are remembered.
 - **Real airport names and countries** for every departure and arrival,
   from 72,635 airports (OurAirports, public domain) built into the app.
 - **Saved flights** with block and air times, distance, fuel, track and
@@ -227,4 +230,5 @@ cargo run -p refdata --features build-tool --bin build-refdata -- ourairports-da
   Equal Earth projection by `tools/build_world.py`.
 - Stamp flags from country-flag-icons by catamphetamine (MIT), bundled by
   `tools/build_flags.py`.
+- Weather radar by RainViewer (free API for personal use).
 - Fonts: Barlow and Barlow Condensed (SIL Open Font License).
