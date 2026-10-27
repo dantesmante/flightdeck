@@ -3,7 +3,7 @@
   // (OpenStreetMap data), recoloured at load into a night-chart palette.
   import maplibregl, { type GeoJSONSource, type LngLatBoundsLike } from "maplibre-gl";
   import { onDestroy, onMount, untrack } from "svelte";
-  import type { Route } from "./api";
+  import type { FlightPlan, Route } from "./api";
   import { C as BASE, STYLE, offlineStyle, setBorders, tintMap } from "./mapStyle";
   import MapLayers from "./MapLayers.svelte";
   import { latestRadar } from "./radar";
@@ -26,8 +26,49 @@
     selected?: number | null;
     /** A route line was clicked. */
     onroute?: (flightId: number) => void;
+    /** The flight plan to draw as a dashed route with waypoints. */
+    plan?: FlightPlan | null;
   }
-  let { live, aircraft, origin, history, routes = [], selected = null, onroute }: Props = $props();
+  let { live, aircraft, origin, history, routes = [], selected = null, onroute, plan = null }: Props = $props();
+
+  const PLAN = "#a78bfa";
+
+  /** The planned route: one line from origin through every fix to the
+   * destination (long legs follow the great circle), plus points to label. */
+  function planFeatures(p: FlightPlan | null): GeoJSON.FeatureCollection {
+    if (!p) return { type: "FeatureCollection", features: [] };
+    const pts: [number, number][] = [];
+    const add = (lon: number, lat: number) => {
+      if (!lat && !lon) return;
+      const prev = pts[pts.length - 1];
+      if (prev && Math.abs(prev[0] - lon) < 1e-6 && Math.abs(prev[1] - lat) < 1e-6) return;
+      if (prev && Math.hypot(lon - prev[0], lat - prev[1]) > 4) {
+        // Long oceanic legs: follow the great circle, without repeating the start.
+        pts.push(...greatCircle(prev, [lon, lat], 24).slice(1));
+      } else {
+        pts.push([lon, lat]);
+      }
+    };
+    add(p.origin.lon, p.origin.lat);
+    for (const f of p.fixes) add(f.lon, f.lat);
+    add(p.destination.lon, p.destination.lat);
+    const features: GeoJSON.Feature[] = [
+      { type: "Feature", properties: { kind: "line" }, geometry: { type: "LineString", coordinates: pts } },
+    ];
+    for (const f of p.fixes) {
+      if (f.kind === "apt" || (!f.lat && !f.lon)) continue;
+      features.push({
+        type: "Feature",
+        properties: { kind: "fix", name: f.ident, proc: f.procedure ? 1 : 0 },
+        geometry: { type: "Point", coordinates: [f.lon, f.lat] },
+      });
+    }
+    for (const a of [p.origin, p.destination]) {
+      if (!a.lat && !a.lon) continue;
+      features.push({ type: "Feature", properties: { kind: "apt", name: a.icao }, geometry: { type: "Point", coordinates: [a.lon, a.lat] } });
+    }
+    return { type: "FeatureCollection", features };
+  }
 
   const shown = $derived(history ?? live);
   /** 3D view: the map tilts and the track stands up as a wall. */
@@ -212,6 +253,56 @@
         "circle-stroke-width": 1.2,
       },
     });
+    // The flight plan, under the flown track.
+    map.addSource("plan", { type: "geojson", data: planFeatures(plan) });
+    map.addLayer({
+      id: "plan-line",
+      type: "line",
+      source: "plan",
+      filter: ["==", ["get", "kind"], "line"],
+      paint: { "line-color": PLAN, "line-width": 2, "line-opacity": 0.85, "line-dasharray": [2, 1.6] },
+      layout: { "line-cap": "round", "line-join": "round" },
+    });
+    map.addLayer({
+      id: "plan-fixes",
+      type: "circle",
+      source: "plan",
+      filter: ["==", ["get", "kind"], "fix"],
+      minzoom: 4,
+      paint: {
+        "circle-radius": ["interpolate", ["linear"], ["zoom"], 4, 2, 9, 3.5],
+        "circle-color": C.land,
+        "circle-stroke-color": PLAN,
+        "circle-stroke-width": 1.5,
+        "circle-opacity": ["case", ["==", ["get", "proc"], 1], 0.6, 1],
+        "circle-stroke-opacity": ["case", ["==", ["get", "proc"], 1], 0.6, 1],
+      },
+    });
+    map.addLayer({
+      id: "plan-airports",
+      type: "circle",
+      source: "plan",
+      filter: ["==", ["get", "kind"], "apt"],
+      paint: { "circle-radius": 5, "circle-color": PLAN, "circle-stroke-color": C.land, "circle-stroke-width": 2 },
+    });
+    // Labels need the base map's font; the offline grid has none.
+    if (map.getStyle().glyphs) {
+      map.addLayer({
+        id: "plan-labels",
+        type: "symbol",
+        source: "plan",
+        filter: ["any", ["==", ["get", "kind"], "apt"], ["all", ["==", ["get", "kind"], "fix"], [">=", ["zoom"], 5.5]]],
+        layout: {
+          "text-field": ["get", "name"],
+          "text-size": ["case", ["==", ["get", "kind"], "apt"], 13, 11],
+          "text-offset": [0, 1.1],
+          "text-anchor": "top",
+          "text-font": ["Noto Sans Bold"],
+          "text-allow-overlap": false,
+        },
+        paint: { "text-color": "#cfc4ff", "text-halo-color": C.land, "text-halo-width": 1.4 },
+      });
+    }
     map.addSource("track", {
       type: "geojson",
       data: { type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: [] } },
@@ -358,6 +449,21 @@
     setPref("map_3d", on ? "1" : "0");
   }
 
+  // The flight plan: redraw when it changes, and show the whole route when
+  // a plan arrives before any flying.
+  let lastPlanId: string | null = null;
+  $effect(() => {
+    const p = plan;
+    if (!loaded || !map) return;
+    (map.getSource("plan") as GeoJSONSource | undefined)?.setData(planFeatures(p));
+    const id = p ? `${p.id}-${p.origin.icao}-${p.destination.icao}` : null;
+    if (p && id !== lastPlanId && !untrack(() => history) && untrack(() => live.length) < 2) {
+      const coords: [number, number][] = [[p.origin.lon, p.origin.lat], ...p.fixes.map((f) => [f.lon, f.lat] as [number, number]), [p.destination.lon, p.destination.lat]];
+      fit(coords.filter(([x, y]) => x || y), 8);
+    }
+    lastPlanId = id;
+  });
+
   // Optional layers: past routes, airports, borders, day/night, radar.
   $effect(() => {
     const on = layers;
@@ -464,7 +570,7 @@
     const list = routes;
     if (!loaded || !map) return;
     (map.getSource("routes") as GeoJSONSource | undefined)?.setData(routeFeatures(list));
-    if (!fittedRoutes && list.length && !aircraft && !history) {
+    if (!fittedRoutes && list.length && !aircraft && !history && !untrack(() => plan)) {
       fittedRoutes = true;
       fit(list.flatMap((r) => [r.from, r.to]), 6);
     }

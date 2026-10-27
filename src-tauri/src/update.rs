@@ -50,7 +50,7 @@ pub fn is_newer(latest: &str, current: &str) -> bool {
     !a.is_empty() && a > b
 }
 
-fn agent() -> ureq::Agent {
+pub(crate) fn agent() -> ureq::Agent {
     // Trust the certificates Windows trusts (so antivirus HTTPS scanning and
     // company proxies work), and use the system proxy settings.
     let tls = ureq::tls::TlsConfig::builder().root_certs(ureq::tls::RootCerts::PlatformVerifier).build();

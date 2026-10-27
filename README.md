@@ -14,8 +14,13 @@ MIT licensed.
 ## What works now
 
 - **Automatic tracking for MSFS 2020 and MSFS 2024.** Start the sim and
-  FlightDeck connects through SimConnect. A flight is logged from block out
-  to block in with no clicks.
+  FlightDeck connects through SimConnect. A flight begins once you are in
+  the aircraft (battery or main bus on, or an engine running), never from
+  the menus, and is logged from block out to block in with no clicks.
+- **SimBrief**: add your SimBrief Pilot ID in Settings, press **Start a
+  flight** on the map and import your latest dispatched plan. The planned
+  route shows as a dashed line with its waypoints, the flight strip gets
+  the callsign and destination, and the plan is saved with the flight.
 - **Seven flight phases**: preflight, taxi out, takeoff roll, airborne,
   landing rollout, taxi in, arrived. Every change is debounced, so bounces
   and gusts never split a flight.
@@ -230,5 +235,6 @@ cargo run -p refdata --features build-tool --bin build-refdata -- ourairports-da
   Equal Earth projection by `tools/build_world.py`.
 - Stamp flags from country-flag-icons by catamphetamine (MIT), bundled by
   `tools/build_flags.py`.
+- Flight plans from SimBrief (Navigraph) via its public OFP fetch.
 - Weather radar by RainViewer (free API for personal use).
 - Fonts: Barlow and Barlow Condensed (SIL Open Font License).

@@ -86,6 +86,14 @@ pub struct Telemetry {
     /// Touchdown vertical speed reported by the sim itself (MSFS only),
     /// negative = descending. `None` when the sim does not provide it.
     pub touchdown_vs_fpm: Option<f64>,
+    /// The aircraft has electrical power (battery switch on or a live main
+    /// bus). `None` when the sim does not say. Used to tell "sitting in the
+    /// cockpit" from "looking at the menus".
+    #[serde(default)]
+    pub powered: Option<bool>,
+    /// MSFS camera state, for diagnostics (2 = cockpit, 3 = external, ...).
+    #[serde(default)]
+    pub camera_state: Option<u8>,
 }
 
 /// What the connector knows about the loaded aircraft.

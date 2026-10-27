@@ -44,6 +44,16 @@ pub const TELEMETRY_VARS: &[Var] = &[
     v("NUMBER OF ENGINES", "number"),
 ];
 
+/// Electrical power and camera, each its own definition and request (id
+/// `POWER_BASE + index`, once a second), so a variable a sim or aircraft
+/// rejects never stops position tracking.
+pub const POWER_BASE: u32 = 30;
+pub const POWER_VARS: &[Var] = &[
+    v("ELECTRICAL MASTER BATTERY", "bool"),
+    v("ELECTRICAL MAIN BUS VOLTAGE", "volts"),
+    v("CAMERA STATE", "number"),
+];
+
 /// Aircraft details. Each one is its own definition and request (id
 /// `AIRCRAFT_BASE + index`), so a variable a sim version rejects only loses
 /// that one field. Empty units = STRING256.
@@ -83,6 +93,9 @@ pub struct State {
     last_touchdown_fps: Option<f64>,
     aircraft: AircraftInfo,
     atc_type: String,
+    battery: Option<bool>,
+    bus_volts: Option<f64>,
+    camera: Option<u8>,
 }
 
 fn u32_at(b: &[u8], off: usize) -> Option<u32> {
@@ -110,13 +123,27 @@ pub fn sim_from_version(major: u32, hint: SimKind) -> SimKind {
 }
 
 /// Some aircraft report ATC MODEL as a localisation key such as
-/// "TT:ATCCOM.AC_MODEL_C172.0.text"; pull the type designator out of it.
+/// "TT:ATCCOM.AC_MODEL_C172.0.text", "ATCCOM.AC_MODEL A320.0.text" or
+/// "$$:ATCCOM.AC_MODEL_B738.0.text"; pull the type designator out of it.
+/// Anything else that is not a plausible type comes back empty.
 pub fn clean_atc_model(s: &str) -> String {
-    if let Some(rest) = s.strip_prefix("TT:ATCCOM.AC_MODEL") {
-        let rest = rest.trim_start_matches(['_', ' ']);
-        return rest.split('.').next().unwrap_or("").trim().to_uppercase();
+    let s = s.trim();
+    if let Some(i) = s.find("AC_MODEL") {
+        let rest = s[i + "AC_MODEL".len()..].trim_start_matches(['_', ' ']);
+        let code = rest.split('.').next().unwrap_or("").trim().to_uppercase();
+        return if is_type_code(&code) { code } else { String::new() };
     }
-    s.trim().to_string()
+    if s.contains("ATCCOM") || s.contains(':') || s.contains('.') {
+        return String::new();
+    }
+    s.to_string()
+}
+
+/// ICAO type designators are 2 to 4 letters and digits, starting with a letter.
+fn is_type_code(s: &str) -> bool {
+    (2..=4).contains(&s.len())
+        && s.chars().all(|c| c.is_ascii_alphanumeric())
+        && s.chars().next().is_some_and(|c| c.is_ascii_alphabetic())
 }
 
 fn engine_type(code: f64) -> EngineType {
@@ -174,6 +201,16 @@ pub fn parse(b: &[u8], st: &mut State, now_ms: i64) -> Parsed {
             let req = u32_at(b, HEADER).unwrap_or(0);
             match req {
                 1 => parse_telemetry(b, st, now_ms).map_or(Parsed::Other, Parsed::Telemetry),
+                r if (POWER_BASE..POWER_BASE + POWER_VARS.len() as u32).contains(&r) => {
+                    if let Some(x) = f64_at(b, SIMOBJECT_DATA_OFFSET) {
+                        match r - POWER_BASE {
+                            0 => st.battery = Some(x != 0.0),
+                            1 => st.bus_volts = Some(x),
+                            _ => st.camera = Some(x.clamp(0.0, 255.0) as u8),
+                        }
+                    }
+                    Parsed::Other
+                }
                 r if (AIRCRAFT_BASE..AIRCRAFT_BASE + AIRCRAFT_VARS.len() as u32).contains(&r) => {
                     parse_aircraft_field(b, st, (r - AIRCRAFT_BASE) as usize).map_or(Parsed::Other, Parsed::Aircraft)
                 }
@@ -229,6 +266,11 @@ fn parse_telemetry(b: &[u8], st: &mut State, now_ms: i64) -> Option<Telemetry> {
         wind_dir_deg: vals[19],
         wind_kt: vals[20],
         touchdown_vs_fpm,
+        powered: match (st.battery, st.bus_volts) {
+            (None, None) => None,
+            (b, v) => Some(b == Some(true) || v.is_some_and(|v| v > 8.0)),
+        },
+        camera_state: st.camera,
     })
 }
 
@@ -362,6 +404,34 @@ mod tests {
         assert_eq!(a.icao_type, "C172");
         assert_eq!(a.registration, "N172SP");
         assert_eq!((a.engine_count, a.engine_type), (1, EngineType::Piston));
+    }
+
+    #[test]
+    fn atc_model_keys_become_type_codes() {
+        assert_eq!(clean_atc_model("TT:ATCCOM.AC_MODEL_C172.0.text"), "C172");
+        assert_eq!(clean_atc_model("ATCCOM.AC_MODEL_A320.0.text"), "A320");
+        assert_eq!(clean_atc_model("$$:ATCCOM.AC_MODEL B738.0.text"), "B738");
+        assert_eq!(clean_atc_model("ATCCOM.AC_MODEL_FENIX_A320.0.text"), "");
+        assert_eq!(clean_atc_model("A20N"), "A20N");
+        assert_eq!(clean_atc_model("ATCCOM.SOMETHING"), "");
+    }
+
+    #[test]
+    fn power_from_battery_or_bus() {
+        let mut st = State::default();
+        let t = |st: &mut State| match parse(&data_msg(1, &telemetry_payload(sample())), st, 0) {
+            Parsed::Telemetry(t) => t,
+            _ => panic!(),
+        };
+        assert_eq!(t(&mut st).powered, None, "unknown until the sim says");
+        parse(&data_msg(POWER_BASE, &0.0f64.to_le_bytes()), &mut st, 0);
+        parse(&data_msg(POWER_BASE + 1, &0.0f64.to_le_bytes()), &mut st, 0);
+        assert_eq!(t(&mut st).powered, Some(false));
+        // Battery switch reads off (custom systems) but the bus is live.
+        parse(&data_msg(POWER_BASE + 1, &28.0f64.to_le_bytes()), &mut st, 0);
+        assert_eq!(t(&mut st).powered, Some(true));
+        parse(&data_msg(POWER_BASE + 2, &2.0f64.to_le_bytes()), &mut st, 0);
+        assert_eq!(t(&mut st).camera_state, Some(2));
     }
 
     #[test]

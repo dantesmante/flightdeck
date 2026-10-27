@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { api, type Pilot } from "./api";
+  import { api, type FlightPlan, type Pilot } from "./api";
   import { shrinkImage } from "./image";
   import { prefs, setPref } from "./prefs.svelte";
   import { checkForUpdates, installUpdate, updates } from "./updates.svelte";
@@ -57,6 +57,28 @@
     { id: "mi", label: "Statute miles" },
     { id: "km", label: "Kilometres" },
   ];
+
+  // SimBrief: the Pilot ID (or username) used to fetch the latest plan.
+  let sbId = $state("");
+  let sbBusy = $state(false);
+  let sbPlan = $state<FlightPlan | null>(null);
+  let sbError = $state<string | null>(null);
+  $effect(() => {
+    if (prefs.loaded && !sbId) sbId = prefs.s.simbrief_id ?? "";
+  });
+  async function saveSimbrief() {
+    sbBusy = true;
+    sbError = null;
+    sbPlan = null;
+    try {
+      await setPref("simbrief_id", sbId.trim());
+      if (sbId.trim()) sbPlan = await api.simbriefLatest();
+    } catch (e) {
+      sbError = String(e);
+    } finally {
+      sbBusy = false;
+    }
+  }
 </script>
 
 <section class="settings"><div class="inner">
@@ -92,6 +114,25 @@
           </div>
         </div>
       </div>
+    {/if}
+  </div>
+
+  <div class="group">
+    <h3>SimBrief</h3>
+    <p class="help">
+      Your SimBrief Pilot ID lets FlightDeck load the flight you last dispatched: press Start a flight on the map.
+      Find it on simbrief.com under Account, Settings (a number). Your SimBrief username works too.
+    </p>
+    <div class="row">
+      <label class="sb">Pilot ID<input bind:value={sbId} placeholder="e.g. 123456" onkeydown={(e) => e.key === "Enter" && saveSimbrief()} /></label>
+      <button class="primary" onclick={saveSimbrief} disabled={sbBusy}>{sbBusy ? "Checking…" : "Save and check"}</button>
+    </div>
+    {#if sbPlan}
+      <p class="ok" role="status">
+        Connected. Latest flight: {sbPlan.callsign} ({sbPlan.origin.icao} to {sbPlan.destination.icao}){sbPlan.aircraft_icao ? `, ${sbPlan.aircraft_icao}` : ""}.
+      </p>
+    {:else if sbError}
+      <p class="err" role="alert">{sbError}</p>
     {/if}
   </div>
 
@@ -226,12 +267,18 @@
     border-radius: 6px;
     padding: 7px 9px;
   }
+  .sb {
+    width: 220px;
+  }
   .row {
     grid-column: 1 / -1;
     display: flex;
     align-items: center;
     gap: 10px;
     flex-wrap: wrap;
+  }
+  .row:has(.sb) {
+    align-items: flex-end;
   }
   .err {
     color: var(--bad);

@@ -23,6 +23,16 @@ fn place(icao: &str, country: &str) -> Option<Place> {
 }
 
 #[test]
+fn flight_plan_is_kept_with_the_flight() {
+    let mut db = Store::open_in_memory().unwrap();
+    let ctx = SaveContext { plan: Some(r#"{"callsign":"AUA11"}"#.into()), callsign: "AUA11".into(), ..Default::default() };
+    let id = db.save_flight(&fly(1), &ctx).unwrap();
+    assert_eq!(db.get_plan(id).unwrap().as_deref(), Some(r#"{"callsign":"AUA11"}"#));
+    let plain = db.save_flight(&fly(2), &SaveContext::default()).unwrap();
+    assert_eq!(db.get_plan(plain).unwrap(), None);
+}
+
+#[test]
 fn save_list_and_read_back() {
     let mut db = Store::open_in_memory().unwrap();
     let f = fly(1); // EGLL → LFPG

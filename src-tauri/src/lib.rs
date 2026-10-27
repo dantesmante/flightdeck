@@ -2,6 +2,7 @@
 
 mod engine;
 mod samples;
+mod simbrief;
 mod update;
 
 use std::sync::mpsc::{channel, Sender};
@@ -51,13 +52,16 @@ struct FlightDetail {
     flight: FlightRow,
     track: Vec<TrackPoint>,
     landings: Vec<LandingReport>,
+    /// The flight plan flown, if one was loaded.
+    plan: Option<simbrief::FlightPlan>,
 }
 
 #[tauri::command]
 fn get_flight(state: tauri::State<AppState>, id: i64) -> CmdResult<Option<FlightDetail>> {
     let db = state.db.lock().unwrap();
     let Some(flight) = db.get_flight(id).map_err(err)? else { return Ok(None) };
-    Ok(Some(FlightDetail { flight, track: db.get_track(id).map_err(err)?, landings: db.get_landings(id).map_err(err)? }))
+    let plan = db.get_plan(id).map_err(err)?.and_then(|j| serde_json::from_str(&j).ok());
+    Ok(Some(FlightDetail { flight, track: db.get_track(id).map_err(err)?, landings: db.get_landings(id).map_err(err)?, plan }))
 }
 
 #[tauri::command]
@@ -84,6 +88,24 @@ fn end_flight(state: tauri::State<AppState>) -> CmdResult<()> {
     send(&state, Command::EndFlight)
 }
 
+/// The pilot's latest SimBrief flight plan, using the Pilot ID from Settings.
+#[tauri::command]
+async fn simbrief_latest(state: tauri::State<'_, AppState>) -> CmdResult<simbrief::FlightPlan> {
+    let who = state.db.lock().unwrap().settings().map_err(err)?.get("simbrief_id").cloned().unwrap_or_default();
+    tauri::async_runtime::spawn_blocking(move || simbrief::latest(&who)).await.map_err(err)?
+}
+
+/// Start tracking now (even before the battery is on), optionally with a plan.
+#[tauri::command]
+fn start_flight(state: tauri::State<AppState>, plan: Option<simbrief::FlightPlan>) -> CmdResult<()> {
+    send(&state, Command::StartFlight { plan })
+}
+
+#[tauri::command]
+fn set_plan(state: tauri::State<AppState>, plan: Option<simbrief::FlightPlan>) -> CmdResult<()> {
+    send(&state, Command::SetPlan(plan))
+}
+
 #[tauri::command]
 fn demo_routes() -> Vec<String> {
     conn_demo::sample_routes().iter().map(|r| format!("{} to {}", r.from.icao, r.to.icao)).collect()
@@ -96,7 +118,7 @@ fn get_settings(state: tauri::State<AppState>) -> CmdResult<HashMap<String, Stri
 
 #[tauri::command]
 fn set_setting(state: tauri::State<AppState>, key: String, value: String) -> CmdResult<()> {
-    const ALLOWED: &[&str] = &["distance_unit", "logbook_layout", "logbook_hand", "passport_color", "map_3d", "map_layers"];
+    const ALLOWED: &[&str] = &["distance_unit", "logbook_layout", "logbook_hand", "passport_color", "map_3d", "map_layers", "simbrief_id"];
     if !ALLOWED.contains(&key.as_str()) {
         return Err(format!("unknown setting {key}"));
     }
@@ -359,6 +381,9 @@ pub fn run() {
             start_demo,
             stop_demo,
             end_flight,
+            simbrief_latest,
+            start_flight,
+            set_plan,
             demo_routes,
             get_settings,
             set_setting,

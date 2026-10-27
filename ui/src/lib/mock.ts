@@ -1,7 +1,7 @@
 // Browser-only stand-in for the Rust backend: one flight in progress and a
 // short history, so the UI can be developed with `npm run ui`.
 
-import type { FlightRow, FullStatus, Totals } from "./api";
+import type { FlightPlan, FlightRow, FullStatus, Totals } from "./api";
 
 const now = Date.now();
 const track: [number, number, number, number, number][] = Array.from({ length: 40 }, (_, i) => [
@@ -12,7 +12,27 @@ const track: [number, number, number, number, number][] = Array.from({ length: 4
   now - (40 - i) * 30_000,
 ]);
 
+/** A sample SimBrief plan (Nice to Florence), for previews. */
+export const samplePlan: FlightPlan = {
+  source: "simbrief", id: "1", generated_ms: now - 25 * 60_000, callsign: "AUA11", airline: "AUA", flight_number: "11",
+  origin: { icao: "LFMN", name: "Nice Cote d'Azur", lat: 43.6584, lon: 7.2159, runway: "04R" },
+  destination: { icao: "LIRQ", name: "Firenze Peretola", lat: 43.81, lon: 11.2051, runway: "05" },
+  alternate: "LIRP", route: "NIZ UM728 BASTI UN853 ELB UL865 PEPAT", cruise_ft: 34000, distance_nm: 228, ete_min: 52,
+  aircraft_icao: "A320", aircraft_name: "A320-200", registration: "OE-LZE", block_fuel_kg: 5120, sched_out_ms: now, sched_in_ms: null,
+  fixes: [
+    { ident: "NIZ", kind: "vor", lat: 43.7726, lon: 7.2551, alt_ft: 8000, stage: "CLB", procedure: true },
+    { ident: "BASTI", kind: "wpt", lat: 43.31, lon: 8.62, alt_ft: 30000, stage: "CLB", procedure: false },
+    { ident: "ELB", kind: "vor", lat: 42.7296, lon: 10.3944, alt_ft: 34000, stage: "CRZ", procedure: false },
+    { ident: "PEPAT", kind: "wpt", lat: 43.42, lon: 10.86, alt_ft: 14000, stage: "DSC", procedure: false },
+    { ident: "PRT", kind: "vor", lat: 43.82, lon: 11.03, alt_ft: 5000, stage: "DSC", procedure: true },
+  ],
+};
+const scene = typeof location !== "undefined" ? new URLSearchParams(location.search).get("mock") : null;
+
 const status: FullStatus = {
+  waiting_for_pilot: scene === "waiting" || scene === "plan",
+  armed: false,
+  plan: scene === "plan" ? samplePlan : null,
   link: "connected",
   sim: "msfs2024",
   sim_label: "MSFS 2024",
@@ -21,7 +41,7 @@ const status: FullStatus = {
   aircraft: { title: "Airbus A320neo", icao_type: "A20N", registration: "N320FD", engine_count: 2, engine_type: "jet" },
   phase: "airborne",
   phase_label: "Airborne",
-  live: {
+  live: scene ? null : {
     phase: "airborne",
     start_ms: now - 50 * 60_000,
     block_out_ms: now - 44 * 60_000,
@@ -55,7 +75,7 @@ const status: FullStatus = {
   demo: false,
   session: 1,
   track_tail: [],
-  track,
+  track: scene === "plan" ? [] : track,
 };
 
 function row(id: number, days: number, dep: string, arr: string, type: string, min: number, fpm: number, grade: string): FlightRow {
@@ -86,6 +106,7 @@ export async function mockCall<T>(cmd: string, _args?: Record<string, unknown>):
       flight: flights[0],
       track: track.map(([lon, lat, alt_ft, gs_kt, t_ms]) => ({ t_ms, lat, lon, alt_ft, gs_kt, vs_fpm: 0, hdg_deg: 180, on_ground: false })),
       landings: [],
+      plan: null,
     },
     get_routes: [
       { flight_id: 3, dep_icao: "KPDX", arr_icao: "KSFO", from: [-122.5975, 45.5887], to: [-122.375, 37.6188], date_ms: now, aircraft_type: "A20N" },
@@ -93,6 +114,8 @@ export async function mockCall<T>(cmd: string, _args?: Record<string, unknown>):
     ],
     app_version: "0.1.0",
     check_update: { current: "0.1.0", latest: "0.1.0", available: false, notes: "", download_url: null, size_mb: 0 },
+    simbrief_latest: samplePlan,
+    get_settings: { simbrief_id: "123456" },
     demo_routes: ["KSEA to KPDX", "EGLL to LFPG", "KSFO to KLAX", "EDDF to LOWW", "CYVR to KSEA"],
   };
   return (answers[cmd] ?? null) as T;

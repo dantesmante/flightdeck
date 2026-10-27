@@ -1,7 +1,8 @@
 <script lang="ts">
   // Saved flights. Milestone 3 replaces this list with the paper logbook;
   // until then it is a plain, scannable list with a detail view.
-  import { api, type FlightDetail, type FlightRow, type Totals } from "./api";
+  import { api, type FlightDetail, type FlightPlan, type FlightRow, type Totals } from "./api";
+  import PlanCard from "./PlanCard.svelte";
   import { day, dec, gradeTone, hhmm, hoursMinutes, int, zulu } from "./format";
   import AltSpeedGraph from "./AltSpeedGraph.svelte";
   import LandingCard from "./LandingCard.svelte";
@@ -10,7 +11,7 @@
 
   interface Props {
     refreshKey: number;
-    onselect: (track: Pt[] | null, flightId: number | null) => void;
+    onselect: (track: Pt[] | null, flightId: number | null, plan?: FlightPlan | null) => void;
     /** Open this flight (set when a route is clicked on the map). */
     request?: { id: number; n: number } | null;
     ondelete?: () => void;
@@ -34,7 +35,7 @@
   async function open(id: number) {
     confirmDelete = false;
     selected = await api.flight(id);
-    onselect(selected ? fromTrack(selected.track) : null, selected?.flight.id ?? null);
+    onselect(selected ? fromTrack(selected.track) : null, selected?.flight.id ?? null, selected?.plan ?? null);
   }
 
   $effect(() => {
@@ -78,6 +79,7 @@
       <div><dt>Fuel used</dt><dd class="num">{int(f.fuel_used_kg)} kg</dd></div>
     </dl>
     <AltSpeedGraph pts={fromTrack(selected.track)} height={170} />
+    {#if selected.plan}<PlanCard plan={selected.plan} />{/if}
     {#each selected.landings.filter((l) => !l.touch_and_go) as l (l.t_ms)}
       <LandingCard landing={l} />
     {/each}

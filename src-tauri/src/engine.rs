@@ -14,6 +14,7 @@ use store::journal::{self, Journal, JournalHeader};
 use store::{Place, SaveContext, Store};
 use tauri::{AppHandle, Emitter};
 use telemetry::{AircraftInfo, EngineType, SimConnector, SimKind, SimMessage, Telemetry};
+use crate::simbrief::FlightPlan;
 use tracker::{Config, FlightSummary, LandingReport, LiveFlight, Phase, Tracker, TrackerOutput};
 
 const POLL: Duration = Duration::from_millis(20);
@@ -25,6 +26,10 @@ pub enum Command {
     StartDemo { route: Option<usize>, speedup: f64 },
     StopDemo,
     EndFlight,
+    /// The pilot pressed "Start a flight": track from now, with this plan.
+    StartFlight { plan: Option<FlightPlan> },
+    /// Attach (or clear) a flight plan without changing anything else.
+    SetPlan(Option<FlightPlan>),
 }
 
 /// What the UI shows. Sent as the `status` event and from `get_status`.
@@ -38,6 +43,13 @@ pub struct Status {
     /// A sim we can see but cannot connect to yet, e.g. X-Plane before Milestone 2.
     pub notice: Option<String>,
     pub aircraft: Option<AircraftInfo>,
+    /// Connected, but no flight yet: waiting for the pilot to get in the
+    /// aircraft (power on or an engine running) or press "Start a flight".
+    pub waiting_for_pilot: bool,
+    /// "Start a flight" was pressed and the flight has not begun yet.
+    pub armed: bool,
+    /// The flight plan for this (or the next) flight.
+    pub plan: Option<FlightPlan>,
     pub phase: Option<Phase>,
     pub phase_label: Option<String>,
     pub live: Option<LiveFlight>,
@@ -86,12 +98,20 @@ pub fn place_at(refdata: &refdata::RefData, lat: f64, lon: f64, heli: bool) -> O
     })
 }
 
-pub fn save(db: &Mutex<Store>, refdata: &refdata::RefData, f: &FlightSummary) -> Option<(i64, SaveContext)> {
+pub fn save(
+    db: &Mutex<Store>,
+    refdata: &refdata::RefData,
+    f: &FlightSummary,
+    plan: Option<&FlightPlan>,
+) -> Option<(i64, SaveContext)> {
     let heli = f.aircraft.engine_type == EngineType::Helo;
     let ctx = SaveContext {
         dep: place_at(refdata, f.dep_lat, f.dep_lon, heli),
         arr: place_at(refdata, f.arr_lat, f.arr_lon, heli),
-        ..Default::default()
+        planned_arr_icao: plan.map(|p| p.destination.icao.clone()).filter(|s| !s.is_empty()),
+        callsign: plan.map(|p| p.callsign.clone()).unwrap_or_default(),
+        flight_no: plan.map(|p| format!("{}{}", p.airline, p.flight_number)).unwrap_or_default(),
+        plan: plan.and_then(|p| serde_json::to_string(p).ok()),
     };
     match db.lock().unwrap().save_flight(f, &ctx) {
         Ok(id) => Some((id, ctx)),
@@ -110,7 +130,7 @@ pub fn recover_journal(dir: &std::path::Path, db: &Mutex<Store>, refdata: &refda
         tr.update(s);
     }
     if let Some(f) = tr.end("recovered after a crash") {
-        if let Some((id, _)) = save(db, refdata, &f) {
+        if let Some((id, _)) = save(db, refdata, &f, None) {
             log::info!("recovered crashed flight as #{id}");
         }
     }
@@ -139,6 +159,12 @@ struct Engine {
     last_status: Instant,
     session: u64,
     last_diag: Instant,
+    /// "Start a flight" was pressed: begin tracking even without power.
+    armed: bool,
+    /// After a flight ends, wait for power or engines to go off (or the
+    /// button) before starting another, so parking does not begin a new one.
+    need_reset: bool,
+    plan: Option<FlightPlan>,
 }
 
 pub fn spawn(
@@ -175,6 +201,9 @@ pub fn spawn(
                 last_status: Instant::now(),
                 session: 0,
                 last_diag: Instant::now(),
+                armed: false,
+                need_reset: false,
+                plan: None,
             };
             loop {
                 match rx.try_recv() {
@@ -203,6 +232,7 @@ impl Engine {
                 let flight = conn_demo::DemoFlight::new(routes[ix].clone(), opts, now_ms());
                 self.conn = Some(Box::new(conn_demo::DemoConnector::new(flight)));
                 self.demo = true;
+                self.armed = true;
             }
             Command::StopDemo => {
                 if self.demo {
@@ -211,6 +241,13 @@ impl Engine {
                 }
             }
             Command::EndFlight => self.end_flight("ended by pilot"),
+            Command::StartFlight { plan } => {
+                self.armed = true;
+                if plan.is_some() {
+                    self.plan = plan;
+                }
+            }
+            Command::SetPlan(plan) => self.plan = plan,
         }
         self.publish(true);
     }
@@ -305,6 +342,24 @@ impl Engine {
     fn sample(&mut self, s: Telemetry) {
         let sim = self.sim.unwrap_or(SimKind::Demo);
         if self.tracker.as_ref().is_none_or(Tracker::is_finished) {
+            // No flight yet. In the MSFS menus the sim still sends a position
+            // (often in the air), so only start once the pilot is really in
+            // the aircraft: it has power or an engine running, or the pilot
+            // pressed "Start a flight". Sims that do not report power (demo,
+            // X-Plane) start straight away.
+            let msfs = matches!(sim, SimKind::Msfs2020 | SimKind::Msfs2024);
+            let signal = !s.paused && (s.engines_running > 0 || s.powered.unwrap_or(!msfs));
+            if !signal {
+                self.need_reset = false;
+            }
+            // "Start a flight" skips the power check but still waits for a
+            // real cockpit: not paused, and on the ground or powered (the
+            // menus can report an unpowered aircraft hanging in the air).
+            let armed_ready = self.armed && !s.paused && (signal || s.on_ground);
+            if !(armed_ready || (signal && !self.need_reset)) {
+                self.last_sample = Some(s);
+                return;
+            }
             self.tracker = Some(Tracker::new(sim, self.aircraft.clone(), Config::default()));
             self.journal = Journal::create(&self.journal_dir, JournalHeader { sim, aircraft: self.aircraft.clone() })
                 .map_err(|e| log::warn!("journal unavailable: {e}"))
@@ -359,7 +414,18 @@ impl Engine {
     }
 
     fn store(&mut self, f: &FlightSummary) {
-        if let Some((id, ctx)) = save(&self.db, &self.refdata, f) {
+        let plan = self.plan.take();
+        self.armed = false;
+        self.need_reset = true;
+        // The sim gave no usable type code: take it from the flight plan.
+        let mut filled;
+        let mut f = f;
+        if let Some(p) = plan.as_ref().filter(|p| f.aircraft.icao_type.is_empty() && !p.aircraft_icao.is_empty()) {
+            filled = f.clone();
+            filled.aircraft.icao_type = p.aircraft_icao.clone();
+            f = &filled;
+        }
+        if let Some((id, ctx)) = save(&self.db, &self.refdata, f, plan.as_ref()) {
             let _ = self.app.emit(
                 "flight-saved",
                 Saved { id, dep: ctx.dep.map(|p| p.icao), arr: ctx.arr.map(|p| p.icao) },
@@ -384,6 +450,8 @@ impl Engine {
         self.shared.lock().unwrap().track.clear();
         self.tail.clear();
         self.dep = None;
+        self.armed = false;
+        self.need_reset = true;
     }
 
     fn disconnect(&mut self) {
@@ -394,6 +462,7 @@ impl Engine {
         self.last_sample = None;
         self.aircraft = AircraftInfo::default();
         self.last_connect = Some(Instant::now());
+        self.need_reset = false;
         self.publish(true);
     }
 
@@ -414,6 +483,9 @@ impl Engine {
                 || !self.aircraft.icao_type.is_empty()
                 || !self.aircraft.registration.is_empty())
             .then(|| self.aircraft.clone()),
+            waiting_for_pilot: self.conn.is_some() && self.tracker.as_ref().is_none_or(Tracker::is_finished),
+            plan: self.plan.clone(),
+            armed: self.armed,
             phase,
             phase_label: phase.map(|p| p.label().to_string()),
             last_landing: live.as_ref().and_then(|l| l.last_landing.clone()),

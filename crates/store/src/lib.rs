@@ -16,7 +16,8 @@ use tracker::{FlightStatus, FlightSummary, LandingReport};
 
 const SCHEMA_V1: &str = include_str!("schema.sql");
 const MIGRATE_V2: &str = include_str!("migrate_v2.sql");
-const SCHEMA_VERSION: i64 = 2;
+const MIGRATE_V3: &str = include_str!("migrate_v3.sql");
+const SCHEMA_VERSION: i64 = 3;
 /// Tolerance for track simplification.
 const SIMPLIFY_M: f64 = 15.0;
 
@@ -51,6 +52,8 @@ pub struct SaveContext {
     pub planned_arr_icao: Option<String>,
     pub callsign: String,
     pub flight_no: String,
+    /// The flight plan as JSON, if one was loaded.
+    pub plan: Option<String>,
 }
 
 /// One row of the flight list, ready for the UI.
@@ -144,6 +147,9 @@ impl Store {
             backfill_v2(&conn)?;
             conn.pragma_update(None, "user_version", 2)?;
         }
+        if version < 3 {
+            conn.execute_batch(&format!("BEGIN; {MIGRATE_V3} PRAGMA user_version = 3; COMMIT;"))?;
+        }
         Ok(Store { conn })
     }
 
@@ -159,6 +165,15 @@ impl Store {
         let mut st = self.conn.prepare(&format!("{FLIGHT_ROW_SQL} ORDER BY f.start_ms DESC LIMIT ?1 OFFSET ?2"))?;
         let rows = st.query_map(params![limit, offset], flight_row)?;
         Ok(rows.collect::<std::result::Result<_, _>>()?)
+    }
+
+    /// The flight plan saved with a flight, as JSON.
+    pub fn get_plan(&self, id: i64) -> Result<Option<String>> {
+        Ok(self
+            .conn
+            .query_row("SELECT plan FROM flight WHERE id = ?1", params![id], |r| r.get::<_, Option<String>>(0))
+            .optional()?
+            .flatten())
     }
 
     pub fn get_flight(&self, id: i64) -> Result<Option<FlightRow>> {
@@ -342,6 +357,9 @@ impl StoreTx<'_> {
         }
         for l in &f.landings {
             ev.execute(params![id, l.t_ms, "landing_report", serde_json::to_string(l)?])?;
+        }
+        if let Some(plan) = &ctx.plan {
+            self.conn.execute("UPDATE flight SET plan = ?1 WHERE id = ?2", params![plan, id])?;
         }
         Ok(id)
     }

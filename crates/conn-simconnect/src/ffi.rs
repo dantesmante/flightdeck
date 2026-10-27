@@ -29,6 +29,7 @@ pub const DATATYPE_STRING256: u32 = 9;
 // SIMCONNECT_PERIOD
 pub const PERIOD_ONCE: u32 = 1;
 pub const PERIOD_SIM_FRAME: u32 = 3;
+pub const PERIOD_SECOND: u32 = 4;
 
 pub const OBJECT_ID_USER: u32 = 0;
 pub const UNUSED: u32 = u32::MAX;

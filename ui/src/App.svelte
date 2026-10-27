@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { api, on, type FlightDetail, type Route, type Status } from "./lib/api";
+  import { api, on, type FlightDetail, type FlightPlan, type Route, type Status } from "./lib/api";
   import FlightsPanel from "./lib/FlightsPanel.svelte";
   import HangarView from "./lib/hangar/HangarView.svelte";
   import LivePanel from "./lib/LivePanel.svelte";
@@ -18,6 +18,8 @@
   let status = $state<Status | null>(null);
   let liveTrack = $state<Pt[]>([]);
   let history = $state<Pt[] | null>(null);
+  /** The flight plan of the saved flight shown, if it had one. */
+  let historyPlan = $state<FlightPlan | null>(null);
   let refreshKey = $state(0);
   let toast = $state<string | null>(null);
   let completed = $state<FlightDetail | null>(null);
@@ -83,7 +85,10 @@
         show(`Flight saved: ${f.dep ?? "unknown"} to ${f.arr ?? "unknown"}`);
         api.flight(f.id).then((d) => {
           completed = d;
-          if (d && view === "live") history = fromTrack(d.track);
+          if (d && view === "live") {
+            history = fromTrack(d.track);
+            historyPlan = d.plan;
+          }
         });
       }),
     );
@@ -92,7 +97,10 @@
 
   function dismiss() {
     completed = null;
-    if (view === "live") history = null;
+    if (view === "live") {
+      history = null;
+      historyPlan = null;
+    }
   }
 
   function go(v: View) {
@@ -100,6 +108,7 @@
     if (v === "live") selectedFlight = null;
     view = v;
     history = v === "live" && completed ? fromTrack(completed.track) : null;
+    historyPlan = v === "live" && completed ? completed.plan : null;
   }
 
   const NAV: { id: View; label: string; icon: string }[] = [
@@ -141,7 +150,7 @@
   </nav>
 
   <main class="stage" class:hidden={full}>
-    <Map live={liveTrack} {aircraft} {origin} {history} {routes} selected={selectedFlight} onroute={showFlight} />
+    <Map live={liveTrack} {aircraft} {origin} {history} {routes} selected={selectedFlight} onroute={showFlight} plan={history ? historyPlan : (status?.plan ?? null)} />
     <footer class="status-line">
       <span class="lamp {status?.link ?? 'waiting'}"></span>
       <span>{linkText}</span>
@@ -169,12 +178,12 @@
 
   <aside class="panel" class:hidden={full}>
     {#if view === "live"}
-      <LivePanel {status} {completed} track={liveTrack} ondismiss={dismiss} />
+      <LivePanel {status} {completed} track={liveTrack} ondismiss={dismiss} onsettings={() => go("settings")} />
     {:else}
       <FlightsPanel
         {refreshKey}
         request={openRequest}
-        onselect={(t, id) => ((history = t), (selectedFlight = id))}
+        onselect={(t, id, plan) => ((history = t), (selectedFlight = id), (historyPlan = plan ?? null))}
         ondelete={loadRoutes}
       />
     {/if}

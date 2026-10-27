@@ -2,7 +2,7 @@
   // The active flight drawn as an ATC flight progress strip: a cream paper
   // strip with ruled boxes, sitting in a holder whose edge lights up while
   // the flight is live. Boxes with nothing in them stay empty, like paper.
-  import type { AircraftInfo, Place, Telemetry } from "./api";
+  import type { FlightPlan, AircraftInfo, Place, Telemetry } from "./api";
 
   interface Props {
     aircraft: AircraftInfo | null;
@@ -10,8 +10,11 @@
     telemetry: Telemetry | null;
     simLabel: string | null;
     active: boolean;
+    /** The flight plan, if loaded: callsign, type and destination. */
+    plan?: FlightPlan | null;
   }
-  let { aircraft, dep, telemetry, simLabel, active }: Props = $props();
+  let { aircraft, dep, telemetry, simLabel, active, plan = null }: Props = $props();
+  const type = $derived(aircraft?.icao_type || plan?.aircraft_icao || "");
 
   const level = $derived.by(() => {
     if (!telemetry) return "";
@@ -31,20 +34,22 @@
 <div class="holder" class:active>
   <div class="strip" aria-label="Flight strip">
     <div class="box ident">
-      <span class="big">{aircraft?.registration || aircraft?.icao_type || "—"}</span>
-      <span class="small" title={aircraft?.title}>{aircraft?.title || "Aircraft not reported yet"}</span>
+      <span class="big">{plan?.callsign || aircraft?.registration || type || "—"}</span>
+      <span class="small" title={aircraft?.title}>
+        {plan?.callsign && aircraft?.registration ? `${aircraft.registration}, ` : ""}{aircraft?.title || "Aircraft not reported yet"}
+      </span>
     </div>
     <div class="box type">
-      <span class="big">{aircraft?.icao_type || ""}</span>
+      <span class="big">{type}</span>
       <span class="small">{engines}</span>
     </div>
     <div class="box route">
-      <span class="big">{dep?.icao ?? ""}</span>
-      <span class="small" title={dep?.name}>{dep?.name ?? "Departure set at block out"}</span>
+      <span class="big">{dep?.icao ?? plan?.origin.icao ?? ""}</span>
+      <span class="small" title={dep?.name ?? plan?.origin.name}>{dep?.name ?? plan?.origin.name ?? "Departure set at block out"}</span>
     </div>
     <div class="box dest">
-      <span class="big hand">{""}</span>
-      <span class="small">Destination</span>
+      <span class="big hand">{plan?.destination.icao ?? ""}</span>
+      <span class="small" title={plan?.destination.name}>{plan?.destination.name || "Destination"}</span>
     </div>
     <div class="box level">
       <span class="big">{level}</span>

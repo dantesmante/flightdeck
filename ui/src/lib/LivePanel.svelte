@@ -1,6 +1,8 @@
 <script lang="ts">
   import { api, type FlightDetail, type Status } from "./api";
   import AltSpeedGraph from "./AltSpeedGraph.svelte";
+  import PlanCard from "./PlanCard.svelte";
+  import StartFlight from "./StartFlight.svelte";
   import { fromTrack, type Pt } from "./track";
   import { hhmm } from "./format";
   import { distance } from "./prefs.svelte";
@@ -15,8 +17,24 @@
     /** The live track so far, for the altitude & speed graph. */
     track?: Pt[];
     ondismiss: () => void;
+    onsettings?: () => void;
   }
-  let { status, completed, track = [], ondismiss }: Props = $props();
+  let { status, completed, track = [], ondismiss, onsettings = () => {} }: Props = $props();
+
+  let planBusy = $state(false);
+  let planError = $state<string | null>(null);
+  /** Mid-flight: attach the latest SimBrief plan. */
+  async function addPlan() {
+    planBusy = true;
+    planError = null;
+    try {
+      await api.setPlan(await api.simbriefLatest());
+    } catch (e) {
+      planError = String(e);
+    } finally {
+      planBusy = false;
+    }
+  }
   const finalLanding = $derived(completed?.landings.filter((l) => !l.touch_and_go).at(-1) ?? null);
 
   let routes = $state<string[]>([]);
@@ -57,10 +75,19 @@
       telemetry={status.telemetry}
       simLabel={status.sim_label}
       active={status.phase !== "preflight" && status.phase !== "arrived"}
+      plan={status.plan}
     />
     <Readouts telemetry={status.telemetry} live={status.live} />
     {#if track.length > 1}
       <AltSpeedGraph pts={track} height={130} />
+    {/if}
+    {#if status.plan}
+      <PlanCard plan={status.plan} onremove={() => api.setPlan(null)} />
+    {:else if !status.demo}
+      <button class="ghost add-plan" onclick={addPlan} disabled={planBusy}>
+        {planBusy ? "Loading SimBrief…" : "Add my SimBrief plan"}
+      </button>
+      {#if planError}<p class="plan-err">{planError}</p>{/if}
     {/if}
     {#if status.last_landing}
       <LandingCard landing={status.last_landing} />
@@ -101,17 +128,34 @@
   {:else if connected && status}
     <header>
       <h2>Connected to {status.sim_label}</h2>
-      <p class="sub">Load an aircraft and tracking starts by itself.</p>
+      <p class="sub">
+        {#if status.armed}
+          Flight started. Tracking begins the moment you are in the cockpit.
+        {:else}
+          Get in the aircraft: tracking starts when the battery is on or an engine is running. Or press Start a flight.
+        {/if}
+      </p>
     </header>
+    {#if status.plan}
+      <PlanCard plan={status.plan} onremove={() => api.setPlan(null)} />
+    {/if}
+    {#if !status.armed}
+      <StartFlight {onsettings} />
+    {/if}
   {:else}
     <header>
       <h2>Ready when you are</h2>
       <p class="sub">
-        Start MSFS 2020 or 2024 and FlightDeck connects and logs the flight on its own. No buttons to press.
+        Start MSFS 2020 or 2024 and FlightDeck connects by itself. Tracking starts when you power up the aircraft, or press Start a flight to load your SimBrief plan first.
       </p>
     </header>
     {#if status?.notice}
       <p class="notice">{status.notice}</p>
+    {/if}
+    {#if status?.plan}
+      <PlanCard plan={status.plan} onremove={() => api.setPlan(null)} />
+    {:else}
+      <StartFlight {onsettings} />
     {/if}
     <div class="demo">
       <h3>No sim handy?</h3>
@@ -234,5 +278,13 @@
     border: none;
     background: var(--bad);
     color: #fff;
+  }
+  .add-plan {
+    align-self: flex-start;
+  }
+  .plan-err {
+    margin: -8px 0 0;
+    color: var(--bad);
+    font-size: 13px;
   }
 </style>

@@ -13,7 +13,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use telemetry::{ConnectorError, SimConnector, SimKind, SimMessage};
 
-use parse::{Parsed, AIRCRAFT_BASE, AIRCRAFT_VARS, TELEMETRY_VARS};
+use parse::{Parsed, AIRCRAFT_BASE, AIRCRAFT_VARS, POWER_BASE, POWER_VARS, TELEMETRY_VARS};
 
 pub use ffi::candidate_paths;
 
@@ -104,6 +104,11 @@ impl SimConnectConnector {
             let hr = self.api.add_to_data_definition(h, def, v.name, units, ty);
             self.check(hr, &format!("aircraft variable '{}'", v.name))?;
         }
+        for (i, v) in POWER_VARS.iter().enumerate() {
+            let def = POWER_BASE + i as u32;
+            let hr = self.api.add_to_data_definition(h, def, v.name, Some(v.units), ffi::DATATYPE_FLOAT64);
+            self.check(hr, &format!("power variable '{}'", v.name))?;
+        }
         for (id, name) in [
             (EVENT_PAUSE, "Pause"),
             (EVENT_SIM, "Sim"),
@@ -120,6 +125,11 @@ impl SimConnectConnector {
         self.request_aircraft();
         let hr = self.api.request_data(h, REQ_TELEMETRY, DEF_TELEMETRY, ffi::PERIOD_SIM_FRAME);
         self.check(hr, "telemetry request")?;
+        for (i, v) in POWER_VARS.iter().enumerate() {
+            let id = POWER_BASE + i as u32;
+            let _ = self.api.request_data(h, id, id, ffi::PERIOD_SECOND);
+            self.note(&format!("power request '{}'", v.name));
+        }
         Ok(())
     }
 

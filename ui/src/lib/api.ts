@@ -71,8 +71,55 @@ export interface LiveFlight {
   track_points: number;
 }
 
+export interface PlanAirport {
+  icao: string;
+  name: string;
+  lat: number;
+  lon: number;
+  runway: string;
+}
+
+export interface PlanFix {
+  ident: string;
+  kind: string;
+  lat: number;
+  lon: number;
+  alt_ft: number;
+  stage: string;
+  procedure: boolean;
+}
+
+/** A flight plan, e.g. imported from SimBrief. */
+export interface FlightPlan {
+  source: string;
+  id: string;
+  generated_ms: number;
+  callsign: string;
+  airline: string;
+  flight_number: string;
+  origin: PlanAirport;
+  destination: PlanAirport;
+  alternate: string;
+  route: string;
+  cruise_ft: number;
+  distance_nm: number;
+  ete_min: number;
+  aircraft_icao: string;
+  aircraft_name: string;
+  registration: string;
+  block_fuel_kg: number;
+  sched_out_ms: number | null;
+  sched_in_ms: number | null;
+  fixes: PlanFix[];
+}
+
 export interface Status {
   link: "waiting" | "connecting" | "connected";
+  /** Connected, waiting for the pilot to power up or press Start a flight. */
+  waiting_for_pilot: boolean;
+  /** Start a flight was pressed; tracking begins once in the cockpit. */
+  armed: boolean;
+  plan: FlightPlan | null;
   sim: string | null;
   sim_label: string | null;
   sim_version: string | null;
@@ -139,6 +186,7 @@ export interface FlightDetail {
   flight: FlightRow;
   track: TrackPoint[];
   landings: LandingReport[];
+  plan: FlightPlan | null;
 }
 
 export interface Totals {
@@ -295,6 +343,9 @@ export const api = {
   startDemo: (route: number | null, speedup = 30) => call<void>("start_demo", { route, speedup }),
   stopDemo: () => call<void>("stop_demo"),
   endFlight: () => call<void>("end_flight"),
+  simbriefLatest: () => call<FlightPlan>("simbrief_latest"),
+  startFlight: (plan: FlightPlan | null) => call<void>("start_flight", { plan }),
+  setPlan: (plan: FlightPlan | null) => call<void>("set_plan", { plan }),
   demoRoutes: () => call<string[]>("demo_routes"),
   settings: () => call<Settings>("get_settings"),
   setSetting: (key: string, value: string) => call<void>("set_setting", { key, value }),
