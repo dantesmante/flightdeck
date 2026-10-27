@@ -29,6 +29,12 @@ MIT licensed.
   great-circle line between its airports. Hover a line to see the route and
   date; click it to open that flight. Flights that land where they took off
   show as a ring at the airport.
+- **Altitude colours**: the flight path shades from red near the ground,
+  through orange, to green at cruise, scaled to each flight's own top
+  altitude. A key on the map shows the range.
+- **Altitude & speed graph** for the live flight, every saved flight and
+  each logbook entry: altitude as a filled profile in the same colours,
+  ground speed as a yellow line. Hover for exact values at any moment.
 - **Real airport names and countries** for every departure and arrival,
   from 72,635 airports (OurAirports, public domain) built into the app.
 - **Saved flights** with block and air times, distance, fuel, track and

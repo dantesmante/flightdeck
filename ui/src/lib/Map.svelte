@@ -5,16 +5,17 @@
   import { onDestroy, onMount } from "svelte";
   import type { Route } from "./api";
   import { C as BASE, STYLE, offlineStyle, tintMap } from "./mapStyle";
+  import { ALT_STOPS, altGradient, altLabel, altRange, lonLat, type Pt } from "./track";
 
   interface Props {
-    /** Live track, [lon, lat] pairs. */
-    live: [number, number][];
+    /** Live track with altitude. */
+    live: Pt[];
     /** Current aircraft position and heading, if flying. */
     aircraft: { lon: number; lat: number; hdg: number } | null;
     /** Departure point of the live flight. */
     origin: [number, number] | null;
     /** A saved flight's track to show instead of the live one. */
-    history: [number, number][] | null;
+    history: Pt[] | null;
     /** Every flight flown, drawn faintly between its airports. */
     routes?: Route[];
     /** The flight whose route should stand out. */
@@ -23,6 +24,10 @@
     onroute?: (flightId: number) => void;
   }
   let { live, aircraft, origin, history, routes = [], selected = null, onroute }: Props = $props();
+
+  const shown = $derived(history ?? live);
+  const range = $derived(altRange(shown));
+  const keyBar = `linear-gradient(90deg, ${ALT_STOPS.map(([f, c]) => `${c} ${f * 100}%`).join(", ")})`;
 
   const C = { ...BASE, route: "#a9bfd1", routeHot: "#f0b23a" };
 
@@ -159,19 +164,20 @@
     map.addSource("track", {
       type: "geojson",
       data: { type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: [] } },
+      lineMetrics: true,
     });
     map.addLayer({
       id: "track-glow",
       type: "line",
       source: "track",
-      paint: { "line-color": C.track, "line-width": 9, "line-opacity": 0.18, "line-blur": 4 },
+      paint: { "line-gradient": altGradient([]), "line-width": 10, "line-opacity": 0.22, "line-blur": 5 },
       layout: { "line-cap": "round", "line-join": "round" },
     });
     map.addLayer({
       id: "track",
       type: "line",
       source: "track",
-      paint: { "line-color": C.track, "line-width": 2.5 },
+      paint: { "line-gradient": altGradient([]), "line-width": 3 },
       layout: { "line-cap": "round", "line-join": "round" },
     });
   }
@@ -258,9 +264,13 @@
 
   onDestroy(() => map?.remove());
 
-  function setLine(coords: [number, number][]) {
+  function setLine(pts: Pt[]) {
     const src = map?.getSource("track") as GeoJSONSource | undefined;
-    src?.setData({ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: coords } });
+    if (!src || !map) return;
+    src.setData({ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: lonLat(pts) } });
+    const g = altGradient(pts);
+    map.setPaintProperty("track", "line-gradient", g);
+    map.setPaintProperty("track-glow", "line-gradient", g);
   }
 
   function fit(coords: [number, number][], maxZoom = 11) {
@@ -307,7 +317,7 @@
     if (!loaded) return;
     if (history) {
       setLine(history);
-      fit(history);
+      fit(lonLat(history));
     } else {
       setLine(live);
     }
@@ -333,8 +343,10 @@
   // Ring at the departure point; on a saved flight, rings at both ends.
   $effect(() => {
     if (!loaded || !map) return;
-    const start = history ? (history[0] ?? null) : origin;
-    const end = history && history.length > 1 ? history[history.length - 1] : null;
+    const first = history?.[0];
+    const lastPt = history && history.length > 1 ? history[history.length - 1] : null;
+    const start: [number, number] | null = history ? (first ? [first[0], first[1]] : null) : origin;
+    const end: [number, number] | null = lastPt ? [lastPt[0], lastPt[1]] : null;
     if (start) {
       originMarker ??= new maplibregl.Marker({ element: originEl() }).setLngLat(start).addTo(map);
       originMarker.setLngLat(start);
@@ -356,6 +368,13 @@
 {#if aircraft && !follow && !history}
   <button class="follow" onclick={() => (follow = true)}>Follow aircraft</button>
 {/if}
+{#if shown.length > 1}
+  <div class="alt-key" aria-label="Line colour shows altitude">
+    <span class="t">Altitude</span>
+    <span class="bar" style:background={keyBar}></span>
+    <span class="ends"><span>{altLabel(range.lo)}</span><span>{altLabel(range.hi)}</span></span>
+  </div>
+{/if}
 {#if offline}
   <p class="offline">Map tiles could not load, so the map shows a plain grid. Tracking keeps working.</p>
 {/if}
@@ -373,7 +392,7 @@
     width: 14px;
     height: 14px;
     border-radius: 50%;
-    border: 3px solid var(--magenta);
+    border: 3px solid #e8eef2;
     background: var(--panel);
   }
   .map :global(.maplibregl-ctrl-group) {
@@ -421,6 +440,38 @@
   }
   .map :global(.route-tip .maplibregl-popup-tip) {
     display: none;
+  }
+  .alt-key {
+    position: absolute;
+    left: 12px;
+    bottom: 62px;
+    width: 190px;
+    padding: 8px 10px 7px;
+    border-radius: 8px;
+    background: rgba(23, 36, 48, 0.88);
+    border: 1px solid var(--rule);
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    pointer-events: none;
+  }
+  .alt-key .t {
+    font-family: var(--cond);
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-dim);
+  }
+  .alt-key .bar {
+    height: 6px;
+    border-radius: 3px;
+  }
+  .alt-key .ends {
+    display: flex;
+    justify-content: space-between;
+    font-family: var(--mono, "IBM Plex Mono", monospace);
+    font-size: 11px;
+    color: var(--ink);
   }
   .follow {
     position: absolute;

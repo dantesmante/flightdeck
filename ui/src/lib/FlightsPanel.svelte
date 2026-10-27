@@ -3,12 +3,14 @@
   // until then it is a plain, scannable list with a detail view.
   import { api, type FlightDetail, type FlightRow, type Totals } from "./api";
   import { day, dec, gradeTone, hhmm, hoursMinutes, int, zulu } from "./format";
+  import AltSpeedGraph from "./AltSpeedGraph.svelte";
   import LandingCard from "./LandingCard.svelte";
+  import { fromTrack, type Pt } from "./track";
   import { distance } from "./prefs.svelte";
 
   interface Props {
     refreshKey: number;
-    onselect: (track: [number, number][] | null, flightId: number | null) => void;
+    onselect: (track: Pt[] | null, flightId: number | null) => void;
     /** Open this flight (set when a route is clicked on the map). */
     request?: { id: number; n: number } | null;
     ondelete?: () => void;
@@ -32,7 +34,7 @@
   async function open(id: number) {
     confirmDelete = false;
     selected = await api.flight(id);
-    onselect(selected ? selected.track.map((p) => [p.lon, p.lat]) : null, selected?.flight.id ?? null);
+    onselect(selected ? fromTrack(selected.track) : null, selected?.flight.id ?? null);
   }
 
   $effect(() => {
@@ -75,6 +77,7 @@
       <div><dt>Max altitude</dt><dd class="num">{int(f.max_alt_ft)} ft</dd></div>
       <div><dt>Fuel used</dt><dd class="num">{int(f.fuel_used_kg)} kg</dd></div>
     </dl>
+    <AltSpeedGraph pts={fromTrack(selected.track)} height={170} />
     {#each selected.landings.filter((l) => !l.touch_and_go) as l (l.t_ms)}
       <LandingCard landing={l} />
     {/each}

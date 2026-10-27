@@ -47,8 +47,8 @@ pub struct Status {
     pub demo: bool,
     /// Changes whenever a new flight begins, so the UI starts a fresh track.
     pub session: u64,
-    /// [lon, lat] points added since the previous status event.
-    pub track_tail: Vec<[f64; 2]>,
+    /// Points added since the previous status event.
+    pub track_tail: Vec<Pt>,
 }
 
 /// Status plus the whole current track, for a UI that has just opened.
@@ -56,14 +56,17 @@ pub struct Status {
 pub struct FullStatus {
     #[serde(flatten)]
     pub status: Status,
-    pub track: Vec<[f64; 2]>,
+    pub track: Vec<Pt>,
 }
 
 #[derive(Default)]
 pub struct Shared {
     pub status: Status,
-    pub track: Vec<[f64; 2]>,
+    pub track: Vec<Pt>,
 }
+
+/// One live track point: [lon, lat, altitude ft, ground speed kt, time ms].
+pub type Pt = [f64; 5];
 
 pub type SharedState = Arc<Mutex<Shared>>;
 
@@ -130,7 +133,7 @@ struct Engine {
     dep: Option<Place>,
     last_sample: Option<Telemetry>,
     notice: Option<String>,
-    tail: Vec<[f64; 2]>,
+    tail: Vec<Pt>,
     last_scan: Option<Instant>,
     last_connect: Option<Instant>,
     last_status: Instant,
@@ -320,7 +323,7 @@ impl Engine {
                     if let Some(j) = self.journal.as_mut() {
                         let _ = j.append(&s);
                     }
-                    let pt = [p.lon, p.lat];
+                    let pt = [p.lon, p.lat, f64::from(p.alt_ft), f64::from(p.gs_kt), p.t_ms as f64];
                     self.tail.push(pt);
                     self.shared.lock().unwrap().track.push(pt);
                 }

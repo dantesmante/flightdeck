@@ -86,11 +86,12 @@ export interface Status {
   last_landing: LandingReport | null;
   demo: boolean;
   session: number;
-  track_tail: [number, number][];
+  /** [lon, lat, altitude ft, ground speed kt, time ms] */
+  track_tail: [number, number, number, number, number][];
 }
 
 export interface FullStatus extends Status {
-  track: [number, number][];
+  track: [number, number, number, number, number][];
 }
 
 export interface FlightRow {

@@ -4,9 +4,12 @@
 import type { FlightRow, FullStatus, Totals } from "./api";
 
 const now = Date.now();
-const track: [number, number][] = Array.from({ length: 40 }, (_, i) => [
+const track: [number, number, number, number, number][] = Array.from({ length: 40 }, (_, i) => [
   -122.3093 - i * 0.004,
   47.449 - i * 0.03,
+  Math.min(24000, i * 900),
+  Math.min(420, 140 + i * 12),
+  now - (40 - i) * 30_000,
 ]);
 
 const status: FullStatus = {
@@ -81,7 +84,7 @@ export async function mockCall<T>(cmd: string, _args?: Record<string, unknown>):
     get_totals: totals,
     get_flight: {
       flight: flights[0],
-      track: track.map(([lon, lat], i) => ({ t_ms: i, lat, lon, alt_ft: 1000, gs_kt: 300, vs_fpm: 0, hdg_deg: 180, on_ground: false })),
+      track: track.map(([lon, lat, alt_ft, gs_kt, t_ms]) => ({ t_ms, lat, lon, alt_ft, gs_kt, vs_fpm: 0, hdg_deg: 180, on_ground: false })),
       landings: [],
     },
     get_routes: [

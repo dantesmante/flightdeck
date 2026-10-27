@@ -1,5 +1,7 @@
 <script lang="ts">
   import { api, type FlightDetail, type Status } from "./api";
+  import AltSpeedGraph from "./AltSpeedGraph.svelte";
+  import { fromTrack, type Pt } from "./track";
   import { hhmm } from "./format";
   import { distance } from "./prefs.svelte";
   import FlightStrip from "./FlightStrip.svelte";
@@ -10,9 +12,11 @@
   interface Props {
     status: Status | null;
     completed: FlightDetail | null;
+    /** The live track so far, for the altitude & speed graph. */
+    track?: Pt[];
     ondismiss: () => void;
   }
-  let { status, completed, ondismiss }: Props = $props();
+  let { status, completed, track = [], ondismiss }: Props = $props();
   const finalLanding = $derived(completed?.landings.filter((l) => !l.touch_and_go).at(-1) ?? null);
 
   let routes = $state<string[]>([]);
@@ -55,6 +59,9 @@
       active={status.phase !== "preflight" && status.phase !== "arrived"}
     />
     <Readouts telemetry={status.telemetry} live={status.live} />
+    {#if track.length > 1}
+      <AltSpeedGraph pts={track} height={130} />
+    {/if}
     {#if status.last_landing}
       <LandingCard landing={status.last_landing} />
     {/if}
@@ -82,6 +89,9 @@
         Saved to your flights{f.status !== "complete" ? ` as ${f.status}` : ""}.
       </p>
     </header>
+    {#if completed.track.length > 1}
+      <AltSpeedGraph pts={fromTrack(completed.track)} height={150} />
+    {/if}
     {#if finalLanding}
       <LandingCard landing={finalLanding} />
     {/if}

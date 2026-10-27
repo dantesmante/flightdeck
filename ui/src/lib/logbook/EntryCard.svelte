@@ -4,7 +4,9 @@
   import { onMount } from "svelte";
   import { api, type FlightDetail, type LogPatch, type LogRow } from "../api";
   import { gradeTone, hhmm, int } from "../format";
+  import AltSpeedGraph from "../AltSpeedGraph.svelte";
   import MiniMap from "../MiniMap.svelte";
+  import { fromTrack, type Pt } from "../track";
   import { distance } from "../prefs.svelte";
 
   interface Props {
@@ -24,10 +26,7 @@
     detail = await api.flight(row.flight_id);
   });
 
-  const track = $derived.by<[number, number][]>(() => {
-    if (!detail) return [];
-    return detail.track.map((p) => [p.lon, p.lat]);
-  });
+  const track = $derived.by<Pt[]>(() => (detail ? fromTrack(detail.track) : []));
 
   const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
   const longDate = (ms: number) => {
@@ -209,7 +208,7 @@
     <div class="map">
       {#if detail}
         {#if track.length}
-          <MiniMap {track} />
+          <MiniMap {track} height={170} />
         {:else}
           <div class="nomap">No track was recorded for this flight.</div>
         {/if}
@@ -231,6 +230,9 @@
         <dd class="num {gradeTone(grade)}">{landing ? `${int(landing.vs_fpm)} fpm` : "–"}</dd>
       </div>
     </dl>
+    {#if track.length > 1}
+      <div class="graph"><AltSpeedGraph pts={track} height={128} /></div>
+    {/if}
     {#if row.remarks}<p class="remarks">{row.remarks}</p>{/if}
 
     {#if mode === "delete"}

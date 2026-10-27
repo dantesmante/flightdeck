@@ -10,13 +10,14 @@
   import { loadPrefs } from "./lib/prefs.svelte";
   import SettingsView from "./lib/SettingsView.svelte";
   import UpdateBanner from "./lib/UpdateBanner.svelte";
+  import { fromTrack, type Pt } from "./lib/track";
   import { checkForUpdates } from "./lib/updates.svelte";
 
   type View = "live" | "flights" | "logbook" | "passport" | "hangar" | "settings";
   let view = $state<View>("live");
   let status = $state<Status | null>(null);
-  let liveTrack = $state<[number, number][]>([]);
-  let history = $state<[number, number][] | null>(null);
+  let liveTrack = $state<Pt[]>([]);
+  let history = $state<Pt[] | null>(null);
   let refreshKey = $state(0);
   let toast = $state<string | null>(null);
   let completed = $state<FlightDetail | null>(null);
@@ -81,7 +82,7 @@
         show(`Flight saved: ${f.dep ?? "unknown"} to ${f.arr ?? "unknown"}`);
         api.flight(f.id).then((d) => {
           completed = d;
-          if (d && view === "live") history = d.track.map((p) => [p.lon, p.lat]);
+          if (d && view === "live") history = fromTrack(d.track);
         });
       }),
     );
@@ -97,7 +98,7 @@
     if ((v === "live" || v === "flights") && view !== "live" && view !== "flights") loadRoutes();
     if (v === "live") selectedFlight = null;
     view = v;
-    history = v === "live" && completed ? completed.track.map((p) => [p.lon, p.lat]) : null;
+    history = v === "live" && completed ? fromTrack(completed.track) : null;
   }
 
   const NAV: { id: View; label: string; icon: string }[] = [
@@ -167,7 +168,7 @@
 
   <aside class="panel" class:hidden={full}>
     {#if view === "live"}
-      <LivePanel {status} {completed} ondismiss={dismiss} />
+      <LivePanel {status} {completed} track={liveTrack} ondismiss={dismiss} />
     {:else}
       <FlightsPanel
         {refreshKey}

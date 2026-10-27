@@ -4,9 +4,10 @@
   import maplibregl from "maplibre-gl";
   import { onDestroy, onMount } from "svelte";
   import { C, STYLE, offlineStyle, tintMap } from "./mapStyle";
+  import { altGradient, lonLat, type Pt } from "./track";
 
   interface Props {
-    track: [number, number][];
+    track: Pt[];
     height?: number;
   }
   let { track, height = 220 }: Props = $props();
@@ -17,34 +18,39 @@
 
   function draw() {
     if (!map || !ready) return;
-    const line: GeoJSON.Feature = { type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: track } };
+    const pts = track;
+    const coords = lonLat(pts);
+    const g = altGradient(pts);
+    const line: GeoJSON.Feature = { type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: coords } };
     const ends: GeoJSON.FeatureCollection = {
       type: "FeatureCollection",
-      features: [track[0], track[track.length - 1]]
+      features: [coords[0], coords[coords.length - 1]]
         .filter(Boolean)
         .map((c) => ({ type: "Feature", properties: {}, geometry: { type: "Point", coordinates: c } })),
     };
     if (map.getSource("t")) {
       (map.getSource("t") as maplibregl.GeoJSONSource).setData(line);
       (map.getSource("e") as maplibregl.GeoJSONSource).setData(ends);
+      map.setPaintProperty("glow", "line-gradient", g);
+      map.setPaintProperty("line", "line-gradient", g);
     } else {
-      map.addSource("t", { type: "geojson", data: line });
+      map.addSource("t", { type: "geojson", data: line, lineMetrics: true });
       map.addSource("e", { type: "geojson", data: ends });
-      map.addLayer({ id: "glow", type: "line", source: "t", paint: { "line-color": C.track, "line-width": 8, "line-opacity": 0.2, "line-blur": 3 } });
-      map.addLayer({ id: "line", type: "line", source: "t", paint: { "line-color": C.track, "line-width": 2.5 }, layout: { "line-cap": "round", "line-join": "round" } });
+      map.addLayer({ id: "glow", type: "line", source: "t", paint: { "line-gradient": g, "line-width": 8, "line-opacity": 0.25, "line-blur": 3 } });
+      map.addLayer({ id: "line", type: "line", source: "t", paint: { "line-gradient": g, "line-width": 2.8 }, layout: { "line-cap": "round", "line-join": "round" } });
       map.addLayer({
         id: "ends",
         type: "circle",
         source: "e",
-        paint: { "circle-radius": 5, "circle-color": C.land, "circle-stroke-color": C.track, "circle-stroke-width": 2.5 },
+        paint: { "circle-radius": 5, "circle-color": C.land, "circle-stroke-color": "#e8eef2", "circle-stroke-width": 2.5 },
       });
     }
-    if (track.length >= 2) {
-      const b = new maplibregl.LngLatBounds(track[0], track[0]);
-      for (const p of track) b.extend(p);
+    if (coords.length >= 2) {
+      const b = new maplibregl.LngLatBounds(coords[0], coords[0]);
+      for (const p of coords) b.extend(p);
       map.fitBounds(b, { padding: 28, maxZoom: 11.5, duration: 0 });
-    } else if (track.length === 1) {
-      map.jumpTo({ center: track[0], zoom: 10 });
+    } else if (coords.length === 1) {
+      map.jumpTo({ center: coords[0], zoom: 10 });
     }
   }
 
@@ -55,7 +61,7 @@
       interactive: false,
       attributionControl: { compact: true },
       fadeDuration: 0,
-      center: track[0] ?? [0, 20],
+      center: track[0] ? [track[0][0], track[0][1]] : [0, 20],
       zoom: 3,
     });
     let fellBack = false;
