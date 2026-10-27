@@ -5,10 +5,9 @@
   import { hoursMinutes } from "../format";
   import { prefs, setPref } from "../prefs.svelte";
   import Emblem from "./Emblem.svelte";
-  import { mrz, paperPattern, passportNumber } from "./paper";
+  import { holoLines, mrz, paperPattern, passportNumber } from "./paper";
   import Stamp from "./Stamp.svelte";
   import WorldMap from "./WorldMap.svelte";
-  import holo from "./holo.jpg";
 
   let { onsettings }: { onsettings: () => void } = $props();
 
@@ -175,7 +174,7 @@
             onpointermove={tilt}
             style:--mx="{mx}%"
             style:--my="{my}%"
-            style:--holo="url({holo})"
+            style:--lines={holoLines()}
             role="presentation"
           >
             {#if data!.pilot.photo_url}
@@ -557,32 +556,31 @@
     pointer-events: none;
     opacity: 0;
     transition: opacity 0.35s ease;
-    background-image:
+    /* Saturated rainbow that slides with the pointer, seen only through the
+       line art mask: the photo between the lines is left untouched. */
+    background:
+      radial-gradient(circle at var(--mx) var(--my), rgba(255, 255, 255, 0.9), transparent 45%),
       linear-gradient(
-        115deg,
-        transparent calc(var(--mx) - 38%),
-        rgba(255, 255, 255, 0.4) calc(var(--mx) - 6%),
-        transparent calc(var(--mx) + 26%)
-      ),
-      repeating-linear-gradient(60deg, rgba(255, 255, 255, 0.22) 0 1px, transparent 1px 4px),
-      repeating-radial-gradient(circle at 72% 30%, rgba(255, 255, 255, 0.28) 0 1px, transparent 1px 6px),
-      var(--holo);
-    background-size: 100% 100%, auto, auto, 260% 260%;
-    background-position: 0 0, 0 0, 0 0, var(--mx) var(--my);
-    mix-blend-mode: overlay;
-  }
-  .holo::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    background: var(--holo);
-    background-size: 200% 200%;
-    background-position: calc(100% - var(--mx)) calc(100% - var(--my));
-    mix-blend-mode: color-dodge;
-    opacity: 0.16;
+        125deg,
+        #ff5c8a,
+        #ffb347,
+        #fff275,
+        #7dffb0,
+        #59d8ff,
+        #8c7bff,
+        #ff6fd8,
+        #ff5c8a
+      );
+    background-size: 100% 100%, 300% 300%;
+    background-position: 0 0, var(--mx) var(--my);
+    -webkit-mask-image: var(--lines);
+    mask-image: var(--lines);
+    -webkit-mask-size: 100% 100%;
+    mask-size: 100% 100%;
+    mix-blend-mode: screen;
   }
   .photo:hover .holo {
-    opacity: 0.68;
+    opacity: 0.9;
   }
   .photo img {
     width: 100%;

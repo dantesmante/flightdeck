@@ -87,3 +87,46 @@ export function passportNumber(pilotId: string, name: string): string {
   for (const c of name || "pilot") h = Math.imul(h ^ c.charCodeAt(0), 16777619);
   return `FD${String((h >>> 0) % 10_000_000).padStart(7, "0")}`;
 }
+
+let holoCached: string | null = null;
+/** The hologram's line art, used as a mask: only these thin lines light up
+ * over the photo, so the photo itself is never washed out. A rosette, rings
+ * and wavy guilloche lines, like the security film on a real passport. */
+export function holoLines(): string {
+  if (holoCached) return holoCached;
+  const w = 108;
+  const h = 140;
+  const p: string[] = [];
+  const line = (d: string, sw = 0.5, op = 1) =>
+    p.push(`<path d="${d}" fill="none" stroke="#fff" stroke-width="${sw}" opacity="${op}"/>`);
+  // Rings around a point up and to the right of the face.
+  const rx = w * 0.7;
+  const ry = h * 0.3;
+  for (let r = 6; r < 120; r += 5.5) {
+    p.push(`<circle cx="${rx}" cy="${ry}" r="${r}" fill="none" stroke="#fff" stroke-width="0.45" opacity="0.8"/>`);
+  }
+  // A rosette in the lower left.
+  const cx = w * 0.28;
+  const cy = h * 0.74;
+  for (let k = 0; k < 2; k++) {
+    let d = "";
+    for (let i = 0; i <= 360; i++) {
+      const a = (i / 360) * Math.PI * 2;
+      const r = 26 * (0.55 + 0.45 * Math.cos(a * (9 + k * 4)));
+      d += `${i ? "L" : "M"}${(cx + Math.cos(a) * r).toFixed(1)} ${(cy + Math.sin(a) * r).toFixed(1)}`;
+    }
+    line(d + "Z", 0.5, 0.9);
+  }
+  // Wavy lines across the whole photo.
+  for (let i = 0; i < 9; i++) {
+    const y0 = 8 + i * 16;
+    let d = `M0 ${y0}`;
+    for (let x = 2; x <= w; x += 2) {
+      d += `L${x} ${(y0 + Math.sin(x * 0.11 + i) * 3.2 + Math.sin(x * 0.037 + i * 2) * 2).toFixed(1)}`;
+    }
+    line(d, 0.4, 0.7);
+  }
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">${p.join("")}</svg>`;
+  holoCached = `url("data:image/svg+xml;utf8,${encodeURIComponent(svg)}")`;
+  return holoCached;
+}
