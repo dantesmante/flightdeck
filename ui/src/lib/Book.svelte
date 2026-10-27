@@ -5,6 +5,10 @@
   // 2s+1 on the right. While a page turns, a "leaf" with the turning page
   // on its front and the next page on its back swings over the spine,
   // revealing the page underneath.
+  //
+  // With a `cover`, the book starts closed (spread -1): only the cover shows,
+  // centred. Opening turns the cover like any other leaf, with page 0 printed
+  // on its inside, while the book slides across to sit open in the middle.
   import type { Snippet } from "svelte";
 
   interface Props {
@@ -12,14 +16,17 @@
     pageWidth: number;
     pageHeight: number;
     page: Snippet<[number]>;
+    /** Front cover. When given, the book can be closed (spread -1). */
+    cover?: Snippet;
     spread?: number;
     /** Extra classes for the book (paper colour etc. come from the pages). */
     label?: string;
     onturn?: (spread: number) => void;
   }
-  let { pageCount, pageWidth, pageHeight, page, spread = $bindable(0), label = "Book", onturn }: Props = $props();
+  let { pageCount, pageWidth, pageHeight, page, cover, spread = $bindable(0), label = "Book", onturn }: Props = $props();
 
   const spreads = $derived(Math.max(1, Math.ceil(pageCount / 2)));
+  const first = $derived(cover ? -1 : 0);
   let turning = $state<"next" | "prev" | null>(null);
   /** 0 = flat, 1 = standing on edge (front shown), 2 = landed (back shown). */
   let stage = $state(0);
@@ -42,7 +49,7 @@
 
   function commit() {
     if (turning === "next") spread = Math.min(spreads - 1, spread + 1);
-    if (turning === "prev") spread = Math.max(0, spread - 1);
+    if (turning === "prev") spread = Math.max(first, spread - 1);
     turning = null;
     stage = 0;
     onturn?.(spread);
@@ -54,15 +61,28 @@
   }
 
   export function prev() {
-    if (turning || spread <= 0) return;
+    if (turning || spread <= first) return;
     start("prev");
   }
 
   export function goTo(s: number) {
     if (turning) return;
-    spread = Math.max(0, Math.min(spreads - 1, s));
+    spread = Math.max(first, Math.min(spreads - 1, s));
     onturn?.(spread);
   }
+
+  /** Close the book: jump back to the first spread, then turn the cover. */
+  export function close() {
+    if (turning || !cover || spread < 0) return;
+    spread = 0;
+    requestAnimationFrame(() => start("prev"));
+  }
+
+  /** Closed, or about to be: the cover sits centred. */
+  const shut = $derived(
+    !!cover &&
+      ((spread === -1 && !(turning === "next" && stage > 0)) || (spread === 0 && turning === "prev" && stage > 0)),
+  );
 
   function start(dir: "next" | "prev") {
     turning = dir;
@@ -96,8 +116,8 @@
 <div class="wrap" bind:clientWidth={wrapW} bind:clientHeight={wrapH}>
   <button
     class="arrow prev-arrow"
-    class:hidden={spread <= 0}
-    disabled={spread <= 0}
+    class:hidden={spread <= first}
+    disabled={spread <= first}
     aria-label="Previous page"
     onclick={prev}
     onmouseenter={() => (peek = "prev")}
@@ -120,7 +140,7 @@
     onblur={() => (peek = null)}
   >
     <span class="disc"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7" /></svg></span>
-    <span class="hint">Next</span>
+    <span class="hint">{spread < 0 ? "Open" : "Next"}</span>
   </button>
   <div
     class="book"
@@ -128,15 +148,20 @@
     aria-label={label}
     style:width="{pageWidth * 2}px"
     style:height="{pageHeight}px"
-    style:transform="scale({scale})"
+    class:shut
+    style:transform="scale({scale}) translateX({shut ? -pageWidth / 2 : 0}px)"
   >
     <div class="page left" style:width="{pageWidth}px">
       {#if left >= 0 && left < pageCount}{@render page(left)}{/if}
-      <div class="spine-shade left-shade"></div>
+      {#if left >= 0}<div class="spine-shade left-shade"></div>{/if}
     </div>
-    <div class="page right" style:left="{pageWidth}px" style:width="{pageWidth}px">
-      {#if right < pageCount}{@render page(right)}{/if}
-      <div class="spine-shade right-shade"></div>
+    <div class="page right" class:cover-page={right === -1} style:left="{pageWidth}px" style:width="{pageWidth}px">
+      {#if right === -1}
+        {@render cover?.()}
+      {:else if right >= 0 && right < pageCount}
+        {@render page(right)}
+        <div class="spine-shade right-shade"></div>
+      {/if}
     </div>
 
     {#if turning}
@@ -150,14 +175,18 @@
         ontransitionend={(e) => e.target === e.currentTarget && halfway()}
       >
         {#if stage < 2}
-          <div class="face">
-            {@render page(turning === "next" ? 2 * spread + 1 : 2 * spread)}
+          {@const f = turning === "next" ? 2 * spread + 1 : 2 * spread}
+          <div class="face" class:cover-page={f === -1}>
+            {#if f === -1}{@render cover?.()}{:else}{@render page(f)}{/if}
             <div class="turn-shade"></div>
           </div>
         {:else}
-          <div class="face mirrored">
-            {#if (turning === "next" ? 2 * spread + 2 : 2 * spread - 1) < pageCount}
-              {@render page(turning === "next" ? 2 * spread + 2 : 2 * spread - 1)}
+          {@const b = turning === "next" ? 2 * spread + 2 : 2 * spread - 1}
+          <div class="face mirrored" class:cover-page={b === -1}>
+            {#if b === -1}
+              {@render cover?.()}
+            {:else if b < pageCount}
+              {@render page(b)}
             {/if}
             <div class="turn-shade"></div>
           </div>
@@ -165,7 +194,7 @@
       </div>
     {/if}
 
-    {#if spread > 0}
+    {#if spread > first && !shut}
       <button class="corner prev-corner" class:peek={peek === "prev"} tabindex="-1" aria-hidden="true" onclick={prev}></button>
     {/if}
     {#if spread < spreads - 1}
@@ -188,6 +217,11 @@
     perspective: 2600px;
     transform-origin: center center;
     filter: drop-shadow(0 18px 30px rgba(0, 0, 0, 0.45));
+    transition: transform 0.68s cubic-bezier(0.45, 0.05, 0.3, 1);
+  }
+  .page.cover-page,
+  .face.cover-page {
+    border-radius: 6px 14px 14px 6px;
   }
   .page {
     position: absolute;

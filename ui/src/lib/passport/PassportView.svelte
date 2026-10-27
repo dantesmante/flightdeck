@@ -3,6 +3,7 @@
   import { api, type CountryVisit, type PassportData, type Stamp as StampT } from "../api";
   import Book from "../Book.svelte";
   import { hoursMinutes } from "../format";
+  import { prefs, setPref } from "../prefs.svelte";
   import Emblem from "./Emblem.svelte";
   import { mrz, paperPattern, passportNumber } from "./paper";
   import Stamp from "./Stamp.svelte";
@@ -26,12 +27,22 @@
   let data = $state<PassportData | null>(null);
   type World = { w: number; h: number; countries: { c: string; n: string; d: string; dot?: [number, number] }[] };
   let world = $state<World | null>(null);
-  let open = $state(false);
-  let opening = $state(false);
-  let spread = $state(0);
+  let spread = $state(-1);
   let book = $state<Book | null>(null);
-  let wrapW = $state(0);
-  let wrapH = $state(0);
+
+  /** Cover colours, all real passport shades that carry gold foil well. */
+  const COVERS = [
+    { id: "burgundy", name: "Burgundy", color: "#5a1e2a" },
+    { id: "red", name: "Red", color: "#7a1c24" },
+    { id: "navy", name: "Navy", color: "#1b2a4e" },
+    { id: "blue", name: "Royal blue", color: "#22407a" },
+    { id: "teal", name: "Teal", color: "#144548" },
+    { id: "green", name: "Green", color: "#1f4030" },
+    { id: "brown", name: "Brown", color: "#4a2d1e" },
+    { id: "black", name: "Black", color: "#18191d" },
+  ];
+  const coverId = $derived(prefs.s.passport_color ?? "burgundy");
+  const coverColor = $derived((COVERS.find((c) => c.id === coverId) ?? COVERS[0]).color);
 
   onMount(async () => {
     const [d, w] = await Promise.all([api.passport(), import("./world.json")]);
@@ -58,17 +69,6 @@
     return out;
   });
 
-  const coverScale = $derived(wrapW && wrapH ? Math.min((wrapH - 110) / H, (wrapW - 40) / W, 1.4) : 1);
-
-  function openBook() {
-    if (opening) return;
-    const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-    if (reduced) {
-      open = true;
-      return;
-    }
-    opening = true;
-  }
 
   const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   const printed = (ms: number | null | undefined) => {
@@ -104,6 +104,15 @@
   const pageLabel = $derived(`Pages ${spread * 2 + 1} and ${spread * 2 + 2} of ${pages.length}`);
 </script>
 
+{#snippet coverView()}
+  <button class="cover" style:background-color={coverColor} onclick={() => book?.next()} aria-label="Open passport">
+    <span class="foil title">Pilot passport</span>
+    <span class="foil-emblem"><Emblem size={170} color="#d8b46a" /></span>
+    <span class="foil brand">FlightDeck</span>
+    <span class="chip" aria-hidden="true"><svg viewBox="0 0 40 26"><rect x="1" y="1" width="38" height="24" rx="3" /><circle cx="20" cy="13" r="6" /><path d="M1 13h13M26 13h13" /></svg></span>
+  </button>
+{/snippet}
+
 {#snippet paper(content: Snippet, no: number | null = null)}
   <div class="paper" style:background-image={paperPattern()}>
     {@render content()}
@@ -124,7 +133,7 @@
           {/if}
         </div>
         {#if mp.half === "left"}
-          <p class="legend"><span class="swatch"></span>Countries you have flown in</p>
+          <p class="legend"><span class="swatch"></span>Countries you have landed in</p>
         {:else if data && data.countries.length}
           <p class="legend first">First country: {data.countries[0].name}</p>
         {/if}
@@ -235,37 +244,38 @@
   {/if}
 {/snippet}
 
-<section class="passport" bind:clientWidth={wrapW} bind:clientHeight={wrapH}>
+<section class="passport">
   {#if !data}
     <p class="loading">Opening your passport…</p>
-  {:else if !open}
-    <div class="closed">
-      <div class="cover-holder" style:transform="scale({coverScale})" style:--k={coverScale}>
-        <button
-          class="cover"
-          class:opening
-          onclick={openBook}
-          ontransitionend={() => opening && (open = true)}
-          aria-label="Open passport"
-        >
-          <span class="foil title">Pilot passport</span>
-          <span class="foil-emblem"><Emblem size={170} color="#d8b46a" /></span>
-          <span class="foil brand">FlightDeck</span>
-          <span class="chip" aria-hidden="true"><svg viewBox="0 0 40 26"><rect x="1" y="1" width="38" height="24" rx="3" /><circle cx="20" cy="13" r="6" /><path d="M1 13h13M26 13h13" /></svg></span>
-        </button>
-      </div>
-      <p class="hint">
-        {data.stamps.length} {data.stamps.length === 1 ? "stamp" : "stamps"}, {data.countries.length}
-        {data.countries.length === 1 ? "country" : "countries"}. Click the cover to open.
-      </p>
-    </div>
   {:else}
     <div class="toolbar">
-      <button class="ghost" onclick={() => ((open = false), (opening = false), (spread = 0))}>Close passport</button>
-      <span class="where">{pageLabel}</span>
+      {#if spread < 0}
+        <span class="where">
+          {data.stamps.length} {data.stamps.length === 1 ? "stamp" : "stamps"}, {data.countries.length}
+          {data.countries.length === 1 ? "country" : "countries"}. Click the cover to open.
+        </span>
+        <div class="colours" role="radiogroup" aria-label="Cover colour">
+          <span class="clabel">Cover</span>
+          {#each COVERS as c (c.id)}
+            <button
+              class="colour"
+              class:on={c.id === coverId}
+              style:--c={c.color}
+              role="radio"
+              aria-checked={c.id === coverId}
+              aria-label={c.name}
+              title={c.name}
+              onclick={() => setPref("passport_color", c.id)}
+            ></button>
+          {/each}
+        </div>
+      {:else}
+        <button class="ghost" onclick={() => book?.close()}>Close passport</button>
+        <span class="where">{pageLabel}</span>
+      {/if}
     </div>
     <div class="stage">
-      <Book bind:this={book} bind:spread pageCount={pages.length} pageWidth={W} pageHeight={H} page={pageView} label="Passport" />
+      <Book bind:this={book} bind:spread pageCount={pages.length} pageWidth={W} pageHeight={H} page={pageView} cover={coverView} label="Passport" />
     </div>
   {/if}
 </section>
@@ -286,53 +296,58 @@
   }
 
   /* Cover ------------------------------------------------------------ */
-  .closed {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 18px;
-    perspective: 2400px;
-  }
-  .cover-holder {
-    width: 360px;
-    height: 510px;
-    flex: none;
-    transform-origin: center;
-    margin: calc(510px * (var(--k) - 1) / 2) 0;
-  }
   .cover {
     position: relative;
-    width: 360px;
-    height: 510px;
+    width: 100%;
+    height: 100%;
     border: none;
     border-radius: 6px 14px 14px 6px;
-    padding: 0;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: space-between;
     padding: 58px 0 52px;
     color: #d8b46a;
-    background-color: #5a1e2a;
     background-image:
       linear-gradient(90deg, rgba(0, 0, 0, 0.35), rgba(0, 0, 0, 0) 7%, rgba(255, 255, 255, 0.05) 9%, rgba(0, 0, 0, 0) 12%),
       radial-gradient(ellipse at 30% 20%, rgba(255, 255, 255, 0.09), transparent 55%),
       url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.35 0'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E");
     box-shadow:
       inset 0 0 0 2px rgba(0, 0, 0, 0.25),
-      inset -6px 0 12px rgba(0, 0, 0, 0.35),
-      0 22px 40px rgba(0, 0, 0, 0.55);
-    transform-origin: left center;
-    transition: transform 0.85s cubic-bezier(0.45, 0.05, 0.3, 1);
+      inset -6px 0 12px rgba(0, 0, 0, 0.35);
+    transition: background-color 0.35s, filter 0.2s;
     cursor: pointer;
   }
   .cover:hover {
-    transform: rotateY(-8deg);
+    filter: brightness(1.12);
   }
-  .cover.opening {
-    transform: rotateY(-178deg);
+  .colours {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin-left: auto;
+  }
+  .clabel {
+    color: var(--ink-dim);
+    font-size: 13px;
+    margin-right: 4px;
+  }
+  .colour {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    padding: 0;
+    border: 2px solid rgba(255, 255, 255, 0.12);
+    background: radial-gradient(circle at 35% 30%, rgba(255, 255, 255, 0.22), transparent 60%), var(--c);
+    cursor: pointer;
+    transition: transform 0.15s, border-color 0.15s, box-shadow 0.15s;
+  }
+  .colour:hover {
+    transform: scale(1.15);
+  }
+  .colour.on {
+    border-color: #d8b46a;
+    box-shadow: 0 0 0 3px rgba(216, 180, 106, 0.25);
   }
   .foil {
     font-family: "Source Serif 4", Georgia, serif;
@@ -361,16 +376,13 @@
     stroke: #d8b46a;
     stroke-width: 1.6;
   }
-  .hint {
-    margin: 0;
-    color: var(--ink-dim);
-  }
 
   /* Open book -------------------------------------------------------- */
   .toolbar {
     display: flex;
     align-items: center;
     gap: 14px;
+    min-height: 46px;
     padding: 14px 20px 0;
   }
   .where {

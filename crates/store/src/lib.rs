@@ -210,8 +210,7 @@ impl Store {
                     COALESCE(SUM(l.day_landings + l.night_landings), 0),
                     (SELECT COUNT(*) FROM (SELECT dep_icao AS a FROM flight WHERE dep_icao IS NOT NULL
                                             UNION SELECT arr_icao FROM flight WHERE arr_icao IS NOT NULL)),
-                    (SELECT COUNT(*) FROM (SELECT dep_country AS c FROM flight WHERE dep_country IS NOT NULL
-                                            UNION SELECT arr_country FROM flight WHERE arr_country IS NOT NULL))
+                    (SELECT COUNT(DISTINCT arr_country) FROM flight WHERE arr_country IS NOT NULL AND arr_country <> '')
              FROM flight f LEFT JOIN log_entry l ON l.flight_id = f.id",
             [],
             |r| {

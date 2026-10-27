@@ -1,11 +1,16 @@
 #!/usr/bin/env python3
 """Build the passport's world map from Natural Earth (public domain).
 
-Download ne_50m_admin_0_countries.geojson from
+Download ne_50m_admin_0_map_units.geojson from
 https://github.com/nvkelso/natural-earth-vector/tree/master/geojson
 then run:
 
-    python3 tools/build_world.py ne_50m_admin_0_countries.geojson
+    python3 tools/build_world.py ne_50m_admin_0_map_units.geojson
+
+Map units (not plain countries) keep overseas territories apart from their
+country: French Guiana, Réunion, Martinique and so on get their own codes,
+as they do in the airport data. Units sharing one code (England, Scotland,
+Wales and Northern Ireland) are joined back together.
 
 It writes ui/src/lib/passport/world.json: one SVG path per country (keyed by
 ISO 3166 alpha-2, the same codes OurAirports uses), projected with the Equal
@@ -20,7 +25,8 @@ from pathlib import Path
 
 W = 1000.0
 TOLERANCE = 0.75  # simplification tolerance, in map units (about half a pixel in the passport)
-TINY_AREA = 6.0   # countries smaller than this also get a dot so they show
+TINY_AREA = 6.0
+FOLD = {"SJ": "NO"}   # countries smaller than this also get a dot so they show
 
 A1, A2, A3, A4 = 1.340264, -0.081106, 0.000893, 0.003796
 M = math.sqrt(3) / 2
@@ -99,9 +105,14 @@ def main():
         code = p.get("ISO_A2_EH") or p.get("ISO_A2")
         if not code or code == "-99":
             continue
+        # The airport data files Svalbard's airports under Norway.
+        code = FOLD.get(code, code)
         geom = f["geometry"]
         polys = geom["coordinates"] if geom["type"] == "MultiPolygon" else [geom["coordinates"]]
-        c = countries.setdefault(code, {"c": code, "n": p.get("NAME_EN") or p["NAME"], "rings": []})
+        name = p.get("NAME_EN") or p["NAME"]
+        if code in ("GB", "NO", "BE", "PT"):
+            name = p.get("ADMIN") or name
+        c = countries.setdefault(code, {"c": code, "n": name, "rings": []})
         for poly in polys:
             for ring in poly:
                 pts = [project(lon, lat) for lon, lat in ring]

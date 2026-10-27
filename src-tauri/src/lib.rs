@@ -96,7 +96,7 @@ fn get_settings(state: tauri::State<AppState>) -> CmdResult<HashMap<String, Stri
 
 #[tauri::command]
 fn set_setting(state: tauri::State<AppState>, key: String, value: String) -> CmdResult<()> {
-    const ALLOWED: &[&str] = &["distance_unit", "logbook_layout", "logbook_hand"];
+    const ALLOWED: &[&str] = &["distance_unit", "logbook_layout", "logbook_hand", "passport_color"];
     if !ALLOWED.contains(&key.as_str()) {
         return Err(format!("unknown setting {key}"));
     }

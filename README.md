@@ -46,12 +46,17 @@ MIT licensed.
   30 times real speed, so you can try everything without a sim.
 - **Telemetry recorder**: record a real flight once, then replay it through
   the tracker for testing (see below).
-- **Passport book**: a burgundy passport you open and page through. Inside
-  the cover, a world map spread over both pages shades every country you
-  have flown in. Then a data page (your photo, details and a machine-readable zone), generated
-  rubber stamps and an index of countries. It is for international arrivals
-  only: landing in a different country from the one you left earns a stamp,
-  and the first landing in a country gets a first-entry seal.
+- **Passport book**: a passport whose cover turns open like a real one,
+  in a cover colour you choose (burgundy, red, navy, royal blue, teal,
+  green, brown or black). Inside the cover, a world map spread over both
+  pages shades every country you have landed in. Then a data page (your
+  photo, details and a machine-readable zone), generated rubber stamps and
+  an index of countries. Only landings count: where a flight starts (or
+  where you spawn) never counts as a visit. Landing in a different country
+  from the one you left earns a stamp, and the first landing in a country
+  gets a first-entry seal. Overseas territories such as French Guiana,
+  Réunion, Guadeloupe, Martinique, American Samoa and Guam are their own
+  places on the map, separate from France or the US.
 - **Paper logbook**: a two-page ruled logbook in FAA or EASA layout,
   handwritten or typed, with page totals carried forward. Night time and
   night landings come from the sun's position along your track. Click a

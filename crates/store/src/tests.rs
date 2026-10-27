@@ -48,7 +48,8 @@ fn save_list_and_read_back() {
     assert_eq!(landings[0].vs_fpm, -140.0);
 
     let t = db.totals().unwrap();
-    assert_eq!((t.flights, t.landings, t.airports, t.countries), (1, 1, 2, 2));
+    // Only the arrival country counts as visited.
+    assert_eq!((t.flights, t.landings, t.airports, t.countries), (1, 1, 2, 1));
 }
 
 #[test]

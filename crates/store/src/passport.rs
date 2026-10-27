@@ -3,8 +3,9 @@
 //! Rule (decided with the project owner): the passport is for international
 //! arrivals only. A flight that lands in a different country from the one it
 //! left earns one arrival stamp for the country entered; the first ever
-//! arrival in a country gets the special first-entry design. Departures and
-//! domestic flights earn no stamps.
+//! landing in a country gets the special first-entry design. Departures and
+//! domestic flights earn no stamps, and only landings count as visiting a
+//! country: starting a flight somewhere (or spawning there) does not.
 //!
 //! Stamps are recomputed from flights, so editing or deleting a flight
 //! always leaves the passport consistent.
@@ -98,9 +99,7 @@ pub fn derive_stamps(flights: &[StampFlight]) -> Vec<Stamp> {
             let kind = if countries.contains(&f.arr.country) { StampKind::Arrival } else { StampKind::FirstEntry };
             out.push(stamp(f, kind, &f.arr, f.arr_ms));
         }
-        for p in [&f.dep, &f.arr] {
-            countries.insert(p.country.clone());
-        }
+        countries.insert(f.arr.country.clone());
     }
     out
 }
@@ -109,22 +108,22 @@ pub fn derive_stamps(flights: &[StampFlight]) -> Vec<Stamp> {
 pub struct CountryVisit {
     pub country: String,
     pub first_ms: i64,
-    /// Arrivals in this country (international or domestic).
+    /// Landings in this country (international or domestic).
     pub arrivals: i64,
 }
 
-/// Countries in the order they were first visited.
+/// Countries landed in, in the order of the first landing. Departures do
+/// not count, so spawning somewhere never marks it as visited.
 pub fn country_visits(flights: &[StampFlight]) -> Vec<CountryVisit> {
     let mut out: Vec<CountryVisit> = Vec::new();
     for f in flights {
-        for (p, t, arrival) in [(&f.dep, f.dep_ms, false), (&f.arr, f.arr_ms, true)] {
-            if p.country.is_empty() {
-                continue;
-            }
-            match out.iter_mut().find(|v| v.country == p.country) {
-                Some(v) => v.arrivals += arrival as i64,
-                None => out.push(CountryVisit { country: p.country.clone(), first_ms: t, arrivals: arrival as i64 }),
-            }
+        let p = &f.arr;
+        if p.country.is_empty() {
+            continue;
+        }
+        match out.iter_mut().find(|v| v.country == p.country) {
+            Some(v) => v.arrivals += 1,
+            None => out.push(CountryVisit { country: p.country.clone(), first_ms: f.arr_ms, arrivals: 1 }),
         }
     }
     out
@@ -153,7 +152,7 @@ mod tests {
         let s = derive_stamps(&[flight(1, kord(), cyyz()), flight(2, cyyz(), kord()), flight(3, kord(), cyyz())]);
         assert_eq!(
             kinds(&s),
-            vec![(StampKind::FirstEntry, "CYYZ"), (StampKind::Arrival, "KORD"), (StampKind::Arrival, "CYYZ")]
+            vec![(StampKind::FirstEntry, "CYYZ"), (StampKind::FirstEntry, "KORD"), (StampKind::Arrival, "CYYZ")]
         );
     }
 
@@ -175,12 +174,26 @@ mod tests {
     }
 
     #[test]
-    fn visits_in_first_seen_order() {
+    fn only_landings_count_as_visits() {
+        // Spawned at Heathrow, landed in Paris: France is visited, the UK is not.
+        let v = country_visits(&[flight(1, place("EGLL", "GB", ""), place("LFPG", "FR", ""))]);
+        let got: Vec<_> = v.iter().map(|v| (v.country.as_str(), v.arrivals)).collect();
+        assert_eq!(got, vec![("FR", 1)]);
         let v = country_visits(&[
             flight(1, place("KORD", "US", ""), place("CYYZ", "CA", "")),
             flight(2, place("CYYZ", "CA", ""), place("KORD", "US", "")),
+            flight(3, place("KORD", "US", ""), place("CYYZ", "CA", "")),
         ]);
         let got: Vec<_> = v.iter().map(|v| (v.country.as_str(), v.arrivals)).collect();
-        assert_eq!(got, vec![("US", 1), ("CA", 1)]);
+        assert_eq!(got, vec![("CA", 2), ("US", 1)]);
+    }
+
+    #[test]
+    fn first_landing_home_is_a_first_entry() {
+        // Leaving the US first does not count as having landed there.
+        let kord = || place("KORD", "US", "US-IL");
+        let cyyz = || place("CYYZ", "CA", "CA-ON");
+        let s = derive_stamps(&[flight(1, kord(), cyyz()), flight(2, cyyz(), kord())]);
+        assert_eq!(kinds(&s), vec![(StampKind::FirstEntry, "CYYZ"), (StampKind::FirstEntry, "KORD")]);
     }
 }
