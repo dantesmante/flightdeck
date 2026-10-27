@@ -31,7 +31,10 @@ MIT licensed.
   show as a ring at the airport.
 - **Altitude colours**: the flight path shades from red near the ground,
   through orange, to green at cruise, scaled to each flight's own top
-  altitude. A key on the map shows the range.
+  altitude. A key on the map shows the range. Switch the map to **3D** and
+  the flight stands up as a coloured curtain from the ground to the
+  altitude flown, seen from the side (heights are stretched on long
+  flights so they stay visible; the key says by how much).
 - **Altitude & speed graph** for the live flight, every saved flight and
   each logbook entry: altitude as a filled profile in the same colours,
   ground speed as a yellow line. Hover for exact values at any moment.

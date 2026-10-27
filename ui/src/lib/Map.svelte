@@ -2,10 +2,11 @@
   // Live and historical flight map: MapLibre GL + OpenFreeMap vector tiles
   // (OpenStreetMap data), recoloured at load into a night-chart palette.
   import maplibregl, { type GeoJSONSource, type LngLatBoundsLike } from "maplibre-gl";
-  import { onDestroy, onMount } from "svelte";
+  import { onDestroy, onMount, untrack } from "svelte";
   import type { Route } from "./api";
   import { C as BASE, STYLE, offlineStyle, tintMap } from "./mapStyle";
-  import { altColor, altGradient, altLabel, altRange, lonLat, type Pt } from "./track";
+  import { prefs, setPref } from "./prefs.svelte";
+  import { altColor, altGradient, altLabel, altRange, lonLat, sideOnBearing, wallFeatures, wallScale, type Pt } from "./track";
 
   interface Props {
     /** Live track with altitude. */
@@ -26,6 +27,9 @@
   let { live, aircraft, origin, history, routes = [], selected = null, onroute }: Props = $props();
 
   const shown = $derived(history ?? live);
+  /** 3D view: the map tilts and the track stands up as a wall. */
+  const three = $derived(prefs.s.map_3d === "1");
+  const stretch = $derived(three && shown.length > 1 ? wallScale(shown) : 1);
   const range = $derived(altRange(shown));
   // The key runs from the lowest to the highest point actually flown, in
   // the same colours the line uses (a low flight never reaches green).
@@ -180,6 +184,25 @@
       paint: { "line-gradient": altGradient([]), "line-width": 10, "line-opacity": 0.22, "line-blur": 5 },
       layout: { "line-cap": "round", "line-join": "round" },
     });
+    // Soft, even light so the wall keeps its colours from every side.
+    map.setLight({ anchor: "viewport", color: "#ffffff", intensity: 0.18, position: [1.15, 210, 30] });
+    // The 3D wall, from the ground up to the altitude flown. Only shown in 3D.
+    // tolerance 0: the wall is made of many small, thin pieces that the
+    // usual simplification would otherwise drop when zoomed out.
+    map.addSource("wall", { type: "geojson", data: { type: "FeatureCollection", features: [] }, tolerance: 0 });
+    map.addLayer({
+      id: "track-wall",
+      type: "fill-extrusion",
+      source: "wall",
+      layout: { visibility: three ? "visible" : "none" },
+      paint: {
+        "fill-extrusion-color": ["get", "c"],
+        "fill-extrusion-height": ["get", "h"],
+        "fill-extrusion-base": 0,
+        "fill-extrusion-opacity": 0.78,
+        "fill-extrusion-vertical-gradient": true,
+      },
+    });
     map.addLayer({
       id: "track",
       type: "line",
@@ -217,8 +240,9 @@
       zoom: 2.2,
       attributionControl: { compact: true },
       fadeDuration: 0,
+      maxPitch: 75,
     });
-    map.addControl(new maplibregl.NavigationControl({ showCompass: true }), "bottom-right");
+    map.addControl(new maplibregl.NavigationControl({ showCompass: true, visualizePitch: true }), "bottom-right");
     map.on("style.load", () => {
       tint();
       addOverlays();
@@ -278,7 +302,38 @@
     const g = altGradient(pts);
     map.setPaintProperty("track", "line-gradient", g);
     map.setPaintProperty("track-glow", "line-gradient", g);
+    setWall(pts);
   }
+
+  function setWall(pts: Pt[]) {
+    const src = map?.getSource("wall") as GeoJSONSource | undefined;
+    if (!src) return;
+    // Read without tracking, so drawing a line never depends on (and never
+    // re-runs because of) the 2D/3D switch.
+    const on = untrack(() => three);
+    src.setData(on ? wallFeatures(pts, wallScale(pts)) : { type: "FeatureCollection", features: [] });
+  }
+
+  function setThree(on: boolean) {
+    setPref("map_3d", on ? "1" : "0");
+  }
+
+  // Switch between flat and 3D: tilt the camera and raise or hide the wall.
+  let wasThree: boolean | null = null;
+  $effect(() => {
+    const on = three;
+    if (!loaded || !map || !map.getLayer("track-wall")) return;
+    map.setLayoutProperty("track-wall", "visibility", on ? "visible" : "none");
+    map.setPaintProperty("track", "line-opacity", on ? 0.55 : 1);
+    untrack(() => setWall(history ?? live));
+    if (wasThree !== null && wasThree !== on) {
+      const brg = untrack(() => sideOnBearing(history ?? live));
+      map.easeTo(on ? { pitch: 60, bearing: brg, duration: 900 } : { pitch: 0, bearing: 0, duration: 700 });
+    } else if (wasThree === null && on) {
+      map.jumpTo({ pitch: 60, bearing: untrack(() => sideOnBearing(history ?? live)) });
+    }
+    wasThree = on;
+  });
 
   function fit(coords: [number, number][], maxZoom = 11) {
     if (!map || coords.length < 2) return;
@@ -293,7 +348,15 @@
       [x0, y0],
       [x1, y1],
     ];
-    map.fitBounds(b, { padding: 80, maxZoom, duration: 600 });
+    // In 3D keep the tilt, with extra room at the top for the wall.
+    const tilted = untrack(() => three);
+    map.fitBounds(b, {
+      padding: tilted ? { top: 160, bottom: 60, left: 80, right: 80 } : 80,
+      maxZoom,
+      duration: 600,
+      pitch: tilted ? 60 : 0,
+      bearing: tilted ? sideOnBearing(untrack(() => history ?? live)) : 0,
+    });
   }
 
   // Keep the route network current, and show the whole network once when
@@ -375,9 +438,13 @@
 {#if aircraft && !follow && !history}
   <button class="follow" onclick={() => (follow = true)}>Follow aircraft</button>
 {/if}
+<div class="view-toggle" role="radiogroup" aria-label="Map view">
+  <button role="radio" aria-checked={!three} class:on={!three} onclick={() => setThree(false)}>2D</button>
+  <button role="radio" aria-checked={three} class:on={three} onclick={() => setThree(true)}>3D</button>
+</div>
 {#if shown.length > 1}
   <div class="alt-key" aria-label="Line colour shows altitude">
-    <span class="t">Altitude</span>
+    <span class="t">Altitude{#if three && stretch > 1}<em>heights ×{stretch}</em>{/if}</span>
     <span class="bar" style:background={keyBar}></span>
     <span class="ends"><span>{altLabel(range.lo)}</span><span>{altLabel(range.top)}</span></span>
   </div>
@@ -468,6 +535,43 @@
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--ink-dim);
+  }
+  .alt-key .t em {
+    font-style: normal;
+    text-transform: none;
+    letter-spacing: 0;
+    margin-left: 8px;
+    color: var(--ink-dim);
+    opacity: 0.8;
+  }
+  .view-toggle {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    display: flex;
+    padding: 3px;
+    gap: 2px;
+    border-radius: 8px;
+    background: rgba(23, 36, 48, 0.9);
+    border: 1px solid var(--rule);
+  }
+  .view-toggle button {
+    border: none;
+    background: transparent;
+    color: var(--ink-dim);
+    font-family: var(--cond);
+    font-weight: 600;
+    font-size: 15px;
+    padding: 5px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  .view-toggle button:hover {
+    color: var(--ink);
+  }
+  .view-toggle button.on {
+    background: var(--amber);
+    color: #1b1406;
   }
   .alt-key .bar {
     height: 6px;
