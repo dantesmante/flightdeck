@@ -41,6 +41,9 @@
   let route = $state(-1);
   let busy = $state(false);
   let confirmEnd = $state(false);
+  let confirmCancel = $state(false);
+  /** Keep a confirmation in view when the panel is short. */
+  const reveal = (node: HTMLElement) => node.scrollIntoView({ block: "nearest", behavior: "smooth" });
 
   $effect(() => {
     api.demoRoutes().then((r) => (routes = r ?? []));
@@ -94,7 +97,13 @@
     {/if}
     <PhaseLadder phase={status.phase} />
     <div class="actions">
-      {#if confirmEnd}
+      {#if confirmCancel}
+        <div class="row inline" use:reveal title="The flight is thrown away and nothing is saved.">
+          <span class="ask">Discard this flight?</span>
+          <button class="danger" onclick={() => ((confirmCancel = false), api.cancelFlight())}>Discard</button>
+          <button class="ghost" onclick={() => (confirmCancel = false)}>Keep it</button>
+        </div>
+      {:else if confirmEnd}
         <p class="confirm">End this flight now and save it as partial?</p>
         <div class="row">
           <button class="danger" onclick={endFlight}>End and save</button>
@@ -102,6 +111,7 @@
         </div>
       {:else}
         <button class="ghost" onclick={() => (confirmEnd = true)}>End flight</button>
+        <button class="ghost" onclick={() => (confirmCancel = true)}>Cancel flight</button>
         {#if status.demo}
           <button class="ghost" onclick={() => api.stopDemo()}>Stop demo</button>
         {/if}
@@ -245,6 +255,15 @@
   .row {
     display: flex;
     gap: 8px;
+  }
+  .row.inline {
+    align-items: center;
+    width: 100%;
+  }
+  .ask {
+    margin-right: auto;
+    color: var(--ink);
+    font-weight: 600;
   }
   .confirm {
     margin: 0;

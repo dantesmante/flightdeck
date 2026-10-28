@@ -3,6 +3,7 @@
   import { api, type FlightPlan, type Pilot } from "./api";
   import { shrinkImage } from "./image";
   import { prefs, setPref } from "./prefs.svelte";
+  import ExportDialog from "./ExportDialog.svelte";
   import { checkForUpdates, installUpdate, updates } from "./updates.svelte";
 
   let pilot = $state<Pilot | null>(null);
@@ -115,19 +116,8 @@
       vBusy = false;
     }
   }
-  async function exportAll() {
-    vBusy = true;
-    vMsg = vErr = null;
-    vFailed = [];
-    try {
-      const r = await api.exportAllVolanta();
-      vMsg = `Saved ${r.count} ${r.count === 1 ? "flight" : "flights"} to ${r.folder}`;
-    } catch (e) {
-      vErr = String(e);
-    } finally {
-      vBusy = false;
-    }
-  }
+  let exporting = $state(false);
+
 
   // Diagnostics: a report of recent flights and the log, to send when
   // something does not behave.
@@ -234,14 +224,14 @@
     <p class="help">
       Bring your Volanta history across: select Volanta flight files (.json), one or many at once. Each becomes a
       FlightDeck flight on the map, in the logbook, passport and hangar, and the original file is kept so it can be
-      exported again unchanged. Export saves every flight as a Volanta-format file in your Downloads folder.
+      exported again unchanged. Export lets you choose flights and saves them as Volanta-format files in your Downloads folder.
     </p>
     <div class="row">
       <label class="primary file" class:disabled={vBusy}>
         Import Volanta flights
         <input type="file" accept=".json,application/json" multiple onchange={importFiles} disabled={vBusy} />
       </label>
-      <button class="ghost" onclick={exportAll} disabled={vBusy}>Export all as Volanta files</button>
+      <button class="ghost" onclick={() => (exporting = true)} disabled={vBusy}>Export…</button>
     </div>
     {#if vMsg}<p class="ok" role="status">{vMsg}</p>{/if}
     {#if vErr}<p class="err" role="alert">{vErr}</p>{/if}
@@ -272,6 +262,14 @@
     <div class="seg" role="radiogroup" aria-label="Writing">
       <button role="radio" aria-checked={prefs.s.logbook_hand !== "type"} class:on={prefs.s.logbook_hand !== "type"} onclick={() => setPref("logbook_hand", "hand")}>Handwritten</button>
       <button role="radio" aria-checked={prefs.s.logbook_hand === "type"} class:on={prefs.s.logbook_hand === "type"} onclick={() => setPref("logbook_hand", "type")}>Typed</button>
+    </div>
+    <div class="seg" role="radiogroup" aria-label="Paper">
+      <button role="radio" aria-checked={prefs.s.logbook_theme !== "dark"} class:on={prefs.s.logbook_theme !== "dark"} onclick={() => setPref("logbook_theme", "light")}>Light paper</button>
+      <button role="radio" aria-checked={prefs.s.logbook_theme === "dark"} class:on={prefs.s.logbook_theme === "dark"} onclick={() => setPref("logbook_theme", "dark")}>Dark paper</button>
+    </div>
+    <div class="seg" role="radiogroup" aria-label="Logbook view">
+      <button role="radio" aria-checked={prefs.s.logbook_view !== "list"} class:on={prefs.s.logbook_view !== "list"} onclick={() => setPref("logbook_view", "book")}>Logbook pages</button>
+      <button role="radio" aria-checked={prefs.s.logbook_view === "list"} class:on={prefs.s.logbook_view === "list"} onclick={() => setPref("logbook_view", "list")}>Simple list</button>
     </div>
   </div>
 
@@ -320,6 +318,10 @@
     {#if sampleMsg}<p class="ok" role="status">{sampleMsg}</p>{/if}
   </div>
 </div></section>
+
+{#if exporting}
+  <ExportDialog onclose={() => (exporting = false)} />
+{/if}
 
 <style>
   .settings {

@@ -102,3 +102,17 @@ export function groups(cols: Col[]): { label: string; span: number; width: numbe
   }
   return out;
 }
+
+/** The simple list view: the columns most pilots look at, in one table. */
+export const LIST_COLS: Col[] = [
+  { key: "from", label: "From", width: 0, side: "L", kind: "text", value: (r) => r.from_icao },
+  { key: "to", label: "To", width: 0, side: "L", kind: "text", value: (r) => r.to_icao },
+  { key: "type", label: "Aircraft", width: 0, side: "L", kind: "text", value: (r) => r.aircraft_type },
+  { key: "ident", label: "Registration", width: 0, side: "L", kind: "text", value: (r) => r.ident },
+  { key: "block", label: "Out – In (UTC)", width: 0, side: "L", kind: "text", value: (r) => (r.out_ms != null && r.in_ms != null ? `${hhmmZ(r.out_ms)} – ${hhmmZ(r.in_ms)}` : "") },
+  { key: "total", label: "Total", width: 0, side: "R", kind: "minutes", value: (r) => r.total_min },
+  { key: "night", label: "Night", width: 0, side: "R", kind: "minutes", value: (r) => r.night_min },
+  { key: "ifr", label: "Instrument", width: 0, side: "R", kind: "minutes", value: (r) => r.sim_inst_min + r.act_inst_min },
+  { key: "ldg", label: "Landings", width: 0, side: "R", kind: "count", value: (r) => r.day_landings + r.night_landings },
+  { key: "remarks", label: "Remarks", width: 0, side: "R", kind: "text", value: (r) => r.remarks, flex: true },
+];

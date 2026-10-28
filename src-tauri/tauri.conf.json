@@ -22,7 +22,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob: https://tiles.openfreemap.org https://tilecache.rainviewer.com; connect-src 'self' ipc: http://ipc.localhost https://tiles.openfreemap.org https://api.rainviewer.com https://tilecache.rainviewer.com; worker-src 'self' blob:; child-src blob:"
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob: https://tiles.openfreemap.org https://tilecache.rainviewer.com https://*.plnspttrs.net; connect-src 'self' ipc: http://ipc.localhost https://tiles.openfreemap.org https://api.rainviewer.com https://tilecache.rainviewer.com; worker-src 'self' blob:; child-src blob:"
     }
   },
   "bundle": {

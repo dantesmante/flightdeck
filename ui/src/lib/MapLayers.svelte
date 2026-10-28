@@ -11,8 +11,10 @@
     /** Time of the radar picture shown, Unix seconds, or null. */
     radarTime: number | null;
     radarError: boolean;
+    /** Offer the Parked aircraft layer (the main map only). */
+    parkedLayer?: boolean;
   }
-  let { three, on, onthree, ontoggle, radarTime, radarError }: Props = $props();
+  let { three, on, onthree, ontoggle, radarTime, radarError, parkedLayer = false }: Props = $props();
 
   let open = $state(false);
 
@@ -46,6 +48,11 @@
       <path d="M12 50 Q 50 4, 104 30" fill="none" stroke="#c4c8ce" stroke-width="1" opacity="0.4" />
       {#each [[12, 50], [104, 30], [60, 44], [34, 18], [86, 54]] as [x, y] (x)}
         <circle cx={x} cy={y} r="3.4" fill="#f0b23a" stroke="#1b1c1e" stroke-width="1.4" />
+      {/each}
+    {:else if kind === "parked"}
+      {#each [[22, 22], [64, 42], [92, 18]] as [x, y] (x)}
+        <g transform="translate({x} {y}) scale(0.32)"><path d="M0 -20 L3.4 -6 L19 1.5 L19 5.5 L3.4 2.6 L2.4 13 L8 17 L8 19.6 L0 17.8 L-8 19.6 L-8 17 L-2.4 13 L-3.4 2.6 L-19 5.5 L-19 1.5 L-3.4 -6 Z" fill="#c4c8ce" /></g>
+        <rect x={x + 8} y={y - 4} width="18" height="8" rx="2" fill="#2e3135" stroke="#4a4e54" stroke-width="0.8" />
       {/each}
     {:else if kind === "radar"}
       <path d="M10 40 C 20 20, 44 18, 52 30 C 60 42, 40 56, 22 52 C 12 50, 6 46, 10 40 Z" fill="#3aa0ff" opacity="0.55" />
@@ -102,6 +109,9 @@
     <div class="grid">
       {@render card("routes", "Past routes", on.has("routes"), () => ontoggle("routes"))}
       {@render card("airports", "Airports", on.has("airports"), () => ontoggle("airports"))}
+      {#if parkedLayer}
+        {@render card("parked", "Parked aircraft", on.has("parked"), () => ontoggle("parked"))}
+      {/if}
     </div>
     <h4>Weather</h4>
     <div class="grid">

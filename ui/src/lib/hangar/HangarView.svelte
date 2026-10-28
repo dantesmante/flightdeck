@@ -1,14 +1,14 @@
 <script lang="ts">
-  // The hangar: a card for every aircraft flown, with its registration, a
-  // blueprint (or your own photo), where it is parked and its numbers.
-  // Hover the picture to upload a photo; click anywhere else on a card to
-  // open the aircraft with its flights on a map.
+  // The hangar: a card for every aircraft flown, favourites first, then by
+  // hours flown. Filter by category; hover the picture to upload a photo;
+  // click anywhere else on a card to open the aircraft and its flights.
   import { onMount } from "svelte";
   import { api, type HangarItem } from "../api";
   import { hoursMinutes, int } from "../format";
   import { shrinkImage } from "../image";
   import AircraftDetail from "./AircraftDetail.svelte";
-  import Blueprint from "./Blueprint.svelte";
+  import AircraftPicture from "./AircraftPicture.svelte";
+  import { CATEGORIES, category, type Category } from "./kind";
 
   let { onsettings, onflight }: { onsettings: () => void; onflight?: (id: number) => void } = $props();
 
@@ -28,6 +28,13 @@
   }
   onMount(load);
 
+  let filter = $state<Category | null>(null);
+  const counts = $derived.by(() => {
+    const c: Record<string, number> = {};
+    for (const i of items) c[category(i)] = (c[category(i)] ?? 0) + 1;
+    return c;
+  });
+  const shown = $derived(filter ? items.filter((i) => category(i) === filter) : items);
   const totalMinutes = $derived(items.reduce((a, i) => a + i.minutes, 0));
   const opened = $derived(items.find((i) => i.id === openId) ?? null);
 
@@ -72,6 +79,8 @@
   async function star(it: HangarItem) {
     it.favourite = !it.favourite;
     await api.setAircraftFavourite(it.id, it.favourite);
+    // Favourites move to the top, then everything by hours flown.
+    items = [...items].sort((a, b) => Number(b.favourite) - Number(a.favourite) || b.minutes - a.minutes);
   }
 </script>
 
@@ -92,6 +101,16 @@
         <p>{items.length} aircraft, {hoursMinutes(totalMinutes)} flown in total. Click a card to see its flights.</p>
       {/if}
     </header>
+    {#if items.length}
+      <div class="chips" role="group" aria-label="Filter by aircraft type">
+        <button class:on={filter === null} onclick={() => (filter = null)}>All <span>{items.length}</span></button>
+        {#each CATEGORIES as c (c.id)}
+          <button class:on={filter === c.id} disabled={!counts[c.id]} onclick={() => (filter = filter === c.id ? null : (c.id as Category))}>
+            {c.label} <span>{counts[c.id] ?? 0}</span>
+          </button>
+        {/each}
+      </div>
+    {/if}
 
     {#if loaded && items.length === 0}
       <div class="empty">
@@ -100,26 +119,12 @@
       </div>
     {:else}
       <div class="grid">
-        {#each items as it (it.id)}
+        {#each shown as it (it.id)}
           <article class="card">
             <button class="open" onclick={() => (openId = it.id)} aria-label="Open {it.registration || name(it)}"></button>
             <h3 class="reg">{it.registration || it.icao_type || "Unregistered"}</h3>
             <div class="picture">
-              <div class="art" class:photo={!!photos[it.id]}>
-                {#if photos[it.id]}
-                  <img src={photos[it.id]} alt={it.registration || name(it)} />
-                {:else}
-                  <Blueprint icao_type={it.icao_type} engine_type={it.engine_type} engine_count={it.engine_count} title={it.title} />
-                {/if}
-              </div>
-              <label class="upload">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 18h10a4 4 0 0 0 .6-7.96A6 6 0 0 0 6.1 9.1 4.5 4.5 0 0 0 7 18zM12 16v-6M9.5 12.5 12 10l2.5 2.5" /></svg>
-                <span>{photos[it.id] ? "Change image" : "Upload image"}</span>
-                <input type="file" accept="image/*" onchange={(e) => pick(it, e)} />
-              </label>
-              {#if photos[it.id]}
-                <button class="remove" onclick={() => removePhoto(it)}>Use the blueprint</button>
-              {/if}
+              <AircraftPicture item={it} own={photos[it.id] ?? null} onpick={(e) => pick(it, e)} onremove={() => removePhoto(it)} />
               <button class="star" class:on={it.favourite} onclick={() => star(it)} aria-pressed={it.favourite} aria-label={it.favourite ? "Remove from favourites" : "Add to favourites"}>
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.2l2.7 5.6 6.1.8-4.5 4.2 1.1 6.1L12 17l-5.4 2.9 1.1-6.1-4.5-4.2 6.1-.8z" /></svg>
               </button>
@@ -137,6 +142,7 @@
             </dl>
           </article>
         {/each}
+        {#if shown.length === 0}<p class="none">No aircraft in this category yet.</p>{/if}
       </div>
     {/if}
     {#if message}<p class="msg" role="status">{message}</p>{/if}
@@ -169,17 +175,55 @@
     margin: 0;
     color: var(--ink-dim);
   }
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 14px 28px 0;
+  }
+  .chips button {
+    border: 1px solid var(--rule);
+    background: #26282c;
+    color: var(--ink-dim);
+    border-radius: 999px;
+    padding: 6px 14px;
+    font-weight: 600;
+    font-size: 13px;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+  }
+  .chips button span {
+    margin-left: 4px;
+    font-weight: 500;
+    opacity: 0.7;
+  }
+  .chips button:hover:not(:disabled) {
+    color: var(--ink);
+    background: #2e3135;
+  }
+  .chips button.on {
+    color: #1b1406;
+    background: var(--amber);
+    border-color: var(--amber);
+  }
+  .chips button:disabled {
+    opacity: 0.4;
+    cursor: default;
+  }
   .empty {
     margin: 80px auto;
     max-width: 44ch;
     text-align: center;
     color: var(--ink-dim);
   }
+  .none {
+    grid-column: 1 / -1;
+    color: var(--ink-dim);
+  }
   .grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
     gap: 26px;
-    padding: 22px 28px 40px;
+    padding: 20px 28px 40px;
   }
   .card {
     position: relative;
@@ -187,8 +231,9 @@
     flex-direction: column;
     border-radius: 14px;
     overflow: hidden;
-    color: #fff;
-    background: #13306a;
+    color: var(--ink);
+    background: #26282c;
+    border: 1px solid rgba(255, 255, 255, 0.06);
     box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
     transition: transform 0.18s, box-shadow 0.18s;
   }
@@ -213,106 +258,33 @@
     font-size: 27px;
     font-weight: 600;
     letter-spacing: 0.02em;
-    background: #123068;
+    background: #2b2e32;
   }
   .picture {
     position: relative;
     z-index: 2;
     aspect-ratio: 5 / 4;
     overflow: hidden;
-    background: linear-gradient(160deg, #1b58b8, #1747a0 60%, #143e8e);
-  }
-  .art {
-    position: absolute;
-    inset: 0;
-    padding: 1% 5%;
-    transition: filter 0.25s, transform 0.25s;
-  }
-  .art.photo {
-    padding: 0;
-  }
-  .art img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    display: block;
-  }
-  .picture:hover .art {
-    filter: blur(6px) brightness(0.7);
-    transform: scale(1.04);
-  }
-  .upload {
-    position: absolute;
-    inset: 0;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-    color: #fff;
-    font-weight: 600;
-    font-size: 15px;
-    opacity: 0;
-    cursor: pointer;
-    transition: opacity 0.2s;
-  }
-  .upload svg {
-    width: 34px;
-    height: 34px;
-    fill: none;
-    stroke: currentColor;
-    stroke-width: 1.6;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-  }
-  .upload span {
-    padding: 5px 12px;
-    border-radius: 999px;
-    border: 1px solid rgba(255, 255, 255, 0.6);
-    background: rgba(10, 25, 55, 0.35);
-  }
-  .upload input {
-    display: none;
-  }
-  .picture:hover .upload,
-  .upload:focus-within {
-    opacity: 1;
-  }
-  .remove {
-    position: absolute;
-    left: 50%;
-    bottom: 12px;
-    transform: translateX(-50%);
-    border: none;
-    background: transparent;
-    color: rgba(255, 255, 255, 0.85);
-    font-size: 12px;
-    text-decoration: underline;
-    opacity: 0;
-    transition: opacity 0.2s;
-  }
-  .picture:hover .remove {
-    opacity: 1;
   }
   .star {
     position: absolute;
-    right: 10px;
-    bottom: 10px;
-    z-index: 3;
+    right: 8px;
+    top: 8px;
+    z-index: 4;
     width: 34px;
     height: 34px;
     padding: 4px;
     border: none;
-    background: transparent;
-    color: #0f2a5e;
+    border-radius: 50%;
+    background: rgba(20, 22, 25, 0.45);
     display: grid;
     place-items: center;
   }
   .star svg {
-    width: 26px;
-    height: 26px;
+    width: 22px;
+    height: 22px;
     fill: transparent;
-    stroke: #0f2a5e;
+    stroke: rgba(255, 255, 255, 0.9);
     stroke-width: 1.6;
     stroke-linejoin: round;
     transition: fill 0.15s, transform 0.15s;
@@ -328,13 +300,13 @@
     margin: 0;
     padding: 9px 12px 7px;
     font-size: 17px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    border-bottom: 1px solid var(--rule);
   }
   .where {
     display: flex;
     flex-direction: column;
     padding: 8px 12px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    border-bottom: 1px solid var(--rule);
   }
   .lbl,
   dt {
@@ -342,7 +314,7 @@
     white-space: nowrap;
     letter-spacing: 0.05em;
     text-transform: uppercase;
-    color: rgba(255, 255, 255, 0.75);
+    color: var(--ink-dim);
   }
   .icao {
     font-size: 19px;
@@ -351,7 +323,7 @@
   }
   .apt {
     font-size: 12px;
-    color: rgba(255, 255, 255, 0.85);
+    color: var(--ink-dim);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;

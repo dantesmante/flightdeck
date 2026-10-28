@@ -7,7 +7,9 @@
   import Map from "../Map.svelte";
   import { distance } from "../prefs.svelte";
   import { fromTrack, type Pt } from "../track";
-  import Blueprint from "./Blueprint.svelte";
+  import { openExternal } from "../external";
+  import AircraftPicture from "./AircraftPicture.svelte";
+  import { spotters } from "./spotters.svelte";
 
   interface Props {
     item: HangarItem;
@@ -65,16 +67,13 @@
     return a <= 60 ? "Butter" : a <= 180 ? "Smooth" : a <= 300 ? "Firm" : a <= 600 ? "Hard" : "Very hard";
   };
   const dist = $derived(distance(item.distance_nm));
+  const spot = $derived(!photo && item.registration ? spotters[item.registration.trim().toUpperCase()] : null);
 </script>
 
 <div class="detail">
   <aside class="side">
-    <div class="hero" class:photo={!!photo}>
-      {#if photo}
-        <img src={photo} alt={item.registration || displayName} />
-      {:else}
-        <div class="bp"><Blueprint icao_type={item.icao_type} engine_type={item.engine_type} engine_count={item.engine_count} title={item.title} /></div>
-      {/if}
+    <div class="hero">
+      <AircraftPicture {item} own={photo} variant="hero" credit={false} />
       <div class="shade"></div>
       <button class="back" onclick={onback}>
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg>
@@ -90,6 +89,10 @@
         <p>{displayName}{item.icao_type ? ` · ${item.icao_type}` : ""}</p>
       </div>
     </div>
+
+    {#if spot}
+      <a class="credit" href={spot.link} onclick={(e) => { e.preventDefault(); openExternal(spot.link); }}>Photo © {spot.photographer || "Photographer"} · Planespotters.net</a>
+    {/if}
 
     <div class="tabs" role="tablist">
       <button role="tab" aria-selected={tab === "stats"} class:on={tab === "stats"} onclick={() => (tab = "stats")}>Statistics</button>
@@ -175,17 +178,21 @@
     height: 230px;
     flex: none;
     overflow: hidden;
-    background: linear-gradient(160deg, #1b58b8, #1747a0 60%, #143e8e);
+    background: #222428;
   }
-  .hero img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
+  .credit {
     display: block;
+    padding: 5px 16px 0;
+    font-size: 11px;
+    color: var(--ink-dim);
+    text-decoration: none;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
-  .bp {
-    position: absolute;
-    inset: 6px 100px 62px;
+  .credit:hover {
+    color: var(--ink);
+    text-decoration: underline;
   }
   .shade {
     position: absolute;
@@ -241,6 +248,7 @@
     bottom: 10px;
     text-align: center;
     color: #fff;
+    pointer-events: none;
   }
   .title h2 {
     margin: 0;

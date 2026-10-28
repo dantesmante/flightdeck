@@ -2,6 +2,7 @@
 
 mod diag;
 mod engine;
+mod photos;
 mod samples;
 mod simbrief;
 mod volanta;
@@ -26,6 +27,7 @@ struct AppState {
     shared: SharedState,
     tx: Mutex<Sender<Command>>,
     data_dir: std::path::PathBuf,
+    photos: Arc<photos::Cache>,
 }
 
 type CmdResult<T> = Result<T, String>;
@@ -89,6 +91,12 @@ fn stop_demo(state: tauri::State<AppState>) -> CmdResult<()> {
 #[tauri::command]
 fn end_flight(state: tauri::State<AppState>) -> CmdResult<()> {
     send(&state, Command::EndFlight)
+}
+
+/// Discard the flight in progress without saving it.
+#[tauri::command]
+fn cancel_flight(state: tauri::State<AppState>) -> CmdResult<()> {
+    send(&state, Command::CancelFlight)
 }
 
 /// The pilot's latest SimBrief flight plan, using the Pilot ID from Settings.
@@ -209,15 +217,19 @@ struct ExportAll {
     count: usize,
 }
 
-/// Save every flight as a Volanta file, in a new dated folder.
+/// Save the chosen flights (all when none are given) as Volanta files, in
+/// a new dated folder.
 #[tauri::command]
-fn export_all_volanta(app: tauri::AppHandle, state: tauri::State<AppState>) -> CmdResult<ExportAll> {
-    let ids = state.db.lock().unwrap().all_flight_ids().map_err(err)?;
+fn export_all_volanta(app: tauri::AppHandle, state: tauri::State<AppState>, ids: Option<Vec<i64>>) -> CmdResult<ExportAll> {
+    let ids = match ids {
+        Some(ids) if !ids.is_empty() => ids,
+        _ => state.db.lock().unwrap().all_flight_ids().map_err(err)?,
+    };
     let stamp = volanta::format_time(
         std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0),
         false,
     );
-    let sub = format!("All flights {} {}{}", &stamp[0..10], &stamp[11..13], &stamp[14..16]);
+    let sub = format!("Flights {} {}{}", &stamp[0..10], &stamp[11..13], &stamp[14..16]);
     let dir = export_dir(&app, Some(sub))?;
     for id in &ids {
         let (name, text) = volanta_json(&state, *id)?;
@@ -362,7 +374,7 @@ fn get_settings(state: tauri::State<AppState>) -> CmdResult<HashMap<String, Stri
 
 #[tauri::command]
 fn set_setting(state: tauri::State<AppState>, key: String, value: String) -> CmdResult<()> {
-    const ALLOWED: &[&str] = &["distance_unit", "logbook_layout", "logbook_hand", "passport_color", "map_3d", "map_layers", "simbrief_id"];
+    const ALLOWED: &[&str] = &["distance_unit", "logbook_layout", "logbook_hand", "logbook_theme", "logbook_view", "passport_color", "map_3d", "map_layers", "simbrief_id"];
     if !ALLOWED.contains(&key.as_str()) {
         return Err(format!("unknown setting {key}"));
     }
@@ -550,6 +562,13 @@ fn set_aircraft_favourite(state: tauri::State<AppState>, id: i64, favourite: boo
     state.db.lock().unwrap().set_aircraft_favourite(id, favourite).map_err(err)
 }
 
+/// The latest Planespotters photo of a registration (None if there is none).
+#[tauri::command]
+async fn spotter_photo(state: tauri::State<'_, AppState>, registration: String) -> CmdResult<Option<photos::SpotterPhoto>> {
+    let cache = state.photos.clone();
+    tauri::async_runtime::spawn_blocking(move || cache.photo(&registration)).await.map_err(err)?
+}
+
 /// Every flight flown in one aircraft, newest first.
 #[tauri::command]
 fn aircraft_flights(state: tauri::State<AppState>, id: i64) -> CmdResult<Vec<FlightRow>> {
@@ -612,6 +631,7 @@ pub fn run() {
     diag::init();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&data_dir)?;
@@ -631,7 +651,7 @@ pub fn run() {
             let (tx, rx) = channel();
             let refdata_for_state = refdata.clone();
             engine::spawn(app.handle().clone(), shared.clone(), db.clone(), refdata, data_dir.clone(), rx);
-            app.manage(AppState { db, refdata: refdata_for_state, shared, tx: Mutex::new(tx), data_dir });
+            app.manage(AppState { db, refdata: refdata_for_state, shared, tx: Mutex::new(tx), data_dir, photos: Default::default() });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -643,6 +663,7 @@ pub fn run() {
             start_demo,
             stop_demo,
             end_flight,
+            cancel_flight,
             simbrief_latest,
             start_flight,
             set_plan,
@@ -652,6 +673,7 @@ pub fn run() {
             export_all_volanta,
             get_diagnostics,
             set_aircraft_favourite,
+            spotter_photo,
             aircraft_flights,
             save_diagnostics,
             demo_routes,

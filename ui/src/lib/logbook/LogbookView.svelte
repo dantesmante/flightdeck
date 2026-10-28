@@ -3,7 +3,7 @@
   import { api, type LogRow } from "../api";
   import Book from "../Book.svelte";
   import { prefs, setPref } from "../prefs.svelte";
-  import { groups, LAYOUTS, printValue, type Col, type Layout } from "./columns";
+  import { groups, LAYOUTS, LIST_COLS, printValue, type Col, type Layout } from "./columns";
   import EntryCard from "./EntryCard.svelte";
 
   let { onflight }: { onflight?: (flightId: number) => void } = $props();
@@ -21,6 +21,8 @@
 
   const layout = $derived((prefs.s.logbook_layout as Layout) ?? "faa");
   const hand = $derived(prefs.s.logbook_hand !== "type");
+  const dark = $derived(prefs.s.logbook_theme === "dark");
+  const list = $derived(prefs.s.logbook_view === "list");
   const cols = $derived(LAYOUTS[layout]);
   const left = $derived(cols.filter((c) => c.side === "L"));
   const right = $derived(cols.filter((c) => c.side === "R"));
@@ -54,6 +56,16 @@
       todate: printValue(col, sum(col, before) + sum(col, page), layout),
     };
   }
+
+  // The simple list: the main columns in one table, newest flight first,
+  // with the full date. FAA/EASA still sets how times are written.
+  const tableCols = LIST_COLS;
+  const newestFirst = $derived([...rows].reverse());
+  const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const fullDate = (ms: number) => {
+    const d = new Date(ms);
+    return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+  };
 
   const year = (s: number) => {
     const r = rows[s * ROWS];
@@ -89,7 +101,7 @@
   {@const list = pageRows(s)}
   {@const firstNum = side.findIndex((c) => c.kind !== "text")}
   {@const labelSpan = firstNum < 0 ? side.length : firstNum}
-  <div class="page" class:lp={i % 2 === 0} class:hand>
+  <div class="page" class:lp={i % 2 === 0} class:hand class:dark>
     <div class="top">
       {#if i % 2 === 0}
         <span>Pilot logbook</span><span class="yr">{year(s)}</span>
@@ -145,27 +157,76 @@
   <div class="toolbar">
     <h2>Logbook</h2>
     <span class="where">
-      {rows.length} {rows.length === 1 ? "entry" : "entries"}{rows.length ? `, pages ${spread * 2 + 1} and ${spread * 2 + 2}` : ""}
+      {rows.length} {rows.length === 1 ? "entry" : "entries"}{rows.length && !list ? `, pages ${spread * 2 + 1} and ${spread * 2 + 2}` : ""}
     </span>
+    <div class="seg" role="group" aria-label="Logbook view">
+      <button class:on={!list} onclick={() => setPref("logbook_view", "book")} title="A paper pilot logbook">Logbook</button>
+      <button class:on={list} onclick={() => setPref("logbook_view", "list")} title="A plain list of every flight">List</button>
+    </div>
     <div class="seg" role="group" aria-label="Logbook layout">
       <button class:on={layout === "faa"} onclick={() => setPref("logbook_layout", "faa")}>FAA</button>
       <button class:on={layout === "easa"} onclick={() => setPref("logbook_layout", "easa")}>EASA</button>
     </div>
-    <div class="seg" role="group" aria-label="Writing">
-      <button class:on={hand} onclick={() => setPref("logbook_hand", "hand")}>Handwritten</button>
-      <button class:on={!hand} onclick={() => setPref("logbook_hand", "type")}>Typed</button>
-    </div>
+    {#if !list}
+      <div class="seg" role="group" aria-label="Writing">
+        <button class:on={hand} onclick={() => setPref("logbook_hand", "hand")}>Handwritten</button>
+        <button class:on={!hand} onclick={() => setPref("logbook_hand", "type")}>Typed</button>
+      </div>
+      <div class="seg" role="group" aria-label="Paper">
+        <button class:on={!dark} onclick={() => setPref("logbook_theme", "light")} aria-label="Light paper" title="Light paper">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2" /><path d="M12 2.5v2.5M12 19v2.5M2.5 12H5M19 12h2.5M5.3 5.3l1.8 1.8M16.9 16.9l1.8 1.8M5.3 18.7l1.8-1.8M16.9 7.1l1.8-1.8" /></svg>
+        </button>
+        <button class:on={dark} onclick={() => setPref("logbook_theme", "dark")} aria-label="Dark paper" title="Dark paper">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.5 14.6A8 8 0 0 1 9.4 4.5a8 8 0 1 0 10.1 10.1z" /></svg>
+        </button>
+      </div>
+    {/if}
   </div>
   {#if loaded && rows.length === 0}
     <p class="note">Your logbook is empty. Each flight writes its own line when you park. Settings has sample flights if you want to see it filled in.</p>
   {/if}
-  <div class="stage">
-    {#if loaded}
-      <Book bind:this={book} bind:spread pageCount={spreads * 2} pageWidth={W} pageHeight={H} page={pageView} label="Pilot logbook" />
-    {/if}
-  </div>
+  {#if list}
+    <div class="table-wrap">
+      {#if rows.length}
+        <table class="flat">
+          <thead>
+            <tr>
+              <th>Date</th>
+              {#each tableCols as c (c.key)}
+                <th class:num={c.kind !== "text"}>{c.label}</th>
+              {/each}
+            </tr>
+          </thead>
+          <tbody>
+            {#each newestFirst as r (r.flight_id)}
+              <tr tabindex="0" onclick={() => (opened = r)} onkeydown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), (opened = r))}>
+                <td class="nowrap">{fullDate(r.date_ms)}</td>
+                {#each tableCols as c (c.key)}
+                  <td class:num={c.kind !== "text"} class:remarks={c.flex} class:ac={c.key === "type"} title={c.flex || c.key === "type" ? String(c.value(r)) : undefined}>{printValue(c, c.value(r), layout)}</td>
+                {/each}
+              </tr>
+            {/each}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td>Totals</td>
+              {#each tableCols as c (c.key)}
+                <td class:num={c.kind !== "text"}>{c.kind === "text" ? "" : printValue(c, sum(c, rows), layout)}</td>
+              {/each}
+            </tr>
+          </tfoot>
+        </table>
+      {/if}
+    </div>
+  {:else}
+    <div class="stage">
+      {#if loaded}
+        <Book bind:this={book} bind:spread pageCount={spreads * 2} pageWidth={W} pageHeight={H} page={pageView} label="Pilot logbook" />
+      {/if}
+    </div>
+  {/if}
   {#if rows.length}
-    <p class="tip">Click any line to see the flight, edit it or delete it.</p>
+    <p class="tip">Click any {list ? "flight" : "line"} to see the flight, edit it or delete it.</p>
   {/if}
 </section>
 
@@ -224,6 +285,86 @@
     background: var(--panel-3);
     color: var(--amber);
   }
+  .seg svg {
+    width: 15px;
+    height: 15px;
+    display: block;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  /* The simple list ------------------------------------------------------ */
+  .table-wrap {
+    flex: 1;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    margin: 14px 20px 10px;
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    background: var(--panel);
+  }
+  .flat {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  .flat th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--panel-2);
+    color: var(--ink-dim);
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    text-align: left;
+    vertical-align: bottom;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--rule);
+    white-space: nowrap;
+  }
+  .flat td {
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--rule);
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+  .flat .num {
+    text-align: right;
+  }
+  .flat td.remarks {
+    width: 40%;
+    max-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--ink-dim);
+  }
+  .flat td.ac {
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .flat tbody tr {
+    cursor: pointer;
+  }
+  .flat tbody tr:hover,
+  .flat tbody tr:focus-visible {
+    background: rgba(240, 178, 58, 0.08);
+    outline: none;
+  }
+  .flat tfoot td {
+    position: sticky;
+    bottom: 0;
+    background: var(--panel-2);
+    font-weight: 700;
+    border-bottom: none;
+    border-top: 1px solid var(--rule);
+  }
   .stage {
     flex: 1;
     min-height: 0;
@@ -234,14 +375,28 @@
     --rule-ink: #9cb9a9;
     --head: #e1ebe2;
     --print: #3d5a4b;
+    --paper: #f7f4e8;
+    --pen: #1f3a8a;
+    --type: #222;
+    --line: #d3dfd6;
     position: relative;
     height: 100%;
-    background: #f7f4e8;
-    color: #1f3a8a;
+    background: var(--paper);
+    color: var(--pen);
     padding: 10px 14px 0 18px;
     font-family: "Source Serif 4", Georgia, serif;
     display: flex;
     flex-direction: column;
+  }
+  /* Dark paper: charcoal pages, pale green print, light-blue ink. */
+  .page.dark {
+    --rule-ink: #4f5e57;
+    --head: #2b302f;
+    --print: #9db5a8;
+    --paper: #212426;
+    --pen: #9cc0ff;
+    --type: #dcdfe2;
+    --line: #353b3c;
   }
   .page.lp {
     padding: 10px 18px 0 14px;
@@ -257,14 +412,14 @@
   .yr {
     font-family: "Caveat", cursive;
     font-size: 18px;
-    color: #1f3a8a;
+    color: var(--pen);
     letter-spacing: 0;
     line-height: 0.8;
   }
   .page:not(.hand) .yr {
     font-family: "Special Elite", "Courier New", monospace;
     font-size: 12px;
-    color: #222;
+    color: var(--type);
   }
   .hdr {
     display: grid;
@@ -300,7 +455,7 @@
     height: 24px;
     border-left: 1px solid var(--rule-ink);
     border-right: 1px solid var(--rule-ink);
-    border-bottom: 1px solid #d3dfd6;
+    border-bottom: 1px solid var(--line);
   }
   .row.filled {
     cursor: pointer;
@@ -319,7 +474,7 @@
     white-space: nowrap;
     font-family: "Special Elite", "Courier New", monospace;
     font-size: 11.5px;
-    color: #222;
+    color: var(--type);
   }
   .cell:first-child {
     border-left: none;
@@ -327,7 +482,7 @@
   .hand .cell {
     font-family: "Caveat", cursive;
     font-size: 17px;
-    color: #1f3a8a;
+    color: var(--pen);
     padding-top: 2px;
   }
   .cell.num {

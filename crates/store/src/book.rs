@@ -107,6 +107,8 @@ pub struct HangarRow {
     /// Average landing rate over the flights that recorded one.
     pub avg_landing_fpm: Option<f64>,
     pub favourite: bool,
+    /// Callsign of the latest flight (helps tell cargo from passenger).
+    pub last_callsign: String,
     pub last_icao: Option<String>,
     pub last_name: Option<String>,
     pub last_country: Option<String>,
@@ -407,12 +409,13 @@ impl Store {
                     COUNT(f.id), COALESCE(SUM(l.total_min), 0), COALESCE(SUM(f.distance_nm), 0),
                     COALESCE(SUM(l.day_landings + l.night_landings), 0),
                     MIN(f.start_ms), MAX(f.start_ms), MAX(f.landing_rate_fpm),
-                    AVG(f.landing_rate_fpm), a.favourite
+                    AVG(f.landing_rate_fpm), a.favourite,
+                    (SELECT COALESCE(f2.callsign, '') FROM flight f2 WHERE f2.aircraft_id = a.id ORDER BY f2.start_ms DESC LIMIT 1)
              FROM aircraft a
              JOIN flight f ON f.aircraft_id = a.id
              LEFT JOIN log_entry l ON l.flight_id = f.id
              GROUP BY a.id
-             ORDER BY a.favourite DESC, MAX(f.start_ms) DESC",
+             ORDER BY a.favourite DESC, COALESCE(SUM(l.total_min), 0) DESC, MAX(f.start_ms) DESC",
         )?;
         let mut rows: Vec<HangarRow> = st
             .query_map([], |r| {
@@ -434,6 +437,7 @@ impl Store {
                     best_landing_fpm: r.get(14)?,
                     avg_landing_fpm: r.get(15)?,
                     favourite: r.get::<_, i64>(16)? != 0,
+                    last_callsign: r.get(17)?,
                     last_icao: None,
                     last_name: None,
                     last_country: None,

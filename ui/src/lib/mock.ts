@@ -154,6 +154,15 @@ export async function mockCall<T>(cmd: string, _args?: Record<string, unknown>):
     simbrief_latest: { ...samplePlan, ofp: sampleOfp },
     current_briefing: sampleOfp,
     get_settings: { simbrief_id: "123456" },
+    get_hangar: [
+      { id: 1, title: "Airbus A320neo", icao_type: "A20N", registration: "D-AINA", engine_type: "jet", engine_count: 2, category_class: "MEL", has_photo: false, flights: 12, minutes: 1490, distance_nm: 8400, landings: 12, first_flight_ms: now - 9e9, last_flight_ms: now, best_landing_fpm: -88, avg_landing_fpm: -160, favourite: true, last_callsign: "DLH4AB", last_icao: "EDDF", last_name: "Frankfurt am Main", last_country: "DE", last_country_name: "Germany", last_region_name: null, last_lat: 50.0333, last_lon: 8.5706, last_sim: "MSFS 2024" },
+      { id: 2, title: "Cessna 172 Skyhawk", icao_type: "C172", registration: "N172SP", engine_type: "piston", engine_count: 1, category_class: "SEL", has_photo: false, flights: 4, minutes: 300, distance_nm: 400, landings: 6, first_flight_ms: now - 9e9, last_flight_ms: now, best_landing_fpm: -60, avg_landing_fpm: -120, favourite: false, last_callsign: "", last_icao: "KPAO", last_name: "Palo Alto", last_country: "US", last_country_name: "United States", last_region_name: null, last_lat: 37.461, last_lon: -122.115, last_sim: "MSFS 2020" },
+    ],
+    // A stand-in picture (the real one comes from Planespotters.net).
+    spotter_photo: {
+      src: "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 260"><defs><linearGradient id="g" x2="0" y2="1"><stop offset="0" stop-color="#8fb4d8"/><stop offset="1" stop-color="#d7e3ec"/></linearGradient></defs><rect width="400" height="260" fill="url(#g)"/><rect y="200" width="400" height="60" fill="#6d7570"/></svg>'),
+      width: 400, height: 260, link: "https://www.planespotters.net/", photographer: "Sample Photographer",
+    },
     demo_routes: ["KSEA to KPDX", "EGLL to LFPG", "KSFO to KLAX", "EDDF to LOWW", "CYVR to KSEA"],
   };
   return (answers[cmd] ?? null) as T;

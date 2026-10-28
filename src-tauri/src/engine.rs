@@ -28,6 +28,8 @@ pub enum Command {
     EndFlight,
     /// The pilot pressed "Start a flight": track from now, with this plan.
     StartFlight { plan: Option<FlightPlan> },
+    /// Throw away the flight in progress without saving it.
+    CancelFlight,
     /// Attach (or clear) a flight plan without changing anything else.
     SetPlan(Option<FlightPlan>),
 }
@@ -259,6 +261,7 @@ impl Engine {
                 }
             }
             Command::SetPlan(plan) => self.plan = plan,
+            Command::CancelFlight => self.cancel_flight(),
         }
         self.shared.lock().unwrap().briefing = self.plan.as_ref().and_then(|p| p.ofp.clone());
         self.publish(true);
@@ -469,6 +472,24 @@ impl Engine {
         if let Some(j) = self.journal.take() {
             let _ = j.finish();
         }
+    }
+
+    /// Discard the flight in progress: nothing is saved, the crash journal
+    /// is removed, and the next flight waits for power off and on (or the
+    /// Start a flight button) so it does not begin again straight away.
+    fn cancel_flight(&mut self) {
+        if self.tracker.take().is_some() {
+            log::info!("flight cancelled by pilot; nothing saved");
+        }
+        if let Some(j) = self.journal.take() {
+            let _ = j.finish();
+        }
+        self.shared.lock().unwrap().track.clear();
+        self.tail.clear();
+        self.dep = None;
+        self.armed = false;
+        self.need_reset = true;
+        self.session += 1;
     }
 
     fn end_flight(&mut self, reason: &str) {

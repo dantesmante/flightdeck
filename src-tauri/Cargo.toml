@@ -24,4 +24,5 @@ refdata.workspace = true
 conn-simconnect.workspace = true
 conn-demo.workspace = true
 watcher.workspace = true
+tauri-plugin-opener = "2"
 ureq = { version = "3", features = ["json", "platform-verifier", "win-system-proxy"] }

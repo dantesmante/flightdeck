@@ -347,6 +347,7 @@ export interface HangarItem {
   best_landing_fpm: number | null;
   avg_landing_fpm: number | null;
   favourite: boolean;
+  last_callsign: string;
   last_icao: string | null;
   last_name: string | null;
   last_country: string | null;
@@ -358,6 +359,16 @@ export interface HangarItem {
 }
 
 export type Settings = Record<string, string>;
+
+/** A Planespotters.net photo: show it from `src`, credit the photographer
+ * and link to `link`. */
+export interface SpotterPhoto {
+  src: string;
+  width: number;
+  height: number;
+  link: string;
+  photographer: string;
+}
 
 export interface UpdateInfo {
   current: string;
@@ -391,10 +402,12 @@ export const api = {
   currentBriefing: () => call<Ofp | null>("current_briefing"),
   importVolanta: (files: { name: string; text: string }[]) =>
     call<{ imported: string[]; duplicates: string[]; failed: [string, string][] }>("import_volanta", { files }),
-  exportFlightVolanta: (id: number) => call<string>("export_flight_volanta", { id }),
+
   diagnostics: () => call<string>("get_diagnostics"),
   saveDiagnostics: () => call<string>("save_diagnostics"),
-  exportAllVolanta: () => call<{ folder: string; count: number }>("export_all_volanta"),
+  exportAllVolanta: (ids: number[] | null) => call<{ folder: string; count: number }>("export_all_volanta", { ids }),
+  spotterPhoto: (registration: string) => call<SpotterPhoto | null>("spotter_photo", { registration }),
+  cancelFlight: () => call<void>("cancel_flight"),
   demoRoutes: () => call<string[]>("demo_routes"),
   settings: () => call<Settings>("get_settings"),
   setSetting: (key: string, value: string) => call<void>("set_setting", { key, value }),

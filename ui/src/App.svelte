@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { api, on, type FlightDetail, type FlightPlan, type Route, type Status } from "./lib/api";
+  import { api, on, type FlightDetail, type FlightPlan, type HangarItem, type Route, type Status } from "./lib/api";
   import FlightsPanel from "./lib/FlightsPanel.svelte";
   import HangarView from "./lib/hangar/HangarView.svelte";
   import LivePanel from "./lib/LivePanel.svelte";
@@ -29,8 +29,14 @@
   let selectedFlight = $state<number | null>(null);
   let openRequest = $state<{ id: number; n: number } | null>(null);
 
+  let parked = $state<HangarItem[]>([]);
+  // The aircraft being flown is on the map already; don't park it too.
+  const parkedShown = $derived(
+    status?.live && status.aircraft?.registration ? parked.filter((p) => p.registration !== status!.aircraft!.registration) : parked,
+  );
   async function loadRoutes() {
     routes = (await api.routes()) ?? [];
+    parked = (await api.hangar()) ?? [];
   }
 
   /** A route on the map was clicked: show that flight. */
@@ -123,8 +129,8 @@
     { id: "live", label: "Map", icon: "M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2zM9 4v14M15 6v14" },
     { id: "flights", label: "Flights", icon: "M5 4h14v16H5zM8 8h8M8 12h8M8 16h5" },
     { id: "logbook", label: "Logbook", icon: "M4 5h7a2 2 0 012 2v13a2 2 0 00-2-2H4zM20 5h-7a2 2 0 00-2 2v13a2 2 0 012-2h7z" },
-    { id: "passport", label: "Passport", icon: "M6 3h11a1 1 0 011 1v16a1 1 0 01-1 1H6zM12 9a3 3 0 100 6 3 3 0 000-6zM9 18h6" },
     { id: "hangar", label: "Hangar", icon: "M3 20V9l9-5 9 5v11M7 20v-6h10v6M3 20h18" },
+    { id: "passport", label: "Passport", icon: "M6 3h11a1 1 0 011 1v16a1 1 0 01-1 1H6zM12 9a3 3 0 100 6 3 3 0 000-6zM9 18h6" },
   ];
 
   /** The right-hand panel can be folded away to give the map the room. */
@@ -178,7 +184,7 @@
   </nav>
 
   <main class="stage" class:hidden={full}>
-    <Map live={liveTrack} {aircraft} {origin} {history} {routes} selected={selectedFlight} onroute={showFlight} plan={history ? historyPlan : (status?.plan ?? null)} />
+    <Map live={liveTrack} {aircraft} {origin} {history} {routes} parked={parkedShown} selected={selectedFlight} onroute={showFlight} plan={history ? historyPlan : (status?.plan ?? null)} />
     <button class="fold" onclick={togglePanel} aria-label={collapsed ? "Show the side panel" : "Hide the side panel"} title={collapsed ? "Show panel" : "Hide panel"}>
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d={collapsed ? "M15 5l-7 7 7 7" : "M9 5l7 7-7 7"} /></svg>
     </button>

@@ -48,3 +48,44 @@ export function hash(s: string): number {
   for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619);
   return h >>> 0;
 }
+
+/** The hangar's filter groups. */
+export type Category = "ga" | "airliner" | "cargo" | "helicopter" | "bizjet";
+
+export const CATEGORIES: { id: Category; label: string }[] = [
+  { id: "ga", label: "General aviation" },
+  { id: "airliner", label: "Airliners" },
+  { id: "cargo", label: "Cargo" },
+  { id: "helicopter", label: "Helicopters" },
+  { id: "bizjet", label: "Business jets" },
+];
+
+/** Twin turboprops that fly as airliners rather than private aircraft. */
+const REGIONAL_TURBOPROP = ["AT4", "AT7", "ATR", "DH8", "SF34", "JS31", "JS32", "JS41", "E120", "D328", "SB20", "F50", "AN24", "AN26", "Q4", "B190", "L410", "DHC7"];
+/** A twin turboprop airliner such as an ATR or a Dash 8. */
+export function regionalTurboprop(icao: string): boolean {
+  return starts((icao || "").toUpperCase(), REGIONAL_TURBOPROP);
+}
+
+/** ICAO airline codes of mainly cargo operators. */
+const CARGO_AIRLINES = ["FDX", "UPS", "GTI", "CLX", "BCS", "ABW", "CKS", "PAC", "BOX", "DHK", "ABX", "ATN", "NCA", "MPH", "CAO", "CKK", "LCO", "TAY", "AZG", "SQC", "KZR", "GEC", "AHK", "CPA-C", "ICV", "WGN", "SWN", "RCH"];
+
+export function category(a: {
+  icao_type: string;
+  engine_type: string;
+  engine_count: number;
+  title: string;
+  last_callsign?: string;
+}): Category {
+  const k = artKind(a);
+  if (k === "helicopter") return "helicopter";
+  if (k === "bizjet") return "bizjet";
+  const title = (a.title || "").toLowerCase();
+  const airline = (a.last_callsign || "").toUpperCase().slice(0, 3);
+  const freighter = /cargo|freight|\bbcf\b|\bbdsf\b|\b\d{3}-?\d*f\b|\b(sf|erf|lrf|pf)\b|-f\b/.test(title) || CARGO_AIRLINES.includes(airline);
+  const airlinerish =
+    k === "widebody" || k === "airliner" || k === "regional" ||
+    (k === "turboprop-twin" && starts((a.icao_type || "").toUpperCase(), REGIONAL_TURBOPROP));
+  if (airlinerish) return freighter ? "cargo" : "airliner";
+  return "ga";
+}

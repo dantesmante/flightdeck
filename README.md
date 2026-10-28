@@ -50,12 +50,15 @@ MIT licensed.
   Volanta flight files (.json); each becomes a FlightDeck flight (map,
   logbook, passport, hangar) with Volanta's block times, distance, fuel
   and landing record, and the original file is kept so exporting it gives
-  back the identical file. Re-importing is skipped. Export one flight
-  (from its details) or all flights as Volanta-format files into
-  Downloads\FlightDeck export.
+  back the identical file. Re-importing is skipped. Export opens a list of
+  every flight: tick the ones you want and they are saved as
+  Volanta-format files into Downloads\FlightDeck export.
 - **Map layers** panel: 3D flight, a live day/night line, stronger
-  borders, past routes, airports, and live **rain radar** (RainViewer,
+  borders, past routes, airports, **parked aircraft** (where you last left
+  each aircraft, off by default), and live **rain radar** (RainViewer,
   refreshed every 10 minutes). Your choices are remembered.
+- **Cancel a flight**: if tracking has started but you decide not to fly,
+  Cancel flight throws it away without saving anything.
 - **Real airport names and countries** for every departure and arrival,
   from 72,635 airports (OurAirports, public domain) built into the app.
 - **Saved flights** with block and air times, distance, fuel, track and
@@ -85,12 +88,17 @@ MIT licensed.
   night landings come from the sun's position along your track. Click a
   line to see the flight on a mini map, edit any field (date, times,
   airports, aircraft, hours, remarks) or delete it everywhere. Arrows beside
-  the book turn the pages.
-- **Hangar**: a card for every aircraft you have flown: registration, a
-  blueprint drawing of its type (or your own photo: hover the picture and
-  upload one), where it is parked, flights, hours and average landing
-  rate, and a star for favourites. Click a card to open the aircraft with
-  its statistics and every flight, searchable, drawn on a map.
+  the book turn the pages. Switch to dark paper, or to a simple list of
+  every flight if you prefer a plain table to the paper look.
+- **Hangar**: a card for every aircraft you have flown, favourites first
+  and then by hours flown, with filters for general aviation, airliners,
+  cargo, helicopters and business jets. Each card shows the registration,
+  a photo (your own: hover the picture and upload one; otherwise the
+  latest photo of that registration from Planespotters.net, credited to
+  its photographer; otherwise a silhouette of the type), where it is
+  parked, flights, hours and average landing rate, and a star for
+  favourites. Click a card to open the aircraft with its statistics and
+  every flight, searchable, drawn on a map.
 - **Settings**: pilot details and photo, nautical miles, statute miles or
   kilometres, logbook layout, and **sample flights** to
   fill the passport, logbook and hangar for a quick look.

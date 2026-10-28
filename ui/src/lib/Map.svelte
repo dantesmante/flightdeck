@@ -3,11 +3,12 @@
   // (OpenStreetMap data), recoloured at load into a night-chart palette.
   import maplibregl, { type GeoJSONSource, type LngLatBoundsLike } from "maplibre-gl";
   import { onDestroy, onMount, untrack } from "svelte";
-  import type { FlightPlan, Route } from "./api";
+  import type { FlightPlan, HangarItem, Route } from "./api";
   import { C as BASE, STYLE, offlineStyle, setBorders, tintMap } from "./mapStyle";
   import MapLayers from "./MapLayers.svelte";
   import { latestRadar } from "./radar";
   import { nightShade } from "./terminator";
+  import { day } from "./format";
   import { prefs, setPref } from "./prefs.svelte";
   import { altColor, altGradient, altLabel, altRange, lonLat, sideOnBearing, wallFeatures, wallScale, type Pt } from "./track";
 
@@ -28,8 +29,11 @@
     onroute?: (flightId: number) => void;
     /** The flight plan to draw as a dashed route with waypoints. */
     plan?: FlightPlan | null;
+    /** Your aircraft where they were last parked (the Parked aircraft layer).
+     * Leave out on maps that should not offer the layer. */
+    parked?: HangarItem[] | null;
   }
-  let { live, aircraft, origin, history, routes = [], selected = null, onroute, plan = null }: Props = $props();
+  let { live, aircraft, origin, history, routes = [], selected = null, onroute, plan = null, parked = null }: Props = $props();
 
   const PLAN = "#a78bfa";
 
@@ -614,6 +618,56 @@
     if (follow) map.easeTo({ center: at, duration: 450, easing: (t) => t });
   });
 
+  // Parked aircraft: one tag per airport listing every aircraft left
+  // there, shown only when the layer is switched on.
+  let parkedMarkers: maplibregl.Marker[] = [];
+  let parkedPopups: maplibregl.Popup[] = [];
+  $effect(() => {
+    const list = parked;
+    const on = layers.has("parked");
+    if (!loaded || !map) return;
+    for (const m of parkedMarkers) m.remove();
+    for (const p of parkedPopups) p.remove();
+    parkedMarkers = [];
+    parkedPopups = [];
+    if (!list || !on) return;
+    const spots: Record<string, HangarItem[]> = {};
+    for (const it of list) {
+      if (it.last_lat == null || it.last_lon == null) continue;
+      const k = `${it.last_lat.toFixed(3)},${it.last_lon.toFixed(3)}`;
+      (spots[k] ??= []).push(it);
+    }
+    for (const group of Object.values(spots)) {
+      const first = group[0];
+      const el = document.createElement("div");
+      el.className = "parked";
+      const regs = group.map((g) => esc(g.registration || g.icao_type || "Aircraft"));
+      el.innerHTML =
+        `<svg viewBox="-24 -24 48 48" width="22" height="22" aria-hidden="true"><path d="M0 -20 L3.4 -6 L19 1.5 L19 5.5 L3.4 2.6 L2.4 13 L8 17 L8 19.6 L0 17.8 L-8 19.6 L-8 17 L-2.4 13 L-3.4 2.6 L-19 5.5 L-19 1.5 L-3.4 -6 Z" fill="#c4c8ce" stroke="#111214" stroke-width="2" stroke-linejoin="round"/></svg>` +
+        `<span>${regs.slice(0, 3).join(" · ")}${regs.length > 3 ? ` +${regs.length - 3}` : ""}</span>`;
+      const rows = group
+        .map((g) => {
+          const hrs = (g.minutes / 60).toFixed(1);
+          return `<div class="pk-row"><strong>${esc(g.registration || g.icao_type || "Unregistered")}</strong><span>${esc(g.title || g.icao_type)}</span><em>${g.flights} ${g.flights === 1 ? "flight" : "flights"} · ${hrs} h · last flown ${esc(day(g.last_flight_ms))}</em></div>`;
+        })
+        .join("");
+      const where = first.last_icao ? `${esc(first.last_icao)}${first.last_name ? ` · ${esc(first.last_name)}` : ""}` : "Last known position";
+      const popup = new maplibregl.Popup({ className: "parked-tip", offset: [0, -12], closeButton: false, maxWidth: "300px" }).setHTML(
+        `<div class="pk-where">Parked at ${where}</div>${rows}`,
+      );
+      const at: [number, number] = [first.last_lon!, first.last_lat!];
+      // Handle the click here so it never reaches a route line underneath.
+      el.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        if (popup.isOpen()) popup.remove();
+        else popup.setLngLat(at).addTo(map!);
+      });
+      parkedMarkers.push(new maplibregl.Marker({ element: el, anchor: "left", offset: [-11, 0] }).setLngLat(at).addTo(map));
+      parkedPopups.push(popup);
+    }
+  });
+  onDestroy(() => parkedMarkers.forEach((m) => m.remove()));
+
   // Ring at the departure point; on a saved flight, rings at both ends.
   $effect(() => {
     if (!loaded || !map) return;
@@ -642,7 +696,7 @@
 {#if aircraft && !follow && !history}
   <button class="follow" onclick={() => (follow = true)}>Follow aircraft</button>
 {/if}
-<MapLayers {three} on={layers} onthree={setThree} ontoggle={toggleLayer} {radarTime} {radarError} />
+<MapLayers {three} on={layers} onthree={setThree} ontoggle={toggleLayer} {radarTime} {radarError} parkedLayer={parked != null} />
 {#if shown.length > 1}
   <div class="alt-key" aria-label="Line colour shows altitude">
     <span class="t">Altitude{#if three && stretch > 1}<em>heights ×{stretch}</em>{/if}</span>
@@ -662,6 +716,61 @@
   }
   .map :global(.plane) {
     filter: drop-shadow(0 0 6px rgba(240, 178, 58, 0.55));
+  }
+  .map :global(.parked) {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+    filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.6));
+  }
+  .map :global(.parked span) {
+    padding: 2px 7px;
+    border-radius: 4px;
+    background: rgba(28, 30, 33, 0.92);
+    border: 1px solid var(--rule);
+    color: var(--ink);
+    font: 600 11.5px "IBM Plex Mono", ui-monospace, monospace;
+    white-space: nowrap;
+  }
+  .map :global(.parked:hover span) {
+    border-color: var(--amber);
+  }
+  .map :global(.parked-tip .maplibregl-popup-content) {
+    background: var(--panel);
+    color: var(--ink);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    padding: 10px 12px;
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.45);
+    font-size: 12.5px;
+  }
+  .map :global(.parked-tip .maplibregl-popup-tip) {
+    display: none;
+  }
+  .map :global(.pk-where) {
+    color: var(--ink-dim);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 6px;
+  }
+  .map :global(.pk-row) {
+    display: flex;
+    flex-direction: column;
+    padding: 4px 0;
+  }
+  .map :global(.pk-row + .pk-row) {
+    border-top: 1px solid var(--rule);
+  }
+  .map :global(.pk-row strong) {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 14px;
+  }
+  .map :global(.pk-row em) {
+    font-style: normal;
+    color: var(--ink-dim);
+    font-size: 11.5px;
   }
   .map :global(.origin) {
     width: 14px;

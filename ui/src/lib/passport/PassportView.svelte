@@ -549,6 +549,10 @@
      the pointer is over it and shimmers as the pointer moves. */
   .photo {
     position: relative;
+    /* A very slight shadow, as if the photo sits on the page. */
+    box-shadow:
+      0 1px 2px rgba(40, 30, 20, 0.18),
+      0 3px 8px rgba(40, 30, 20, 0.12);
   }
   .holo {
     position: absolute;
@@ -572,10 +576,10 @@
       );
     background-size: 300% 300%;
     background-position: var(--mx) var(--my);
-    /* Only the lines within 30px of the pointer light up: the line art is
-       intersected with a soft-edged 30px circle that follows the pointer. */
-    -webkit-mask-image: radial-gradient(circle 30px at var(--mx) var(--my), #000 0, #000 60%, transparent 100%), var(--lines);
-    mask-image: radial-gradient(circle 30px at var(--mx) var(--my), #000 0, #000 60%, transparent 100%), var(--lines);
+    /* Only the lines within 60px of the pointer light up, fading out towards
+       the edge: the line art is intersected with a feathered circle. */
+    -webkit-mask-image: radial-gradient(circle 60px at var(--mx) var(--my), #000 0, rgba(0, 0, 0, 0.85) 30%, rgba(0, 0, 0, 0.4) 65%, transparent 100%), var(--lines);
+    mask-image: radial-gradient(circle 60px at var(--mx) var(--my), #000 0, rgba(0, 0, 0, 0.85) 30%, rgba(0, 0, 0, 0.4) 65%, transparent 100%), var(--lines);
     -webkit-mask-size: 100% 100%, 100% 100%;
     mask-size: 100% 100%, 100% 100%;
     -webkit-mask-repeat: no-repeat;
