@@ -1,5 +1,6 @@
 //! FlightDeck desktop app: Tauri commands and startup.
 
+mod diag;
 mod engine;
 mod samples;
 mod simbrief;
@@ -24,6 +25,7 @@ struct AppState {
     refdata: Arc<refdata::RefData>,
     shared: SharedState,
     tx: Mutex<Sender<Command>>,
+    data_dir: std::path::PathBuf,
 }
 
 type CmdResult<T> = Result<T, String>;
@@ -222,6 +224,119 @@ fn export_all_volanta(app: tauri::AppHandle, state: tauri::State<AppState>) -> C
         std::fs::write(dir.join(name), text).map_err(err)?;
     }
     Ok(ExportAll { folder: dir.display().to_string(), count: ids.len() })
+}
+
+/// A plain-text report for diagnosing problems: what FlightDeck sees now,
+/// the last few flights step by step, and the recent log.
+fn diagnostics_text(app: &tauri::AppHandle, state: &AppState) -> String {
+    use std::fmt::Write as _;
+    let z = |ms: Option<i64>| ms.map(|t| volanta::format_time(t, true)).unwrap_or_else(|| "-".into());
+    let mut o = String::new();
+    let _ = writeln!(o, "FlightDeck diagnostics");
+    let _ = writeln!(o, "Version {} on {} {}", app.package_info().version, std::env::consts::OS, std::env::consts::ARCH);
+    let _ = writeln!(o, "Made {}", z(Some(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0))));
+    let _ = writeln!(o, "Data folder {}", state.data_dir.display());
+
+    let st = state.shared.lock().unwrap().status.clone();
+    let _ = writeln!(o, "\n== Now ==");
+    let _ = writeln!(o, "link {} | sim {:?} {} | waiting for pilot {} | armed {}", st.link, st.sim, st.sim_version.as_deref().unwrap_or(""), st.waiting_for_pilot, st.armed);
+    let _ = writeln!(o, "phase {:?} | aircraft {:?}", st.phase, st.aircraft);
+    if let Some(t) = st.telemetry {
+        let _ = writeln!(
+            o,
+            "telemetry: paused {} on ground {} gs {:.1} kt alt {:.0} ft agl {:.0} ft engines {} brake {} powered {:?} camera {:?} sim rate {}",
+            t.paused, t.on_ground, t.gs_kt, t.alt_msl_ft, t.alt_agl_ft, t.engines_running, t.parking_brake, t.powered, t.camera_state, t.sim_rate
+        );
+    }
+    if let Some(p) = &st.plan {
+        let _ = writeln!(o, "plan {} {}-{} {}", p.callsign, p.origin.icao, p.destination.icao, p.aircraft_icao);
+    }
+
+    let db = state.db.lock().unwrap();
+    let _ = writeln!(o, "\n== Last flights ==");
+    for id in db.recent_flight_ids(5).unwrap_or_default() {
+        let Ok(Some(r)) = db.get_flight(id) else { continue };
+        let extra = db.flight_diag(id).ok().flatten();
+        let _ = writeln!(
+            o,
+            "\n#{id} {} -> {} | {} | {} / {} / {}",
+            r.dep_icao.as_deref().unwrap_or("?"),
+            r.arr_icao.as_deref().unwrap_or("?"),
+            r.sim,
+            r.aircraft_title,
+            r.icao_type,
+            r.registration
+        );
+        if let Some((sim, status, reason, paused, air, rate, source)) = extra {
+            let _ = writeln!(o, "  sim {sim} | status {status} | ended: {reason} | paused {} s | started airborne {air} | max sim rate {rate} | source {}", paused / 1000, source.as_deref().unwrap_or("FlightDeck"));
+        }
+        let _ = writeln!(o, "  start {} end {}", z(Some(r.start_ms)), z(Some(r.end_ms)));
+        let _ = writeln!(o, "  block out {} takeoff {} landing {} block in {}", z(r.block_out), z(r.takeoff), z(r.landing), z(r.block_in));
+        let _ = writeln!(o, "  total {} min, {:.1} nm, max {} ft, fuel {:.0} kg", r.total_min, r.distance_nm, r.max_alt_ft, r.fuel_used_kg);
+        for (t, kind, data) in db.get_events(id).unwrap_or_default() {
+            if kind == "landing_report" {
+                continue;
+            }
+            let data = if data == "null" { String::new() } else { format!(" {data}") };
+            let _ = writeln!(o, "  {} {kind}{data}", z(Some(t)));
+        }
+        for l in db.get_landings(id).unwrap_or_default() {
+            let _ = writeln!(
+                o,
+                "  landing {} {:.0} fpm ({}) {:.2} G, {} bounces, touch and go {}",
+                z(Some(l.t_ms)),
+                l.vs_fpm,
+                l.vs_source,
+                l.g_peak,
+                l.bounces,
+                l.touch_and_go
+            );
+        }
+        let track = db.get_track(id).unwrap_or_default();
+        let _ = writeln!(o, "  track {} points; last 12:", track.len());
+        for p in track.iter().rev().take(12).rev() {
+            let _ = writeln!(
+                o,
+                "    {} gs {:.1} alt {:.0} vs {:.0} hdg {:.0} ground {}",
+                z(Some(p.t_ms)),
+                p.gs_kt,
+                p.alt_ft,
+                p.vs_fpm,
+                p.hdg_deg,
+                p.on_ground
+            );
+        }
+    }
+    drop(db);
+
+    let _ = writeln!(o, "\n== Log (latest, including earlier sessions) ==");
+    let mut lines = diag::file_tail(&state.data_dir, 600);
+    if lines.is_empty() {
+        lines = diag::recent(600);
+    }
+    for line in lines {
+        let _ = writeln!(o, "{line}");
+    }
+    o
+}
+
+#[tauri::command]
+fn get_diagnostics(app: tauri::AppHandle, state: tauri::State<AppState>) -> String {
+    diagnostics_text(&app, &state)
+}
+
+/// Save the diagnostics report as a text file next to the exports.
+#[tauri::command]
+fn save_diagnostics(app: tauri::AppHandle, state: tauri::State<AppState>) -> CmdResult<String> {
+    let text = diagnostics_text(&app, &state);
+    let stamp = volanta::format_time(
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0),
+        false,
+    );
+    let name = format!("FlightDeck diagnostics {} {}{}.txt", &stamp[0..10], &stamp[11..13], &stamp[14..16]);
+    let path = export_dir(&app, None)?.join(name);
+    std::fs::write(&path, text).map_err(|e| format!("Could not save {}: {e}", path.display()))?;
+    Ok(path.display().to_string())
 }
 
 /// The full briefing (OFP) of the current flight plan.
@@ -483,13 +598,20 @@ fn app_version(app: tauri::AppHandle) -> String {
 }
 
 pub fn run() {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    diag::init();
 
     tauri::Builder::default()
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&data_dir)?;
-            log::info!("data folder: {}", data_dir.display());
+            diag::set_folder(&data_dir);
+            log::info!(
+                "FlightDeck {} starting on {} {}; data folder: {}",
+                app.package_info().version,
+                std::env::consts::OS,
+                std::env::consts::ARCH,
+                data_dir.display()
+            );
             let db = Arc::new(Mutex::new(Store::open(&data_dir.join("flightdeck.db"))?));
             let refdata = Arc::new(refdata::RefData::load());
             engine::recover_journal(&data_dir, &db, &refdata);
@@ -497,8 +619,8 @@ pub fn run() {
             let shared: SharedState = Default::default();
             let (tx, rx) = channel();
             let refdata_for_state = refdata.clone();
-            engine::spawn(app.handle().clone(), shared.clone(), db.clone(), refdata, data_dir, rx);
-            app.manage(AppState { db, refdata: refdata_for_state, shared, tx: Mutex::new(tx) });
+            engine::spawn(app.handle().clone(), shared.clone(), db.clone(), refdata, data_dir.clone(), rx);
+            app.manage(AppState { db, refdata: refdata_for_state, shared, tx: Mutex::new(tx), data_dir });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -517,6 +639,8 @@ pub fn run() {
             import_volanta,
             export_flight_volanta,
             export_all_volanta,
+            get_diagnostics,
+            save_diagnostics,
             demo_routes,
             get_settings,
             set_setting,

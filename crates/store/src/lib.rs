@@ -227,6 +227,28 @@ impl Store {
         Ok(Some(Imported { source, id: sid, file }))
     }
 
+    /// Facts kept for diagnosis: (sim, status, end reason, paused ms,
+    /// started airborne, max sim rate, source).
+    #[allow(clippy::type_complexity)]
+    pub fn flight_diag(&self, id: i64) -> Result<Option<(String, String, String, i64, bool, f64, Option<String>)>> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT sim, status, COALESCE(end_reason, ''), COALESCE(paused_ms, 0), COALESCE(started_airborne, 0),
+                        COALESCE(max_sim_rate, 1), source FROM flight WHERE id = ?1",
+                params![id],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get::<_, i64>(4)? != 0, r.get(5)?, r.get(6)?)),
+            )
+            .optional()?)
+    }
+
+    /// The most recent flight ids, newest first.
+    pub fn recent_flight_ids(&self, n: i64) -> Result<Vec<i64>> {
+        let mut st = self.conn.prepare("SELECT id FROM flight ORDER BY start_ms DESC LIMIT ?1")?;
+        let rows = st.query_map(params![n], |r| r.get(0))?;
+        Ok(rows.collect::<std::result::Result<_, _>>()?)
+    }
+
     /// Every flight id, oldest first.
     pub fn all_flight_ids(&self) -> Result<Vec<i64>> {
         let mut st = self.conn.prepare("SELECT id FROM flight ORDER BY start_ms")?;

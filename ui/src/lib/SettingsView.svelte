@@ -128,6 +128,50 @@
       vBusy = false;
     }
   }
+
+  // Diagnostics: a report of recent flights and the log, to send when
+  // something does not behave.
+  let dBusy = $state(false);
+  let dMsg = $state<string | null>(null);
+  let dErr = $state(false);
+  async function copyDiagnostics() {
+    dBusy = true;
+    dMsg = null;
+    dErr = false;
+    try {
+      const text = await api.diagnostics();
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch {
+        // Older clipboard route.
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        ta.remove();
+      }
+      dMsg = `Copied (${Math.round(text.length / 1024)} KB). Paste it into the chat.`;
+    } catch (e) {
+      dMsg = String(e);
+      dErr = true;
+    } finally {
+      dBusy = false;
+    }
+  }
+  async function saveDiagnostics() {
+    dBusy = true;
+    dMsg = null;
+    dErr = false;
+    try {
+      dMsg = `Saved to ${await api.saveDiagnostics()}`;
+    } catch (e) {
+      dMsg = String(e);
+      dErr = true;
+    } finally {
+      dBusy = false;
+    }
+  }
 </script>
 
 <section class="settings"><div class="inner">
@@ -229,6 +273,20 @@
       <button role="radio" aria-checked={prefs.s.logbook_hand !== "type"} class:on={prefs.s.logbook_hand !== "type"} onclick={() => setPref("logbook_hand", "hand")}>Handwritten</button>
       <button role="radio" aria-checked={prefs.s.logbook_hand === "type"} class:on={prefs.s.logbook_hand === "type"} onclick={() => setPref("logbook_hand", "type")}>Typed</button>
     </div>
+  </div>
+
+  <div class="group">
+    <h3>Diagnostics</h3>
+    <p class="help">
+      If a flight starts, ends or records something wrongly, this report shows what FlightDeck saw: your last five
+      flights step by step and the recent log. It stays on your PC until you send it. Saving it as a file is easiest
+      for long reports.
+    </p>
+    <div class="row">
+      <button class="primary" onclick={saveDiagnostics} disabled={dBusy}>Save diagnostics file</button>
+      <button class="ghost" onclick={copyDiagnostics} disabled={dBusy}>Copy diagnostics</button>
+    </div>
+    {#if dMsg}<p class={dErr ? "err" : "ok"} role="status">{dMsg}</p>{/if}
   </div>
 
   <div class="group">

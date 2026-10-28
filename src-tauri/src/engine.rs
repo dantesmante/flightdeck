@@ -169,6 +169,10 @@ struct Engine {
     /// button) before starting another, so parking does not begin a new one.
     need_reset: bool,
     plan: Option<FlightPlan>,
+    /// Last power and camera state seen, to log only when they change.
+    last_power: Option<Option<bool>>,
+    last_camera: Option<Option<u8>>,
+    last_paused: Option<bool>,
 }
 
 pub fn spawn(
@@ -208,6 +212,9 @@ pub fn spawn(
                 armed: false,
                 need_reset: false,
                 plan: None,
+                last_power: None,
+                last_camera: None,
+                last_paused: None,
             };
             loop {
                 match rx.try_recv() {
@@ -346,6 +353,16 @@ impl Engine {
 
     fn sample(&mut self, s: Telemetry) {
         let sim = self.sim.unwrap_or(SimKind::Demo);
+        // Note changes that decide when flights start and stop.
+        if self.last_power != Some(s.powered) || self.last_camera != Some(s.camera_state) || self.last_paused != Some(s.paused) {
+            log::info!(
+                "sim state: powered {:?}, camera {:?}, paused {}, on ground {}, engines {}, alt {:.0} ft (agl {:.0}), gs {:.1} kt",
+                s.powered, s.camera_state, s.paused, s.on_ground, s.engines_running, s.alt_msl_ft, s.alt_agl_ft, s.gs_kt
+            );
+            self.last_power = Some(s.powered);
+            self.last_camera = Some(s.camera_state);
+            self.last_paused = Some(s.paused);
+        }
         if self.tracker.as_ref().is_none_or(Tracker::is_finished) {
             // No flight yet. In the MSFS menus the sim still sends a position
             // (often in the air), so only start once the pilot is really in
@@ -365,6 +382,11 @@ impl Engine {
                 self.last_sample = Some(s);
                 return;
             }
+            log::info!(
+                "flight started: by {} | powered {:?}, engines {}, on ground {}, gs {:.1} kt, alt {:.0} ft, camera {:?}",
+                if armed_ready && !signal { "Start a flight" } else if s.engines_running > 0 { "engine running" } else { "power on" },
+                s.powered, s.engines_running, s.on_ground, s.gs_kt, s.alt_msl_ft, s.camera_state
+            );
             self.tracker = Some(Tracker::new(sim, self.aircraft.clone(), Config::default()));
             self.journal = Journal::create(&self.journal_dir, JournalHeader { sim, aircraft: self.aircraft.clone() })
                 .map_err(|e| log::warn!("journal unavailable: {e}"))
@@ -387,7 +409,11 @@ impl Engine {
                     self.tail.push(pt);
                     self.shared.lock().unwrap().track.push(pt);
                 }
-                TrackerOutput::PhaseChanged { to, .. } => {
+                TrackerOutput::PhaseChanged { from, to, .. } => {
+                    log::info!(
+                        "phase {from:?} -> {to:?}: gs {:.1} kt, on ground {}, agl {:.0} ft, vs {:.0} fpm, engines {}, brake {}, powered {:?}",
+                        s.gs_kt, s.on_ground, s.alt_agl_ft, s.vs_fpm, s.engines_running, s.parking_brake, s.powered
+                    );
                     if to == Phase::TaxiOut || (to == Phase::Airborne && self.dep.is_none()) || self.dep.is_none() {
                         let heli = self.aircraft.engine_type == EngineType::Helo;
                         self.dep = place_at(&self.refdata, s.lat, s.lon, heli);
@@ -397,7 +423,10 @@ impl Engine {
                 TrackerOutput::Touchdown(l) => {
                     let _ = self.app.emit("touchdown", &l);
                 }
-                TrackerOutput::Completed(f) => self.store(&f),
+                TrackerOutput::Completed(f) => {
+                    log::info!("flight complete: {} ({:?})", f.end_reason, f.status);
+                    self.store(&f)
+                }
             }
         }
     }
@@ -443,6 +472,9 @@ impl Engine {
     }
 
     fn end_flight(&mut self, reason: &str) {
+        if self.tracker.as_ref().is_some_and(|t| !t.is_finished()) {
+            log::info!("flight ended: {reason}");
+        }
         if let Some(mut t) = self.tracker.take() {
             match t.end(reason) {
                 Some(f) => self.store(&f),

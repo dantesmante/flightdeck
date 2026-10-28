@@ -932,7 +932,6 @@ version = "0.1.0"
 dependencies = [
  "conn-demo",
  "conn-simconnect",
- "env_logger",
  "log",
  "refdata",
  "serde",

@@ -390,6 +390,8 @@ export const api = {
   importVolanta: (files: { name: string; text: string }[]) =>
     call<{ imported: string[]; duplicates: string[]; failed: [string, string][] }>("import_volanta", { files }),
   exportFlightVolanta: (id: number) => call<string>("export_flight_volanta", { id }),
+  diagnostics: () => call<string>("get_diagnostics"),
+  saveDiagnostics: () => call<string>("save_diagnostics"),
   exportAllVolanta: () => call<{ folder: string; count: number }>("export_all_volanta"),
   demoRoutes: () => call<string[]>("demo_routes"),
   settings: () => call<Settings>("get_settings"),
