@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { fly } from "./lib/flyStore.svelte";
   import { api, on, type FlightDetail, type FlightPlan, type HangarItem, type Route, type Status } from "./lib/api";
   import FlightsPanel from "./lib/FlightsPanel.svelte";
   import HangarView from "./lib/hangar/HangarView.svelte";
@@ -27,6 +28,14 @@
   let completed = $state<FlightDetail | null>(null);
   let routes = $state<Route[]>([]);
   let selectedFlight = $state<number | null>(null);
+  let hoverFlight = $state<number | null>(null);
+
+  /** "Fly this aircraft" on a parked aircraft: open Start a flight with it. */
+  function flyThis(item: HangarItem) {
+    fly.item = item;
+    if (view !== "live") go("live");
+    if (collapsed) togglePanel();
+  }
   let openRequest = $state<{ id: number; n: number } | null>(null);
 
   let parked = $state<HangarItem[]>([]);
@@ -120,6 +129,8 @@
   function go(v: View) {
     if ((v === "live" || v === "flights") && view !== "live" && view !== "flights") loadRoutes();
     if (v === "live") selectedFlight = null;
+    // The flights list lives in the side panel: open it if it is folded.
+    if (v === "flights" && collapsed) togglePanel();
     view = v;
     history = v === "live" && completed ? fromTrack(completed.track) : null;
     historyPlan = v === "live" && completed ? completed.plan : null;
@@ -184,7 +195,7 @@
   </nav>
 
   <main class="stage" class:hidden={full}>
-    <Map live={liveTrack} {aircraft} {origin} {history} {routes} parked={parkedShown} selected={selectedFlight} onroute={showFlight} plan={history ? historyPlan : (status?.plan ?? null)} />
+    <Map live={liveTrack} {aircraft} {origin} {history} {routes} parked={parkedShown} highlight={view === "flights" ? hoverFlight : null} onfly={status?.live ? undefined : flyThis} selected={selectedFlight} onroute={showFlight} plan={history ? historyPlan : (status?.plan ?? null)} />
     <button class="fold" onclick={togglePanel} aria-label={collapsed ? "Show the side panel" : "Hide the side panel"} title={collapsed ? "Show panel" : "Hide panel"}>
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d={collapsed ? "M15 5l-7 7 7 7" : "M9 5l7 7-7 7"} /></svg>
     </button>
@@ -223,6 +234,7 @@
       <FlightsPanel
         {refreshKey}
         request={openRequest}
+        onhover={(id) => (hoverFlight = id)}
         onselect={(t, id, plan) => ((history = t), (selectedFlight = id), (historyPlan = plan ?? null))}
         ondelete={loadRoutes}
       />

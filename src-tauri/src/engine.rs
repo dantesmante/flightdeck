@@ -11,6 +11,7 @@ use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use store::journal::{self, Journal, JournalHeader};
+use store::book::HangarRow;
 use store::{Place, SaveContext, Store};
 use tauri::{AppHandle, Emitter};
 use telemetry::{AircraftInfo, EngineType, SimConnector, SimKind, SimMessage, Telemetry};
@@ -27,7 +28,9 @@ pub enum Command {
     StopDemo,
     EndFlight,
     /// The pilot pressed "Start a flight": track from now, with this plan.
-    StartFlight { plan: Option<FlightPlan> },
+    /// Begin tracking when ready; `aircraft` logs the flight to that hangar
+    /// aircraft whatever the sim shows ("Fly this aircraft").
+    StartFlight { plan: Option<FlightPlan>, aircraft: Option<Box<HangarRow>> },
     /// Throw away the flight in progress without saving it.
     CancelFlight,
     /// Attach (or clear) a flight plan without changing anything else.
@@ -52,6 +55,9 @@ pub struct Status {
     pub armed: bool,
     /// The flight plan for this (or the next) flight.
     pub plan: Option<FlightPlan>,
+    /// Hangar aircraft chosen with "Fly this aircraft" for this (or the
+    /// next) flight.
+    pub forced_aircraft: Option<i64>,
     pub phase: Option<Phase>,
     pub phase_label: Option<String>,
     pub live: Option<LiveFlight>,
@@ -108,6 +114,7 @@ pub fn save(
     refdata: &refdata::RefData,
     f: &FlightSummary,
     plan: Option<&FlightPlan>,
+    aircraft_id: Option<i64>,
 ) -> Option<(i64, SaveContext)> {
     let heli = f.aircraft.engine_type == EngineType::Helo;
     let ctx = SaveContext {
@@ -118,6 +125,7 @@ pub fn save(
         flight_no: plan.map(|p| format!("{}{}", p.airline, p.flight_number)).unwrap_or_default(),
         plan: plan.and_then(|p| serde_json::to_string(p).ok()),
         source: None,
+        aircraft_id,
     };
     match db.lock().unwrap().save_flight(f, &ctx) {
         Ok(id) => Some((id, ctx)),
@@ -136,7 +144,7 @@ pub fn recover_journal(dir: &std::path::Path, db: &Mutex<Store>, refdata: &refda
         tr.update(s);
     }
     if let Some(f) = tr.end("recovered after a crash") {
-        if let Some((id, _)) = save(db, refdata, &f, None) {
+        if let Some((id, _)) = save(db, refdata, &f, None, None) {
             log::info!("recovered crashed flight as #{id}");
         }
     }
@@ -171,6 +179,8 @@ struct Engine {
     /// button) before starting another, so parking does not begin a new one.
     need_reset: bool,
     plan: Option<FlightPlan>,
+    /// The hangar aircraft chosen with "Fly this aircraft", if any.
+    forced: Option<HangarRow>,
     /// Last power and camera state seen, to log only when they change.
     last_power: Option<Option<bool>>,
     last_camera: Option<Option<u8>>,
@@ -212,6 +222,7 @@ pub fn spawn(
                 session: 0,
                 last_diag: Instant::now(),
                 armed: false,
+                forced: None,
                 need_reset: false,
                 plan: None,
                 last_power: None,
@@ -254,8 +265,15 @@ impl Engine {
                 }
             }
             Command::EndFlight => self.end_flight("ended by pilot"),
-            Command::StartFlight { plan } => {
+            Command::StartFlight { plan, aircraft } => {
                 self.armed = true;
+                if let Some(a) = &aircraft {
+                    log::info!("start a flight in {} (aircraft #{})", a.registration, a.id);
+                }
+                // A flight already under way keeps its aircraft.
+                if self.tracker.as_ref().is_none_or(Tracker::is_finished) {
+                    self.forced = aircraft.map(|a| *a);
+                }
                 if plan.is_some() {
                     self.plan = plan;
                 }
@@ -452,6 +470,7 @@ impl Engine {
 
     fn store(&mut self, f: &FlightSummary) {
         let plan = self.plan.take();
+        let forced = self.forced.take().map(|a| a.id);
         self.shared.lock().unwrap().briefing = None;
         self.armed = false;
         self.need_reset = true;
@@ -463,7 +482,7 @@ impl Engine {
             filled.aircraft.icao_type = p.aircraft_icao.clone();
             f = &filled;
         }
-        if let Some((id, ctx)) = save(&self.db, &self.refdata, f, plan.as_ref()) {
+        if let Some((id, ctx)) = save(&self.db, &self.refdata, f, plan.as_ref(), forced) {
             let _ = self.app.emit(
                 "flight-saved",
                 Saved { id, dep: ctx.dep.map(|p| p.icao), arr: ctx.arr.map(|p| p.icao) },
@@ -488,6 +507,7 @@ impl Engine {
         self.tail.clear();
         self.dep = None;
         self.armed = false;
+        self.forced = None;
         self.need_reset = true;
         self.session += 1;
     }
@@ -496,6 +516,8 @@ impl Engine {
         if self.tracker.as_ref().is_some_and(|t| !t.is_finished()) {
             log::info!("flight ended: {reason}");
         }
+        // A chosen aircraft ("Fly this aircraft") is for one flight only.
+        let had_flight = self.tracker.is_some();
         if let Some(mut t) = self.tracker.take() {
             match t.end(reason) {
                 Some(f) => self.store(&f),
@@ -510,6 +532,9 @@ impl Engine {
         self.tail.clear();
         self.dep = None;
         self.armed = false;
+        if had_flight {
+            self.forced = None;
+        }
         self.need_reset = true;
     }
 
@@ -538,10 +563,20 @@ impl Engine {
             sim_label: self.sim.map(|s| s.label().to_string()),
             sim_version: self.sim_version.clone(),
             notice: self.notice.clone(),
-            aircraft: (!self.aircraft.title.is_empty()
-                || !self.aircraft.icao_type.is_empty()
-                || !self.aircraft.registration.is_empty())
-            .then(|| self.aircraft.clone()),
+            aircraft: match &self.forced {
+                // Show the chosen hangar aircraft, not the sim's.
+                Some(a) => Some(AircraftInfo {
+                    title: a.model.clone().unwrap_or_else(|| a.title.clone()),
+                    icao_type: a.icao_type.clone(),
+                    registration: a.registration.clone(),
+                    ..self.aircraft.clone()
+                }),
+                None => (!self.aircraft.title.is_empty()
+                    || !self.aircraft.icao_type.is_empty()
+                    || !self.aircraft.registration.is_empty())
+                .then(|| self.aircraft.clone()),
+            },
+            forced_aircraft: self.forced.as_ref().map(|a| a.id),
             waiting_for_pilot: self.conn.is_some() && self.tracker.as_ref().is_none_or(Tracker::is_finished),
             plan: self.plan.as_ref().map(|p| FlightPlan { ofp: None, ..p.clone() }),
             armed: self.armed,

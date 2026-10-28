@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex};
 use engine::{Command, FullStatus, SharedState};
 use std::collections::HashMap;
 
-use store::book::{FlightPatch, HangarRow, LogPatch, LogRow, Pilot, RouteRow};
+use store::book::{AircraftEdit, FlightPatch, HangarRow, LogPatch, LogRow, ManualFlight, NewAircraft, Pilot, RouteRow};
 use store::passport::{self, CountryVisit, Stamp};
 use store::{FlightRow, Store, Totals};
 use tauri::{Emitter, Manager};
@@ -108,8 +108,29 @@ async fn simbrief_latest(state: tauri::State<'_, AppState>) -> CmdResult<simbrie
 
 /// Start tracking now (even before the battery is on), optionally with a plan.
 #[tauri::command]
-fn start_flight(state: tauri::State<AppState>, plan: Option<simbrief::FlightPlan>) -> CmdResult<()> {
-    send(&state, Command::StartFlight { plan })
+fn start_flight(
+    state: tauri::State<AppState>,
+    plan: Option<simbrief::FlightPlan>,
+    aircraft_id: Option<i64>,
+) -> CmdResult<()> {
+    // "Fly this aircraft": the flight is logged to this hangar aircraft
+    // whatever the sim shows.
+    let aircraft = match aircraft_id {
+        Some(id) => Some(
+            state
+                .db
+                .lock()
+                .unwrap()
+                .hangar()
+                .map_err(err)?
+                .into_iter()
+                .find(|a| a.id == id)
+                .map(Box::new)
+                .ok_or("That aircraft is no longer in the hangar.")?,
+        ),
+        None => None,
+    };
+    send(&state, Command::StartFlight { plan, aircraft })
 }
 
 #[derive(serde::Deserialize)]
@@ -413,26 +434,122 @@ struct FlightEdit {
     ident: Option<String>,
 }
 
+/// An airport by its code, with where it is ([lat, lon]).
+fn airport_place(refdata: &refdata::RefData, code: &Option<String>) -> CmdResult<Option<(store::Place, [f64; 2])>> {
+    let Some(code) = code.as_deref().map(str::trim).filter(|c| !c.is_empty()) else { return Ok(None) };
+    let a = refdata
+        .airport(code)
+        .ok_or_else(|| format!("{} is not an airport code FlightDeck knows. Use the ICAO code, e.g. KORD.", code.to_uppercase()))?;
+    Ok(Some((
+        store::Place { icao: a.ident.clone(), name: a.name.clone(), country: a.country.clone(), region: a.region.clone() },
+        [a.lat, a.lon],
+    )))
+}
+
 #[tauri::command]
 fn update_flight(state: tauri::State<AppState>, flight_id: i64, edit: FlightEdit) -> CmdResult<bool> {
-    let place = |code: &Option<String>| -> CmdResult<Option<store::Place>> {
-        let Some(code) = code.as_deref().map(str::trim).filter(|c| !c.is_empty()) else { return Ok(None) };
-        let a = state
-            .refdata
-            .airport(code)
-            .ok_or_else(|| format!("{} is not an airport code FlightDeck knows. Use the ICAO code, e.g. KORD.", code.to_uppercase()))?;
-        Ok(Some(store::Place { icao: a.ident.clone(), name: a.name.clone(), country: a.country.clone(), region: a.region.clone() }))
-    };
+    let dep = airport_place(&state.refdata, &edit.from_icao)?;
+    let arr = airport_place(&state.refdata, &edit.to_icao)?;
     let patch = FlightPatch {
         date_ms: edit.date_ms,
         out_min: edit.out_min,
         in_min: edit.in_min,
-        dep: place(&edit.from_icao)?,
-        arr: place(&edit.to_icao)?,
+        dep_at: dep.as_ref().map(|d| d.1),
+        arr_at: arr.as_ref().map(|a| a.1),
+        dep: dep.map(|d| d.0),
+        arr: arr.map(|a| a.0),
         aircraft_type: edit.aircraft_type,
         ident: edit.ident,
     };
     state.db.lock().unwrap().update_flight(flight_id, &patch).map_err(err)
+}
+
+#[derive(serde::Deserialize)]
+struct ManualEntry {
+    date_ms: i64,
+    out_min: Option<i64>,
+    in_min: Option<i64>,
+    from_icao: String,
+    to_icao: String,
+    aircraft_id: Option<i64>,
+    #[serde(default)]
+    aircraft_type: String,
+    #[serde(default)]
+    ident: String,
+    #[serde(default)]
+    callsign: String,
+    #[serde(default)]
+    total_min: i64,
+    #[serde(default)]
+    night_min: i64,
+    #[serde(default)]
+    ifr_min: i64,
+    #[serde(default)]
+    day_landings: i64,
+    #[serde(default)]
+    night_landings: i64,
+    #[serde(default)]
+    remarks: String,
+}
+
+/// Log a flight that FlightDeck did not record.
+#[tauri::command]
+fn add_manual_entry(app: tauri::AppHandle, state: tauri::State<AppState>, entry: ManualEntry) -> CmdResult<i64> {
+    let (dep, dep_at) = airport_place(&state.refdata, &Some(entry.from_icao.clone()))?.ok_or("Enter the departure airport.")?;
+    let (arr, arr_at) = airport_place(&state.refdata, &Some(entry.to_icao.clone()))?.ok_or("Enter the arrival airport.")?;
+    if entry.total_min <= 0 && (entry.out_min.is_none() || entry.in_min.is_none()) {
+        return Err("Enter the block times or the total time.".into());
+    }
+    let m = ManualFlight {
+        date_ms: entry.date_ms,
+        out_min: entry.out_min,
+        in_min: entry.in_min,
+        dep,
+        arr,
+        dep_at: Some(dep_at),
+        arr_at: Some(arr_at),
+        aircraft_id: entry.aircraft_id,
+        aircraft_type: entry.aircraft_type,
+        ident: entry.ident,
+        callsign: entry.callsign,
+        total_min: entry.total_min,
+        night_min: entry.night_min,
+        ifr_min: entry.ifr_min,
+        day_landings: entry.day_landings,
+        night_landings: entry.night_landings,
+        remarks: entry.remarks,
+    };
+    let id = state.db.lock().unwrap().add_manual_flight(&m).map_err(err)?;
+    log::info!("logbook entry #{id} added by hand: {} to {}", entry.from_icao, entry.to_icao);
+    let _ = app.emit("flights-changed", 1);
+    Ok(id)
+}
+
+#[tauri::command]
+fn update_aircraft(state: tauri::State<AppState>, id: i64, edit: AircraftEdit) -> CmdResult<bool> {
+    state.db.lock().unwrap().update_aircraft(id, &edit).map_err(err)
+}
+
+#[tauri::command]
+fn add_aircraft(state: tauri::State<AppState>, aircraft: NewAircraft) -> CmdResult<i64> {
+    if aircraft.registration.trim().is_empty() {
+        return Err("Enter the aircraft's registration.".into());
+    }
+    if aircraft.model.trim().is_empty() && aircraft.icao_type.trim().is_empty() {
+        return Err("Enter the aircraft model.".into());
+    }
+    state.db.lock().unwrap().add_aircraft(&aircraft).map_err(|e| {
+        if e.to_string().contains("UNIQUE") {
+            "That aircraft is already in your hangar.".to_string()
+        } else {
+            err(e)
+        }
+    })
+}
+
+#[tauri::command]
+fn remove_aircraft(state: tauri::State<AppState>, id: i64) -> CmdResult<bool> {
+    state.db.lock().unwrap().remove_aircraft(id).map_err(err)
 }
 
 #[derive(serde::Serialize)]
@@ -673,6 +790,10 @@ pub fn run() {
             export_all_volanta,
             get_diagnostics,
             set_aircraft_favourite,
+            update_aircraft,
+            add_aircraft,
+            remove_aircraft,
+            add_manual_entry,
             spotter_photo,
             aircraft_flights,
             save_diagnostics,

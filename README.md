@@ -59,6 +59,7 @@ MIT licensed.
   refreshed every 10 minutes). Your choices are remembered.
 - **Cancel a flight**: if tracking has started but you decide not to fly,
   Cancel flight throws it away without saving anything.
+- **Flights list**: point at a flight and its route lights up on the map.
 - **Real airport names and countries** for every departure and arrival,
   from 72,635 airports (OurAirports, public domain) built into the app.
 - **Saved flights** with block and air times, distance, fuel, track and
@@ -87,18 +88,28 @@ MIT licensed.
   handwritten or typed, with page totals carried forward. Night time and
   night landings come from the sun's position along your track. Click a
   line to see the flight on a mini map, edit any field (date, times,
-  airports, aircraft, hours, remarks) or delete it everywhere. Arrows beside
-  the book turn the pages. Switch to dark paper, or to a simple list of
-  every flight if you prefer a plain table to the paper look.
+  airports, aircraft, hours, remarks) or delete it everywhere. Arrows under
+  the book turn the pages, and the book grows to fill the window so the
+  writing stays sharp. Switch to dark paper, or to a simple list of every
+  flight if you prefer a plain table to the paper look. **Add manual
+  entry** logs a flight FlightDeck did not record; the map shows it as a
+  line from departure to arrival.
 - **Hangar**: a card for every aircraft you have flown, favourites first
-  and then by hours flown, with filters for general aviation, airliners,
-  cargo, helicopters and business jets. Each card shows the registration,
-  a photo (your own: hover the picture and upload one; otherwise the
-  latest photo of that registration from Planespotters.net, credited to
-  its photographer; otherwise a silhouette of the type), where it is
-  parked, flights, hours and average landing rate, and a star for
-  favourites. Click a card to open the aircraft with its statistics and
-  every flight, searchable, drawn on a map.
+  and then by hours flown; show all or only favourites. Each card shows the
+  registration, a photo (your own: hover the picture and upload one;
+  otherwise the latest photo of that registration from Planespotters.net,
+  credited to its photographer; otherwise a silhouette of the type), a
+  plain model name worked out from the sim's title (so "PMDG 737-700
+  Ryanair" reads "Boeing 737-700"), where it is parked, flights, hours and
+  average landing rate, and a star for favourites. Edit an aircraft's
+  registration, model name and airline (the registration strip then takes
+  the airline's colours), or **add an aircraft** by hand: flights the sim
+  reports with that registration are logged to it. Click a card to open
+  the aircraft with its statistics and every flight, searchable, drawn on
+  a map.
+- **Fly this aircraft**: with the Parked aircraft layer on, click a parked
+  aircraft and press Fly this aircraft. The next flight is logged to that
+  aircraft whatever the sim shows.
 - **Settings**: pilot details and photo, nautical miles, statute miles or
   kilometres, logbook layout, and **sample flights** to
   fill the passport, logbook and hangar for a quick look.

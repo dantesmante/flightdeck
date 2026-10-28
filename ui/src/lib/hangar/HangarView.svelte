@@ -1,14 +1,17 @@
 <script lang="ts">
-  // The hangar: a card for every aircraft flown, favourites first, then by
-  // hours flown. Filter by category; hover the picture to upload a photo;
-  // click anywhere else on a card to open the aircraft and its flights.
+  // The hangar: a card for every aircraft, favourites first, then by hours
+  // flown. Show all or only favourites; add an aircraft by hand; hover the
+  // picture to upload a photo; click anywhere else on a card to open the
+  // aircraft and its flights.
   import { onMount } from "svelte";
   import { api, type HangarItem } from "../api";
   import { hoursMinutes, int } from "../format";
   import { shrinkImage } from "../image";
   import AircraftDetail from "./AircraftDetail.svelte";
+  import AircraftForm from "./AircraftForm.svelte";
   import AircraftPicture from "./AircraftPicture.svelte";
-  import { CATEGORIES, category, type Category } from "./kind";
+  import { airlineLook } from "./airlines";
+  import { modelName } from "./names";
 
   let { onsettings, onflight }: { onsettings: () => void; onflight?: (id: number) => void } = $props();
 
@@ -17,9 +20,16 @@
   let photos = $state<Record<number, string>>({});
   let message = $state<string | null>(null);
   let openId = $state<number | null>(null);
+  let onlyFavourites = $state(false);
+  /** Favourites as they were when the list was last ordered: starring a
+   * card leaves it where it is until the hangar is opened again. */
+  let favSnapshot = $state<Set<number>>(new Set());
+  /** The add/edit form: "new", an aircraft, or closed. */
+  let form = $state<HangarItem | "new" | null>(null);
 
   async function load() {
     items = (await api.hangar()) ?? [];
+    favSnapshot = new Set(items.filter((i) => i.favourite).map((i) => i.id));
     loaded = true;
     for (const it of items.filter((i) => i.has_photo && !photos[i.id])) {
       const p = await api.aircraftPhoto(it.id);
@@ -28,30 +38,18 @@
   }
   onMount(load);
 
-  let filter = $state<Category | null>(null);
-  const counts = $derived.by(() => {
-    const c: Record<string, number> = {};
-    for (const i of items) c[category(i)] = (c[category(i)] ?? 0) + 1;
-    return c;
-  });
-  const shown = $derived(filter ? items.filter((i) => category(i) === filter) : items);
+  const favCount = $derived(items.filter((i) => i.favourite).length);
+  const shown = $derived(onlyFavourites ? items.filter((i) => favSnapshot.has(i.id)) : items);
   const totalMinutes = $derived(items.reduce((a, i) => a + i.minutes, 0));
   const opened = $derived(items.find((i) => i.id === openId) ?? null);
 
   const hours = (min: number) => (min / 60).toLocaleString("en-US", { maximumFractionDigits: 1, minimumFractionDigits: 1 });
+  const name = (it: HangarItem) => modelName(it);
 
-  /** A friendlier aircraft name: the ICAO type spelled out when known. */
-  const NAMES: Record<string, string> = {
-    A20N: "Airbus A320neo", A21N: "Airbus A321neo", A319: "Airbus A319", A320: "Airbus A320", A321: "Airbus A321",
-    A332: "Airbus A330-200", A333: "Airbus A330-300", A339: "Airbus A330-900", A359: "Airbus A350-900", A35K: "Airbus A350-1000",
-    A388: "Airbus A380-800", B738: "Boeing 737-800", B38M: "Boeing 737 MAX 8", B739: "Boeing 737-900", B39M: "Boeing 737 MAX 9",
-    B744: "Boeing 747-400", B748: "Boeing 747-8", B77W: "Boeing 777-300ER", B772: "Boeing 777-200", B788: "Boeing 787-8",
-    B789: "Boeing 787-9", B78X: "Boeing 787-10", C172: "Cessna 172 Skyhawk", C152: "Cessna 152", C208: "Cessna 208 Caravan",
-    C150: "Cessna 150", DH8D: "De Havilland Dash 8-400", AT76: "ATR 72-600", E190: "Embraer E190", E195: "Embraer E195",
-    CRJ7: "Bombardier CRJ700", CRJ9: "Bombardier CRJ900", PC12: "Pilatus PC-12", TBM9: "Daher TBM 930", SR22: "Cirrus SR22",
-    DA40: "Diamond DA40", DA62: "Diamond DA62", BE58: "Beechcraft Baron 58", PA28: "Piper PA-28", PA24: "Piper PA-24 Comanche",
-  };
-  const name = (it: HangarItem) => NAMES[it.icao_type] ?? (it.title || it.icao_type || "Unknown aircraft");
+  function showFavourites(on: boolean) {
+    favSnapshot = new Set(items.filter((i) => i.favourite).map((i) => i.id));
+    onlyFavourites = on;
+  }
 
   async function pick(it: HangarItem, e: Event) {
     const input = e.currentTarget as HTMLInputElement;
@@ -79,8 +77,13 @@
   async function star(it: HangarItem) {
     it.favourite = !it.favourite;
     await api.setAircraftFavourite(it.id, it.favourite);
-    // Favourites move to the top, then everything by hours flown.
-    items = [...items].sort((a, b) => Number(b.favourite) - Number(a.favourite) || b.minutes - a.minutes);
+  }
+
+  async function saved(id: number) {
+    const wasNew = form === "new";
+    form = null;
+    await load();
+    if (wasNew && id > 0) message = "Aircraft added to your hangar.";
   }
 </script>
 
@@ -91,6 +94,7 @@
     displayName={name(opened)}
     onback={() => ((openId = null), load())}
     onupload={(e) => pick(opened, e)}
+    onedit={() => (form = opened)}
     {onflight}
   />
 {:else}
@@ -100,29 +104,39 @@
       {#if items.length}
         <p>{items.length} aircraft, {hoursMinutes(totalMinutes)} flown in total. Click a card to see its flights.</p>
       {/if}
+      <button class="add" onclick={() => (form = "new")}>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+        Add aircraft
+      </button>
     </header>
     {#if items.length}
-      <div class="chips" role="group" aria-label="Filter by aircraft type">
-        <button class:on={filter === null} onclick={() => (filter = null)}>All <span>{items.length}</span></button>
-        {#each CATEGORIES as c (c.id)}
-          <button class:on={filter === c.id} disabled={!counts[c.id]} onclick={() => (filter = filter === c.id ? null : (c.id as Category))}>
-            {c.label} <span>{counts[c.id] ?? 0}</span>
-          </button>
-        {/each}
+      <div class="chips" role="group" aria-label="Show">
+        <button class:on={!onlyFavourites} onclick={() => showFavourites(false)}>All <span>{items.length}</span></button>
+        <button class:on={onlyFavourites} onclick={() => showFavourites(true)}>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.2l2.7 5.6 6.1.8-4.5 4.2 1.1 6.1L12 17l-5.4 2.9 1.1-6.1-4.5-4.2 6.1-.8z" /></svg>
+          Favourites <span>{favCount}</span>
+        </button>
       </div>
     {/if}
 
     {#if loaded && items.length === 0}
       <div class="empty">
-        <p>Your hangar is empty. Every aircraft you fly parks here, with its hours, landings and where you left it.</p>
+        <p>Your hangar is empty. Every aircraft you fly parks here, with its hours, landings and where you left it. You can also add your aircraft by hand.</p>
         <button class="primary" onclick={onsettings}>Add sample flights</button>
       </div>
     {:else}
       <div class="grid">
         {#each shown as it (it.id)}
+          {@const look = airlineLook(it.airline)}
           <article class="card">
             <button class="open" onclick={() => (openId = it.id)} aria-label="Open {it.registration || name(it)}"></button>
-            <h3 class="reg">{it.registration || it.icao_type || "Unregistered"}</h3>
+            <div class="reg" class:airline={!!look} style:--a={look?.colors[0]} style:--b={look?.colors[1]}>
+              <h3 class="num">{it.registration || it.icao_type || "Unregistered"}</h3>
+              {#if look}<span class="al">{look.name}</span>{/if}
+              <button class="edit" onclick={() => (form = it)} aria-label="Edit {it.registration || 'aircraft'}" title="Edit registration, model and airline">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4zM13.5 6.5l4 4" /></svg>
+              </button>
+            </div>
             <div class="picture">
               <AircraftPicture item={it} own={photos[it.id] ?? null} onpick={(e) => pick(it, e)} onremove={() => removePhoto(it)} />
               <button class="star" class:on={it.favourite} onclick={() => star(it)} aria-pressed={it.favourite} aria-label={it.favourite ? "Remove from favourites" : "Add to favourites"}>
@@ -133,7 +147,7 @@
             <div class="where">
               <span class="lbl">Current aircraft location</span>
               <span class="icao num">{it.last_icao ?? "—"}</span>
-              <span class="apt">{it.last_name ?? "Last position unknown"}</span>
+              <span class="apt">{it.last_name ?? (it.flights ? "Last position unknown" : "Not flown yet")}</span>
             </div>
             <dl>
               <div><dt>Flights flown</dt><dd class="num">{it.flights}</dd></div>
@@ -142,11 +156,15 @@
             </dl>
           </article>
         {/each}
-        {#if shown.length === 0}<p class="none">No aircraft in this category yet.</p>{/if}
+        {#if shown.length === 0}<p class="none">No favourites yet. Star an aircraft to keep it here.</p>{/if}
       </div>
     {/if}
     {#if message}<p class="msg" role="status">{message}</p>{/if}
   </section>
+{/if}
+
+{#if form}
+  <AircraftForm item={form === "new" ? null : form} onclose={() => (form = null)} onsaved={saved} />
 {/if}
 
 <style>
@@ -174,6 +192,37 @@
   header p {
     margin: 0;
     color: var(--ink-dim);
+  }
+  .add {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border: 1px solid var(--rule);
+    background: #26282c;
+    color: var(--ink);
+    border-radius: 8px;
+    padding: 7px 14px;
+    font-weight: 600;
+    align-self: center;
+  }
+  .add:hover {
+    border-color: var(--amber);
+    color: var(--amber);
+  }
+  .add svg,
+  .chips svg {
+    width: 15px;
+    height: 15px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .chips svg {
+    vertical-align: -2px;
+    margin-right: 2px;
   }
   .chips {
     display: flex;
@@ -235,11 +284,15 @@
     background: #26282c;
     border: 1px solid rgba(255, 255, 255, 0.06);
     box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
-    transition: transform 0.18s, box-shadow 0.18s;
+    transition: box-shadow 0.3s, border-color 0.3s;
   }
+  /* Hover: a soft amber glow, as if lit from behind. */
   .card:hover {
-    transform: translateY(-3px);
-    box-shadow: 0 18px 38px rgba(0, 0, 0, 0.45);
+    border-color: rgba(240, 178, 58, 0.35);
+    box-shadow:
+      0 0 0 1px rgba(240, 178, 58, 0.12),
+      0 0 36px 6px rgba(240, 178, 58, 0.3),
+      0 12px 30px rgba(0, 0, 0, 0.35);
   }
   /* The whole card opens the aircraft; the picture, star and upload sit on top. */
   .open {
@@ -252,13 +305,74 @@
     cursor: pointer;
   }
   .reg {
+    position: relative;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    padding: 10px 44px 8px 14px;
+    background: #2b2e32;
+  }
+  .reg h3 {
     margin: 0;
-    padding: 10px 14px 8px;
     font-family: "IBM Plex Mono", ui-monospace, monospace;
     font-size: 27px;
     font-weight: 600;
     letter-spacing: 0.02em;
-    background: #2b2e32;
+    white-space: nowrap;
+  }
+  /* An airline's colours behind the registration: its main colour with a
+     cheat-line stripe in the accent colour. */
+  .reg.airline {
+    color: #fff;
+    background:
+      linear-gradient(100deg, transparent 0 68%, var(--b) 68% 73%, transparent 73% 76%, var(--b) 76% 78%, transparent 78%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(0, 0, 0, 0.18)),
+      var(--a);
+  }
+  .reg.airline h3 {
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+  }
+  .al {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 11.5px;
+    font-weight: 600;
+    opacity: 0.95;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+  }
+  .edit {
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 2;
+    width: 30px;
+    height: 30px;
+    border: none;
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.25);
+    color: rgba(255, 255, 255, 0.85);
+    display: grid;
+    place-items: center;
+    opacity: 0;
+    transition: opacity 0.2s, background 0.2s;
+  }
+  .card:hover .edit,
+  .edit:focus-visible {
+    opacity: 1;
+  }
+  .edit:hover {
+    background: rgba(0, 0, 0, 0.45);
+  }
+  .edit svg {
+    width: 16px;
+    height: 16px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linejoin: round;
   }
   .picture {
     position: relative;

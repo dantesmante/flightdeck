@@ -104,9 +104,9 @@
           <button class="ghost" onclick={() => (confirmCancel = false)}>Keep it</button>
         </div>
       {:else if confirmEnd}
-        <p class="confirm">End this flight now and save it as partial?</p>
-        <div class="row">
-          <button class="danger" onclick={endFlight}>End and save</button>
+        <div class="row inline" use:reveal title="The flight is saved as partial.">
+          <span class="ask">End and save as partial?</span>
+          <button class="danger" onclick={endFlight}>End</button>
           <button class="ghost" onclick={() => (confirmEnd = false)}>Keep flying</button>
         </div>
       {:else}
@@ -264,11 +264,6 @@
     margin-right: auto;
     color: var(--ink);
     font-weight: 600;
-  }
-  .confirm {
-    margin: 0;
-    width: 100%;
-    color: var(--ink);
   }
   button {
     border-radius: 6px;

@@ -12,11 +12,13 @@
   interface Props {
     refreshKey: number;
     onselect: (track: Pt[] | null, flightId: number | null, plan?: FlightPlan | null) => void;
+    /** The pointer is over a flight in the list (null when it leaves). */
+    onhover?: (flightId: number | null) => void;
     /** Open this flight (set when a route is clicked on the map). */
     request?: { id: number; n: number } | null;
     ondelete?: () => void;
   }
-  let { refreshKey, onselect, request = null, ondelete }: Props = $props();
+  let { refreshKey, onselect, onhover, request = null, ondelete }: Props = $props();
 
   let flights = $state<FlightRow[]>([]);
   let totals = $state<Totals | null>(null);
@@ -113,7 +115,13 @@
       <ul>
         {#each flights as f (f.id)}
           <li>
-            <button onclick={() => open(f.id)}>
+            <button
+              onclick={() => open(f.id)}
+              onmouseenter={() => onhover?.(f.id)}
+              onmouseleave={() => onhover?.(null)}
+              onfocus={() => onhover?.(f.id)}
+              onblur={() => onhover?.(null)}
+            >
               <span class="r1">
                 <span class="num route">{route(f)}</span>
                 <span class="num dur">{hhmm(f.total_min)}</span>

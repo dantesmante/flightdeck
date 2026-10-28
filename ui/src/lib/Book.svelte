@@ -33,16 +33,16 @@
   let wrapW = $state(0);
   let wrapH = $state(0);
 
-  /** Room kept on each side for the page arrows. */
-  const SIDE = 76;
+  /** Room kept below the book for the page arrows, and around it. */
+  const BAR = 56;
+  const PAD = 16;
+  // CSS zoom (not a scale transform) so the pages are laid out at their
+  // final size and the text stays sharp.
   const scale = $derived(
-    wrapW && wrapH ? Math.min((wrapW - 2 * SIDE) / (pageWidth * 2), (wrapH - 24) / pageHeight, 1.6) : 1,
+    wrapW && wrapH ? Math.max(0.3, Math.min((wrapW - 2 * PAD) / (pageWidth * 2), (wrapH - BAR - PAD) / pageHeight, 2.4)) : 1,
   );
   /** Which arrow the pointer is over: the matching page corner lifts. */
   let peek = $state<"next" | "prev" | null>(null);
-
-  const reduced =
-    typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 
   const left = $derived(turning === "prev" ? 2 * spread - 2 : 2 * spread);
   const right = $derived(turning === "next" ? 2 * spread + 3 : 2 * spread + 1);
@@ -86,10 +86,6 @@
 
   function start(dir: "next" | "prev") {
     turning = dir;
-    if (reduced) {
-      commit();
-      return;
-    }
     // Two frames so the starting position paints before the transition.
     stage = 0;
     requestAnimationFrame(() => requestAnimationFrame(() => (stage = 1)));
@@ -114,34 +110,7 @@
 <svelte:window onkeydown={key} />
 
 <div class="wrap" bind:clientWidth={wrapW} bind:clientHeight={wrapH}>
-  <button
-    class="arrow prev-arrow"
-    class:hidden={spread <= first}
-    disabled={spread <= first}
-    aria-label="Previous page"
-    onclick={prev}
-    onmouseenter={() => (peek = "prev")}
-    onmouseleave={() => (peek = null)}
-    onfocus={() => (peek = "prev")}
-    onblur={() => (peek = null)}
-  >
-    <span class="disc"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg></span>
-    <span class="hint">Previous</span>
-  </button>
-  <button
-    class="arrow next-arrow"
-    class:hidden={spread >= spreads - 1}
-    disabled={spread >= spreads - 1}
-    aria-label="Next page"
-    onclick={next}
-    onmouseenter={() => (peek = "next")}
-    onmouseleave={() => (peek = null)}
-    onfocus={() => (peek = "next")}
-    onblur={() => (peek = null)}
-  >
-    <span class="disc"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7" /></svg></span>
-    <span class="hint">{spread < 0 ? "Open" : "Next"}</span>
-  </button>
+  <div class="stage">
   <div
     class="book"
     role="region"
@@ -149,7 +118,8 @@
     style:width="{pageWidth * 2}px"
     style:height="{pageHeight}px"
     class:shut
-    style:transform="scale({scale}) translateX({shut ? -pageWidth / 2 : 0}px)"
+    style:zoom={scale}
+    style:transform="translateX({shut ? -pageWidth / 2 : 0}px)"
   >
     <div class="page left" style:width="{pageWidth}px">
       {#if left >= 0 && left < pageCount}{@render page(left)}{/if}
@@ -201,6 +171,40 @@
       <button class="corner next-corner" class:peek={peek === "next"} tabindex="-1" aria-hidden="true" onclick={next}></button>
     {/if}
   </div>
+  </div>
+  <nav class="bar" aria-label="Pages">
+    <button
+      class="arrow prev-arrow"
+      class:hidden={spread <= first}
+      disabled={spread <= first}
+      aria-label="Previous page"
+      onclick={prev}
+      onmouseenter={() => (peek = "prev")}
+      onmouseleave={() => (peek = null)}
+      onfocus={() => (peek = "prev")}
+      onblur={() => (peek = null)}
+    >
+      <span class="disc"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg></span>
+      <span class="hint">Previous</span>
+    </button>
+    <span class="where">
+      {#if spread < 0}Cover{:else}Pages {2 * spread + 1}–{Math.min(2 * spread + 2, pageCount)} of {pageCount}{/if}
+    </span>
+    <button
+      class="arrow next-arrow"
+      class:hidden={spread >= spreads - 1}
+      disabled={spread >= spreads - 1}
+      aria-label="Next page"
+      onclick={next}
+      onmouseenter={() => (peek = "next")}
+      onmouseleave={() => (peek = null)}
+      onfocus={() => (peek = "next")}
+      onblur={() => (peek = null)}
+    >
+      <span class="hint">{spread < 0 ? "Open" : "Next"}</span>
+      <span class="disc"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7" /></svg></span>
+    </button>
+  </nav>
 </div>
 
 <style>
@@ -208,16 +212,37 @@
     position: relative;
     width: 100%;
     height: 100%;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .stage {
+    flex: 1;
+    min-height: 0;
     display: grid;
     place-items: center;
-    overflow: hidden;
+  }
+  .bar {
+    flex: none;
+    height: 56px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 18px;
+  }
+  .where {
+    min-width: 130px;
+    text-align: center;
+    color: var(--ink-dim);
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
   }
   .book {
     position: relative;
     perspective: 2600px;
     transform-origin: center center;
     filter: drop-shadow(0 18px 30px rgba(0, 0, 0, 0.45));
-    transition: transform 0.68s cubic-bezier(0.45, 0.05, 0.3, 1);
+    transition: transform 0.5s cubic-bezier(0.45, 0.05, 0.3, 1) !important;
   }
   .page.cover-page,
   .face.cover-page {
@@ -263,11 +288,13 @@
   .leaf.prev {
     transform-origin: right center;
   }
+  /* About half a second per turn, shown even when the system asks for
+     reduced motion: the turn is how you see you changed pages. */
   .leaf.rising {
-    transition: transform 0.34s cubic-bezier(0.5, 0, 0.9, 0.6);
+    transition: transform 0.26s cubic-bezier(0.5, 0, 0.9, 0.6) !important;
   }
   .leaf.falling {
-    transition: transform 0.34s cubic-bezier(0.1, 0.4, 0.5, 1);
+    transition: transform 0.26s cubic-bezier(0.1, 0.4, 0.5, 1) !important;
   }
   .face {
     position: absolute;
@@ -329,36 +356,22 @@
   /* Side arrows: a disc that slides toward the way the page will turn,
      lights up amber, and lifts the matching page corner. */
   .arrow {
-    position: absolute;
-    top: 50%;
-    z-index: 8;
-    width: 64px;
-    height: 120px;
-    margin-top: -60px;
     border: none;
     background: transparent;
     display: flex;
-    flex-direction: column;
     align-items: center;
-    justify-content: center;
     gap: 8px;
     padding: 0;
     cursor: pointer;
     transition: opacity 0.25s;
-  }
-  .prev-arrow {
-    left: 6px;
-  }
-  .next-arrow {
-    right: 6px;
   }
   .arrow.hidden {
     opacity: 0;
     pointer-events: none;
   }
   .disc {
-    width: 48px;
-    height: 48px;
+    width: 40px;
+    height: 40px;
     border-radius: 50%;
     display: grid;
     place-items: center;
@@ -387,8 +400,7 @@
     font-weight: 600;
     color: var(--amber);
     opacity: 0;
-    transform: translateY(-4px);
-    transition: opacity 0.2s, transform 0.2s;
+    transition: opacity 0.2s;
   }
   .arrow:hover .disc,
   .arrow:focus-visible .disc {

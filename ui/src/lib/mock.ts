@@ -69,6 +69,7 @@ const scene = typeof location !== "undefined" ? new URLSearchParams(location.sea
 const status: FullStatus = {
   waiting_for_pilot: scene === "waiting" || scene === "plan",
   armed: false,
+  forced_aircraft: null,
   plan: scene === "plan" ? samplePlan : null,
   link: "connected",
   sim: "msfs2024",
@@ -154,9 +155,13 @@ export async function mockCall<T>(cmd: string, _args?: Record<string, unknown>):
     simbrief_latest: { ...samplePlan, ofp: sampleOfp },
     current_briefing: sampleOfp,
     get_settings: { simbrief_id: "123456" },
+    get_logbook: scene === "book" ? Array.from({ length: 40 }, (_, i) => ({ flight_id: 100 + i, date_ms: now - (40 - i) * 864e5, sim: "msfs2024", status: "complete", aircraft_type: "A20N", ident: "D-AINA", category_class: "MEL", engine_count: 2, from_icao: "EDDF", to_icao: "LOWW", out_ms: now, in_ms: now + 4.5e6, total_min: 75, night_min: 0, ifr_min: 75, xc_min: 75, pic_min: 75, dual_min: 0, sim_inst_min: 0, act_inst_min: 0, day_landings: 1, night_landings: 0, approaches: 1, remarks: `Line ${i + 1}` })) : [
+      { flight_id: 1, date_ms: now - 864e5, sim: "msfs2024", status: "complete", aircraft_type: "A20N", ident: "D-AINA", category_class: "MEL", engine_count: 2, from_icao: "EDDF", to_icao: "LOWW", out_ms: now - 864e5, in_ms: now - 864e5 + 4.5e6, total_min: 75, night_min: 0, ifr_min: 75, xc_min: 75, pic_min: 75, dual_min: 0, sim_inst_min: 0, act_inst_min: 0, day_landings: 1, night_landings: 0, approaches: 1, remarks: "-140 fpm · MSFS 2024" },
+      { flight_id: 2, date_ms: now, sim: "msfs2020", status: "complete", aircraft_type: "C172", ident: "N172SP", category_class: "SEL", engine_count: 1, from_icao: "KPAO", to_icao: "KSQL", out_ms: now, in_ms: now + 1.8e6, total_min: 30, night_min: 0, ifr_min: 0, xc_min: 0, pic_min: 30, dual_min: 0, sim_inst_min: 0, act_inst_min: 0, day_landings: 2, night_landings: 0, approaches: 0, remarks: "Pattern work" },
+    ],
     get_hangar: [
-      { id: 1, title: "Airbus A320neo", icao_type: "A20N", registration: "D-AINA", engine_type: "jet", engine_count: 2, category_class: "MEL", has_photo: false, flights: 12, minutes: 1490, distance_nm: 8400, landings: 12, first_flight_ms: now - 9e9, last_flight_ms: now, best_landing_fpm: -88, avg_landing_fpm: -160, favourite: true, last_callsign: "DLH4AB", last_icao: "EDDF", last_name: "Frankfurt am Main", last_country: "DE", last_country_name: "Germany", last_region_name: null, last_lat: 50.0333, last_lon: 8.5706, last_sim: "MSFS 2024" },
-      { id: 2, title: "Cessna 172 Skyhawk", icao_type: "C172", registration: "N172SP", engine_type: "piston", engine_count: 1, category_class: "SEL", has_photo: false, flights: 4, minutes: 300, distance_nm: 400, landings: 6, first_flight_ms: now - 9e9, last_flight_ms: now, best_landing_fpm: -60, avg_landing_fpm: -120, favourite: false, last_callsign: "", last_icao: "KPAO", last_name: "Palo Alto", last_country: "US", last_country_name: "United States", last_region_name: null, last_lat: 37.461, last_lon: -122.115, last_sim: "MSFS 2020" },
+      { id: 1, title: "Airbus A320neo", icao_type: "A20N", registration: "D-AINA", engine_type: "jet", engine_count: 2, category_class: "MEL", has_photo: false, flights: 12, minutes: 1490, distance_nm: 8400, landings: 12, first_flight_ms: now - 9e9, last_flight_ms: now, best_landing_fpm: -88, avg_landing_fpm: -160, favourite: true, last_callsign: "DLH4AB", last_icao: "EDDF", last_name: "Frankfurt am Main", last_country: "DE", last_country_name: "Germany", last_region_name: null, last_lat: 50.0333, last_lon: 8.5706, last_sim: "MSFS 2024", model: null, airline: "DLH", sim_registration: "D-AINA", manual: false },
+      { id: 2, title: "Cessna 172 Skyhawk", icao_type: "C172", registration: "N172SP", engine_type: "piston", engine_count: 1, category_class: "SEL", has_photo: false, flights: 4, minutes: 300, distance_nm: 400, landings: 6, first_flight_ms: now - 9e9, last_flight_ms: now, best_landing_fpm: -60, avg_landing_fpm: -120, favourite: false, last_callsign: "", last_icao: "KPAO", last_name: "Palo Alto", last_country: "US", last_country_name: "United States", last_region_name: null, last_lat: 37.461, last_lon: -122.115, last_sim: "MSFS 2020", model: null, airline: null, sim_registration: "N172SP", manual: false },
     ],
     // A stand-in picture (the real one comes from Planespotters.net).
     spotter_photo: {

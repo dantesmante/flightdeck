@@ -160,6 +160,8 @@ export interface Status {
   /** Start a flight was pressed; tracking begins once in the cockpit. */
   armed: boolean;
   plan: FlightPlan | null;
+  /** Hangar aircraft chosen with "Fly this aircraft". */
+  forced_aircraft: number | null;
   sim: string | null;
   sim_label: string | null;
   sim_version: string | null;
@@ -356,6 +358,47 @@ export interface HangarItem {
   last_lat: number | null;
   last_lon: number | null;
   last_sim: string;
+  /** The pilot's own model name, if set. */
+  model: string | null;
+  /** Airline code or name, if set. */
+  airline: string | null;
+  /** The registration the sim reports (the matching key). */
+  sim_registration: string;
+  /** Added by hand in the hangar. */
+  manual: boolean;
+}
+
+export interface AircraftEdit {
+  registration?: string;
+  model?: string;
+  airline?: string;
+}
+
+export interface NewAircraft {
+  registration: string;
+  model: string;
+  icao_type: string;
+  engine_type: string;
+  engine_count: number;
+  airline: string | null;
+}
+
+export interface ManualEntry {
+  date_ms: number;
+  out_min: number | null;
+  in_min: number | null;
+  from_icao: string;
+  to_icao: string;
+  aircraft_id: number | null;
+  aircraft_type: string;
+  ident: string;
+  callsign: string;
+  total_min: number;
+  night_min: number;
+  ifr_min: number;
+  day_landings: number;
+  night_landings: number;
+  remarks: string;
 }
 
 export type Settings = Record<string, string>;
@@ -397,7 +440,8 @@ export const api = {
   stopDemo: () => call<void>("stop_demo"),
   endFlight: () => call<void>("end_flight"),
   simbriefLatest: () => call<FlightPlan>("simbrief_latest"),
-  startFlight: (plan: FlightPlan | null) => call<void>("start_flight", { plan }),
+  startFlight: (plan: FlightPlan | null, aircraftId: number | null = null) =>
+    call<void>("start_flight", { plan, aircraftId }),
   setPlan: (plan: FlightPlan | null) => call<void>("set_plan", { plan }),
   currentBriefing: () => call<Ofp | null>("current_briefing"),
   importVolanta: (files: { name: string; text: string }[]) =>
@@ -422,6 +466,10 @@ export const api = {
   aircraftPhoto: (id: number) => call<string | null>("get_aircraft_photo", { id }),
   setAircraftPhoto: (id: number, dataUrl: string | null) => call<boolean>("set_aircraft_photo", { id, dataUrl }),
   setAircraftFavourite: (id: number, favourite: boolean) => call<boolean>("set_aircraft_favourite", { id, favourite }),
+  updateAircraft: (id: number, edit: AircraftEdit) => call<boolean>("update_aircraft", { id, edit }),
+  addAircraft: (aircraft: NewAircraft) => call<number>("add_aircraft", { aircraft }),
+  removeAircraft: (id: number) => call<boolean>("remove_aircraft", { id }),
+  addManualEntry: (entry: ManualEntry) => call<number>("add_manual_entry", { entry }),
   aircraftFlights: (id: number) => call<FlightRow[]>("aircraft_flights", { id }),
   checkUpdate: () => call<UpdateInfo>("check_update"),
   installUpdate: (url: string) => call<void>("install_update", { url }),

@@ -260,6 +260,7 @@ pub fn parse(text: &str, refdata: &refdata::RefData) -> Result<ImportedFlight, S
         flight_no: st(&v, "flightNumber").unwrap_or_default(),
         plan: None,
         source: Some(Imported { source: SOURCE.into(), id: id.clone(), file: text.to_string() }),
+        aircraft_id: None,
     };
     Ok(ImportedFlight { id, summary, ctx, note: st(&v, "note") })
 }

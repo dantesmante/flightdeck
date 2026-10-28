@@ -111,7 +111,6 @@
   const stateCode = $derived(
     data && /^[A-Za-z]{3}$/.test(data.pilot.nationality) ? data.pilot.nationality.toUpperCase() : "UTO",
   );
-  const pageLabel = $derived(`Pages ${spread * 2 + 1} and ${spread * 2 + 2} of ${pages.length}`);
 </script>
 
 {#snippet coverView()}
@@ -289,7 +288,6 @@
         </div>
       {:else}
         <button class="ghost" onclick={() => book?.close()}>Close passport</button>
-        <span class="where">{pageLabel}</span>
       {/if}
     </div>
     <div class="stage">

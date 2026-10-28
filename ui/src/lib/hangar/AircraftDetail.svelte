@@ -9,6 +9,7 @@
   import { fromTrack, type Pt } from "../track";
   import { openExternal } from "../external";
   import AircraftPicture from "./AircraftPicture.svelte";
+  import { airlineLook } from "./airlines";
   import { spotters } from "./spotters.svelte";
 
   interface Props {
@@ -16,10 +17,12 @@
     photo: string | null;
     displayName: string;
     onback: () => void;
+    /** Edit the registration, model and airline. */
+    onedit?: () => void;
     onupload: (e: Event) => void;
     onflight?: (id: number) => void;
   }
-  let { item, photo, displayName, onback, onupload, onflight }: Props = $props();
+  let { item, photo, displayName, onback, onedit, onupload, onflight }: Props = $props();
 
   let tab = $state<"stats" | "flights">("flights");
   let flights = $state<FlightRow[]>([]);
@@ -67,6 +70,7 @@
     return a <= 60 ? "Butter" : a <= 180 ? "Smooth" : a <= 300 ? "Firm" : a <= 600 ? "Hard" : "Very hard";
   };
   const dist = $derived(distance(item.distance_nm));
+  const look = $derived(airlineLook(item.airline));
   const spot = $derived(!photo && item.registration ? spotters[item.registration.trim().toUpperCase()] : null);
 </script>
 
@@ -77,16 +81,25 @@
       <div class="shade"></div>
       <button class="back" onclick={onback}>
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg>
-        Hangar
+        Back to Hangar
       </button>
+      <div class="tools-top">
+        {#if onedit}
+          <button class="change" onclick={onedit} title="Edit registration, model and airline">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4zM13.5 6.5l4 4" /></svg>
+            Edit
+          </button>
+        {/if}
       <label class="change">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 18h10a4 4 0 0 0 .6-7.96A6 6 0 0 0 6.1 9.1 4.5 4.5 0 0 0 7 18zM12 16v-6M9.5 12.5 12 10l2.5 2.5" /></svg>
         {photo ? "Change image" : "Upload image"}
         <input type="file" accept="image/*" onchange={onupload} />
       </label>
+      </div>
       <div class="title">
         <h2 class="num">{item.registration || item.icao_type || "Unregistered"}</h2>
         <p>{displayName}{item.icao_type ? ` · ${item.icao_type}` : ""}</p>
+        {#if look}<span class="airline" style:--a={look.colors[0]} style:--b={look.colors[1]}>{look.name}</span>{/if}
       </div>
     </div>
 
@@ -219,9 +232,30 @@
   .back {
     left: 10px;
   }
-  .change {
+  .tools-top {
+    position: absolute;
+    top: 10px;
     right: 10px;
+    display: flex;
+    gap: 6px;
+  }
+  .tools-top .change {
+    position: static;
+  }
+  .change {
     opacity: 0.85;
+  }
+  .airline {
+    display: inline-block;
+    margin-top: 5px;
+    padding: 2px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #fff;
+    background: var(--a);
+    box-shadow: inset 4px 0 0 var(--b);
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
   }
   .change:hover,
   .back:hover {

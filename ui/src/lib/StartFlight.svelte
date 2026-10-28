@@ -2,6 +2,8 @@
   // "Start a flight": load the latest SimBrief plan (or fly without one) and
   // tell FlightDeck to begin tracking as soon as you are in the cockpit.
   import { api, type FlightPlan } from "./api";
+  import { fly } from "./flyStore.svelte";
+  import { modelName } from "./hangar/names";
   import { prefs } from "./prefs.svelte";
 
   let { onsettings }: { onsettings: () => void } = $props();
@@ -29,11 +31,22 @@
     }
   }
 
+  // "Fly this aircraft" from the map opens this card with that aircraft.
+  $effect(() => {
+    if (fly.item && !open) show();
+  });
+
+  function close() {
+    open = false;
+    fly.item = null;
+  }
+
   async function start(plan: FlightPlan | null) {
     busy = true;
     try {
-      await api.startFlight(plan);
+      await api.startFlight(plan, fly.item?.id ?? null);
       open = false;
+      fly.item = null;
     } finally {
       busy = false;
     }
@@ -59,10 +72,21 @@
   <div class="sheet" role="dialog" aria-label="Start a flight">
     <div class="title">
       <span>Start a flight</span>
-      <button class="x" aria-label="Close" onclick={() => (open = false)}>
+      <button class="x" aria-label="Close" onclick={close}>
         <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" /></svg>
       </button>
     </div>
+
+    {#if fly.item}
+      <div class="chosen">
+        <span>
+          <strong class="num">{fly.item.registration || fly.item.icao_type}</strong>
+          {modelName(fly.item)}
+        </span>
+        <small>This flight is logged to this aircraft, whatever the sim shows.</small>
+        <button class="clear" onclick={() => (fly.item = null)}>Use the sim's aircraft</button>
+      </div>
+    {/if}
 
     {#if !hasId}
       <button class="opt" onclick={onsettings}>
@@ -99,6 +123,37 @@
 {/if}
 
 <style>
+  .chosen {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px solid rgba(240, 178, 58, 0.45);
+    background: rgba(240, 178, 58, 0.08);
+  }
+  .chosen strong {
+    font-size: 17px;
+    margin-right: 6px;
+    color: var(--amber);
+  }
+  .chosen small {
+    color: var(--ink-dim);
+    font-size: 12px;
+  }
+  .clear {
+    align-self: flex-start;
+    margin-top: 2px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: var(--ink-dim);
+    font-size: 12px;
+    text-decoration: underline;
+  }
+  .clear:hover {
+    color: var(--ink);
+  }
   .start {
     display: flex;
     align-items: center;

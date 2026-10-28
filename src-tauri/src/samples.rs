@@ -58,7 +58,7 @@ pub fn add(db: &Mutex<Store>, refdata: &refdata::RefData) -> usize {
                 _ => None,
             });
         if let Some(f) = summary {
-            if crate::engine::save(db, refdata, &f, None).is_some() {
+            if crate::engine::save(db, refdata, &f, None, None).is_some() {
                 saved += 1;
             }
         }

@@ -333,6 +333,7 @@ fn every_logbook_field_can_be_edited() {
         arr: place("CYYZ", "CA"),
         aircraft_type: Some("B38M".into()),
         ident: Some("N12345".into()),
+        ..Default::default()
     };
     assert!(db.update_flight(a, &patch).unwrap());
     let r = db.logbook().unwrap().into_iter().find(|r| r.flight_id == a).unwrap();
@@ -360,4 +361,88 @@ fn deleting_an_entry_removes_the_flight_everywhere() {
     assert!(db.routes().unwrap().is_empty());
     assert!(db.stamp_flights().unwrap().is_empty());
     assert!(db.hangar().unwrap().is_empty());
+}
+
+#[test]
+fn aircraft_details_and_added_aircraft() {
+    use crate::book::{AircraftEdit, NewAircraft};
+    let mut db = Store::open_in_memory().unwrap();
+    let f = fly(1);
+    db.save_flight(&f, &SaveContext::default()).unwrap();
+    let h = db.hangar().unwrap();
+    assert_eq!(h.len(), 1);
+    let id = h[0].id;
+    let sim_reg = h[0].registration.clone();
+
+    // New registration, model and airline are shown; statistics stay.
+    let e = AircraftEdit { registration: Some("n123ab".into()), model: Some("My Jet".into()), airline: Some("DAL".into()) };
+    assert!(db.update_aircraft(id, &e).unwrap());
+    let h = db.hangar().unwrap();
+    assert_eq!(h[0].registration, "N123AB");
+    assert_eq!(h[0].sim_registration, sim_reg);
+    assert_eq!(h[0].model.as_deref(), Some("My Jet"));
+    assert_eq!(h[0].airline.as_deref(), Some("DAL"));
+    assert_eq!(h[0].flights, 1);
+    // The same sim aircraft still lands in the same hangar slot.
+    db.save_flight(&f, &SaveContext::default()).unwrap();
+    assert_eq!(db.hangar().unwrap().len(), 1);
+    assert_eq!(db.list_flights(10, 0).unwrap()[0].registration, "N123AB");
+
+    // An aircraft added by hand shows with no flights, and a sim flight
+    // reporting its registration flies as it.
+    let mine = db
+        .add_aircraft(&NewAircraft {
+            registration: "d-aina".into(),
+            model: "Airbus A320neo".into(),
+            icao_type: "a20n".into(),
+            engine_type: "jet".into(),
+            engine_count: 2,
+            airline: Some("DLH".into()),
+        })
+        .unwrap();
+    let h = db.hangar().unwrap();
+    let added = h.iter().find(|a| a.id == mine).unwrap();
+    assert!(added.manual);
+    assert_eq!(added.flights, 0);
+    let mut g = fly(2);
+    g.aircraft.registration = "D-AINA".into();
+    g.aircraft.title = "Some livery".into();
+    db.save_flight(&g, &SaveContext::default()).unwrap();
+    let h = db.hangar().unwrap();
+    assert_eq!(h.len(), 2);
+    assert_eq!(h.iter().find(|a| a.id == mine).unwrap().flights, 1);
+}
+
+#[test]
+fn manual_flights_go_in_the_logbook() {
+    use crate::book::ManualFlight;
+    let mut db = Store::open_in_memory().unwrap();
+    let id = db
+        .add_manual_flight(&ManualFlight {
+            date_ms: 1_760_000_000_000,
+            out_min: Some(22 * 60),
+            in_min: Some(60), // next day
+            dep: Place { icao: "KSEA".into(), name: "Seattle".into(), country: "US".into(), region: String::new() },
+            arr: Place { icao: "KPDX".into(), name: "Portland".into(), country: "US".into(), region: String::new() },
+            dep_at: Some([47.449, -122.309]),
+            arr_at: Some([45.588, -122.597]),
+            aircraft_type: "c172".into(),
+            ident: "n172sp".into(),
+            day_landings: 1,
+            remarks: "Lesson".into(),
+            ..Default::default()
+        })
+        .unwrap();
+    let log = db.logbook().unwrap();
+    assert_eq!(log.len(), 1);
+    assert_eq!(log[0].flight_id, id);
+    assert_eq!(log[0].total_min, 180);
+    assert_eq!(log[0].ident, "N172SP");
+    assert_eq!(log[0].aircraft_type, "C172");
+    assert_eq!(log[0].from_icao, "KSEA");
+    assert_eq!(log[0].xc_min, 180);
+    let r = db.routes().unwrap();
+    assert_eq!(r.len(), 1);
+    assert!(r[0].dep_lat.is_some() && r[0].arr_lat.is_some());
+    assert_eq!(db.hangar().unwrap().len(), 1);
 }

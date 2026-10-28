@@ -5,12 +5,13 @@
   import { prefs, setPref } from "../prefs.svelte";
   import { groups, LAYOUTS, LIST_COLS, printValue, type Col, type Layout } from "./columns";
   import EntryCard from "./EntryCard.svelte";
+  import ManualEntry from "./ManualEntry.svelte";
 
   let { onflight }: { onflight?: (flightId: number) => void } = $props();
 
   const W = 560;
-  const H = 470;
-  const ROWS = 12;
+  const H = 542;
+  const ROWS = 15;
 
   let rows = $state<LogRow[]>([]);
   let loaded = $state(false);
@@ -18,6 +19,15 @@
   let book = $state<Book | null>(null);
   let hover = $state<number | null>(null);
   let opened = $state<LogRow | null>(null);
+  let adding = $state(false);
+
+  /** A new manual entry: show the page it landed on. */
+  async function added(id: number) {
+    adding = false;
+    await load();
+    const i = rows.findIndex((r) => r.flight_id === id);
+    if (i >= 0) book?.goTo(Math.floor(i / ROWS));
+  }
 
   const layout = $derived((prefs.s.logbook_layout as Layout) ?? "faa");
   const hand = $derived(prefs.s.logbook_hand !== "type");
@@ -67,10 +77,6 @@
     return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
   };
 
-  const year = (s: number) => {
-    const r = rows[s * ROWS];
-    return r ? new Date(r.date_ms).getUTCFullYear() : new Date().getUTCFullYear();
-  };
 </script>
 
 
@@ -104,7 +110,7 @@
   <div class="page" class:lp={i % 2 === 0} class:hand class:dark>
     <div class="top">
       {#if i % 2 === 0}
-        <span>Pilot logbook</span><span class="yr">{year(s)}</span>
+        <span>Pilot logbook</span><span></span>
       {:else}
         <span></span><span>{layout === "faa" ? "Times in hours and tenths" : "Times in hours and minutes"}</span>
       {/if}
@@ -157,7 +163,7 @@
   <div class="toolbar">
     <h2>Logbook</h2>
     <span class="where">
-      {rows.length} {rows.length === 1 ? "entry" : "entries"}{rows.length && !list ? `, pages ${spread * 2 + 1} and ${spread * 2 + 2}` : ""}
+      {rows.length} {rows.length === 1 ? "entry" : "entries"}
     </span>
     <div class="seg" role="group" aria-label="Logbook view">
       <button class:on={!list} onclick={() => setPref("logbook_view", "book")} title="A paper pilot logbook">Logbook</button>
@@ -181,6 +187,10 @@
         </button>
       </div>
     {/if}
+    <button class="add" onclick={() => (adding = true)}>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+      Add manual entry
+    </button>
   </div>
   {#if loaded && rows.length === 0}
     <p class="note">Your logbook is empty. Each flight writes its own line when you park. Settings has sample flights if you want to see it filled in.</p>
@@ -229,6 +239,10 @@
     <p class="tip">Click any {list ? "flight" : "line"} to see the flight, edit it or delete it.</p>
   {/if}
 </section>
+
+{#if adding}
+  <ManualEntry onclose={() => (adding = false)} onsaved={added} />
+{/if}
 
 {#if opened}
   <EntryCard row={opened} onclose={() => (opened = null)} onchanged={() => load()} onfull={onflight} />
@@ -284,6 +298,31 @@
   .seg button.on {
     background: var(--panel-3);
     color: var(--amber);
+  }
+  .add {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border: 1px solid var(--rule);
+    background: #26282c;
+    color: var(--ink);
+    border-radius: 6px;
+    padding: 5px 12px;
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .add:hover {
+    border-color: var(--amber);
+    color: var(--amber);
+  }
+  .add svg {
+    width: 14px;
+    height: 14px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2.2;
+    stroke-linecap: round;
   }
   .seg svg {
     width: 15px;
@@ -408,18 +447,6 @@
     color: var(--print);
     letter-spacing: 0.08em;
     height: 16px;
-  }
-  .yr {
-    font-family: "Caveat", cursive;
-    font-size: 18px;
-    color: var(--pen);
-    letter-spacing: 0;
-    line-height: 0.8;
-  }
-  .page:not(.hand) .yr {
-    font-family: "Special Elite", "Courier New", monospace;
-    font-size: 12px;
-    color: var(--type);
   }
   .hdr {
     display: grid;

@@ -19,7 +19,15 @@ const MIGRATE_V2: &str = include_str!("migrate_v2.sql");
 const MIGRATE_V3: &str = include_str!("migrate_v3.sql");
 const MIGRATE_V4: &str = include_str!("migrate_v4.sql");
 const MIGRATE_V5: &str = include_str!("migrate_v5.sql");
-const SCHEMA_VERSION: i64 = 5;
+const MIGRATE_V6: &str = include_str!("migrate_v6.sql");
+const SCHEMA_VERSION: i64 = 6;
+
+/// Remove aircraft no flight uses any more, unless the pilot added them or
+/// gave them details, a photo or a star of their own.
+pub(crate) const DELETE_ORPHAN_AIRCRAFT: &str = "DELETE FROM aircraft
+     WHERE manual = 0 AND favourite = 0 AND photo IS NULL
+       AND user_reg IS NULL AND user_model IS NULL AND airline IS NULL
+       AND id NOT IN (SELECT DISTINCT aircraft_id FROM flight WHERE aircraft_id IS NOT NULL)";
 /// Tolerance for track simplification.
 const SIMPLIFY_M: f64 = 15.0;
 
@@ -61,6 +69,9 @@ pub struct SaveContext {
     /// Imported flights: the tracker it came from (e.g. "volanta"), its id
     /// there, and the original file.
     pub source: Option<Imported>,
+    /// Log the flight to this hangar aircraft ("Fly this aircraft"),
+    /// whatever aircraft the sim reported.
+    pub aircraft_id: Option<i64>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -169,6 +180,9 @@ impl Store {
         }
         if version < 5 {
             conn.execute_batch(&format!("BEGIN; {MIGRATE_V5} PRAGMA user_version = 5; COMMIT;"))?;
+        }
+        if version < 6 {
+            conn.execute_batch(&format!("BEGIN; {MIGRATE_V6} PRAGMA user_version = 6; COMMIT;"))?;
         }
         Ok(Store { conn })
     }
@@ -309,7 +323,7 @@ impl Store {
     pub fn delete_flight(&mut self, id: i64) -> Result<bool> {
         let n = self.conn.execute("DELETE FROM flight WHERE id = ?1", params![id])?;
         self.conn.execute(
-            "DELETE FROM aircraft WHERE id NOT IN (SELECT DISTINCT aircraft_id FROM flight WHERE aircraft_id IS NOT NULL)",
+            crate::DELETE_ORPHAN_AIRCRAFT,
             [],
         )?;
         Ok(n > 0)
@@ -347,7 +361,14 @@ struct StoreTx<'a> {
 
 impl StoreTx<'_> {
     fn save(&self, f: &FlightSummary, ctx: &SaveContext) -> Result<i64> {
-        let aircraft_id = Store::aircraft_id_with(self.conn, &f.aircraft)?;
+        let chosen: Option<i64> = match ctx.aircraft_id {
+            Some(id) => self.conn.query_row("SELECT id FROM aircraft WHERE id = ?1", params![id], |r| r.get(0)).optional()?,
+            None => None,
+        };
+        let aircraft_id = match chosen {
+            Some(id) => id,
+            None => Store::aircraft_id_with(self.conn, &f.aircraft)?,
+        };
         let final_landing = f.final_landing();
         let now = now_ms();
         let status = match (f.status, &ctx.planned_arr_icao, &ctx.arr) {
@@ -520,6 +541,23 @@ impl Store {
                 |r| r.get(0),
             )
             .optional()?;
+        // The registration is how the hangar knows an aircraft: a sim
+        // registration the pilot has given an aircraft (by editing it or
+        // adding it by hand) flies as that aircraft.
+        if existing.is_none() && !a.registration.trim().is_empty() {
+            let mine: Option<i64> = conn
+                .query_row(
+                    "SELECT id FROM aircraft
+                     WHERE UPPER(user_reg) = UPPER(?1) OR (manual = 1 AND UPPER(registration) = UPPER(?1))
+                     ORDER BY manual DESC, id LIMIT 1",
+                    params![a.registration.trim()],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            if let Some(id) = mine {
+                return Ok(id);
+            }
+        }
         let class = category_class(a);
         if let Some(id) = existing {
             conn.execute(
@@ -538,7 +576,7 @@ impl Store {
 }
 
 const FLIGHT_ROW_SQL: &str = "
-    SELECT f.id, f.sim, f.status, COALESCE(a.title, ''), COALESCE(a.icao_type, ''), COALESCE(a.registration, ''),
+    SELECT f.id, f.sim, f.status, COALESCE(a.title, ''), COALESCE(a.icao_type, ''), COALESCE(NULLIF(a.user_reg, ''), a.registration, ''),
            f.callsign, f.dep_icao, f.dep_name, f.dep_country, f.arr_icao, f.arr_name, f.arr_country,
            f.start_ms, f.end_ms, f.block_out, f.takeoff, f.landing, f.block_in,
            COALESCE(l.total_min, 0), f.distance_nm, f.max_alt_ft, f.fuel_used_kg,

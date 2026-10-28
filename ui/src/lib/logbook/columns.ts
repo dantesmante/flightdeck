@@ -22,7 +22,7 @@ export interface Col {
 const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const date = (r: LogRow) => {
   const d = new Date(r.date_ms);
-  return `${d.getUTCDate()} ${months[d.getUTCMonth()]}`;
+  return `${d.getUTCDate()} ${months[d.getUTCMonth()]} ${String(d.getUTCFullYear()).slice(2)}`;
 };
 const hhmmZ = (ms: number | null) => {
   if (ms == null) return "";
@@ -33,7 +33,7 @@ const singleEngine = (r: LogRow) => r.category_class !== "MEL";
 
 export const LAYOUTS: Record<Layout, Col[]> = {
   faa: [
-    { key: "date", label: "Date", width: 52, side: "L", kind: "text", value: date },
+    { key: "date", label: "Date", width: 66, side: "L", kind: "text", value: date },
     { key: "type", label: "Aircraft type", width: 64, side: "L", kind: "text", value: (r) => r.aircraft_type },
     { key: "ident", label: "Aircraft ident", width: 70, side: "L", kind: "text", value: (r) => r.ident },
     { key: "from", label: "From", group: "Route of flight", width: 50, side: "L", kind: "text", value: (r) => r.from_icao },
@@ -54,16 +54,16 @@ export const LAYOUTS: Record<Layout, Col[]> = {
     { key: "total", label: "Total duration", width: 52, side: "R", kind: "minutes", value: (r) => r.total_min },
   ],
   easa: [
-    { key: "date", label: "Date", width: 50, side: "L", kind: "text", value: date },
+    { key: "date", label: "Date", width: 62, side: "L", kind: "text", value: date },
     { key: "dep", label: "Place", group: "Departure", width: 44, side: "L", kind: "text", value: (r) => r.from_icao },
     { key: "dep_t", label: "Time", group: "Departure", width: 38, side: "L", kind: "text", value: (r) => hhmmZ(r.out_ms) },
     { key: "arr", label: "Place", group: "Arrival", width: 44, side: "L", kind: "text", value: (r) => r.to_icao },
     { key: "arr_t", label: "Time", group: "Arrival", width: 38, side: "L", kind: "text", value: (r) => hhmmZ(r.in_ms) },
-    { key: "type", label: "Make, model", group: "Aircraft", width: 56, side: "L", kind: "text", value: (r) => r.aircraft_type },
-    { key: "reg", label: "Registration", group: "Aircraft", width: 64, side: "L", kind: "text", value: (r) => r.ident },
-    { key: "se", label: "SE", group: "Single-pilot time", width: 46, side: "L", kind: "minutes", value: (r) => (singleEngine(r) ? r.total_min : 0) },
-    { key: "me", label: "ME", group: "Single-pilot time", width: 46, side: "L", kind: "minutes", value: (r) => (singleEngine(r) ? 0 : r.total_min) },
-    { key: "mp", label: "Multi-pilot time", width: 46, side: "L", kind: "minutes", value: () => 0 },
+    { key: "type", label: "Make, model", group: "Aircraft", width: 52, side: "L", kind: "text", value: (r) => r.aircraft_type },
+    { key: "reg", label: "Registration", group: "Aircraft", width: 60, side: "L", kind: "text", value: (r) => r.ident },
+    { key: "se", label: "SE", group: "Single-pilot time", width: 44, side: "L", kind: "minutes", value: (r) => (singleEngine(r) ? r.total_min : 0) },
+    { key: "me", label: "ME", group: "Single-pilot time", width: 44, side: "L", kind: "minutes", value: (r) => (singleEngine(r) ? 0 : r.total_min) },
+    { key: "mp", label: "Multi-pilot time", width: 42, side: "L", kind: "minutes", value: () => 0 },
     { key: "total", label: "Total time of flight", width: 50, side: "L", kind: "minutes", value: (r) => r.total_min },
 
     { key: "picname", label: "Name of PIC", width: 64, side: "R", kind: "text", value: () => "Self" },

@@ -9,6 +9,7 @@
   import { latestRadar } from "./radar";
   import { nightShade } from "./terminator";
   import { day } from "./format";
+  import { modelName } from "./hangar/names";
   import { prefs, setPref } from "./prefs.svelte";
   import { altColor, altGradient, altLabel, altRange, lonLat, sideOnBearing, wallFeatures, wallScale, type Pt } from "./track";
 
@@ -32,8 +33,12 @@
     /** Your aircraft where they were last parked (the Parked aircraft layer).
      * Leave out on maps that should not offer the layer. */
     parked?: HangarItem[] | null;
+    /** A flight pointed at in the flights list: its route lights up. */
+    highlight?: number | null;
+    /** "Fly this aircraft" was pressed in a parked aircraft's card. */
+    onfly?: (item: HangarItem) => void;
   }
-  let { live, aircraft, origin, history, routes = [], selected = null, onroute, plan = null, parked = null }: Props = $props();
+  let { live, aircraft, origin, history, routes = [], selected = null, onroute, plan = null, parked = null, highlight = null, onfly }: Props = $props();
 
   const PLAN = "#a78bfa";
 
@@ -211,6 +216,7 @@
       "any",
       ["boolean", ["feature-state", "hover"], false],
       ["boolean", ["feature-state", "sel"], false],
+      ["boolean", ["feature-state", "list"], false],
     ];
     map.addLayer({
       id: "routes-line",
@@ -580,6 +586,16 @@
     }
   });
 
+  // A flight pointed at in the list lights up in amber.
+  let lastHi: number | null = null;
+  $effect(() => {
+    const id = highlight;
+    if (!loaded || !map || !map.getSource("routes")) return;
+    if (lastHi != null) map.setFeatureState({ source: "routes", id: lastHi }, { list: false });
+    if (id != null) map.setFeatureState({ source: "routes", id }, { list: true });
+    lastHi = id;
+  });
+
   // The selected flight's route stands out.
   let lastSel: number | null = null;
   $effect(() => {
@@ -625,6 +641,7 @@
   $effect(() => {
     const list = parked;
     const on = layers.has("parked");
+    const fly = onfly;
     if (!loaded || !map) return;
     for (const m of parkedMarkers) m.remove();
     for (const p of parkedPopups) p.remove();
@@ -645,16 +662,30 @@
       el.innerHTML =
         `<svg viewBox="-24 -24 48 48" width="22" height="22" aria-hidden="true"><path d="M0 -20 L3.4 -6 L19 1.5 L19 5.5 L3.4 2.6 L2.4 13 L8 17 L8 19.6 L0 17.8 L-8 19.6 L-8 17 L-2.4 13 L-3.4 2.6 L-19 5.5 L-19 1.5 L-3.4 -6 Z" fill="#c4c8ce" stroke="#111214" stroke-width="2" stroke-linejoin="round"/></svg>` +
         `<span>${regs.slice(0, 3).join(" · ")}${regs.length > 3 ? ` +${regs.length - 3}` : ""}</span>`;
-      const rows = group
-        .map((g) => {
-          const hrs = (g.minutes / 60).toFixed(1);
-          return `<div class="pk-row"><strong>${esc(g.registration || g.icao_type || "Unregistered")}</strong><span>${esc(g.title || g.icao_type)}</span><em>${g.flights} ${g.flights === 1 ? "flight" : "flights"} · ${hrs} h · last flown ${esc(day(g.last_flight_ms))}</em></div>`;
-        })
-        .join("");
+      // The card: where, then each aircraft with a Fly this aircraft button.
+      const box = document.createElement("div");
       const where = first.last_icao ? `${esc(first.last_icao)}${first.last_name ? ` · ${esc(first.last_name)}` : ""}` : "Last known position";
-      const popup = new maplibregl.Popup({ className: "parked-tip", offset: [0, -12], closeButton: false, maxWidth: "300px" }).setHTML(
-        `<div class="pk-where">Parked at ${where}</div>${rows}`,
-      );
+      box.innerHTML = `<div class="pk-where">Parked at ${where}</div>`;
+      for (const g of group) {
+        const row = document.createElement("div");
+        row.className = "pk-row";
+        const hrs = (g.minutes / 60).toFixed(1);
+        row.innerHTML = `<strong>${esc(g.registration || g.icao_type || "Unregistered")}</strong><span>${esc(modelName(g))}</span><em>${g.flights} ${g.flights === 1 ? "flight" : "flights"} · ${hrs} h · last flown ${esc(day(g.last_flight_ms))}</em>`;
+        if (fly) {
+          const b = document.createElement("button");
+          b.className = "pk-fly";
+          b.type = "button";
+          b.textContent = "Fly this aircraft";
+          b.addEventListener("click", (ev) => {
+            ev.stopPropagation();
+            popup.remove();
+            fly(g);
+          });
+          row.appendChild(b);
+        }
+        box.appendChild(row);
+      }
+      const popup = new maplibregl.Popup({ className: "parked-tip", offset: [0, -12], closeButton: false, maxWidth: "300px" }).setDOMContent(box);
       const at: [number, number] = [first.last_lon!, first.last_lat!];
       // Handle the click here so it never reaches a route line underneath.
       el.addEventListener("click", (ev) => {
@@ -766,6 +797,20 @@
   .map :global(.pk-row strong) {
     font-family: "IBM Plex Mono", ui-monospace, monospace;
     font-size: 14px;
+  }
+  .map :global(.pk-fly) {
+    align-self: flex-start;
+    margin-top: 6px;
+    border: none;
+    border-radius: 6px;
+    padding: 5px 10px;
+    background: var(--amber);
+    color: #1b1406;
+    font: 600 12px var(--cond), sans-serif;
+    cursor: pointer;
+  }
+  .map :global(.pk-fly:hover) {
+    filter: brightness(1.08);
   }
   .map :global(.pk-row em) {
     font-style: normal;

@@ -84,6 +84,12 @@ pub struct FlightPatch {
     pub arr: Option<crate::Place>,
     pub aircraft_type: Option<String>,
     pub ident: Option<String>,
+    /// New airport positions, [lat, lon]; used only by flights without a
+    /// track (entered by hand), whose line runs between the airports.
+    #[serde(default)]
+    pub dep_at: Option<[f64; 2]>,
+    #[serde(default)]
+    pub arr_at: Option<[f64; 2]>,
 }
 
 /// One aircraft in the hangar, with its totals and last known place.
@@ -116,6 +122,61 @@ pub struct HangarRow {
     pub last_lat: Option<f64>,
     pub last_lon: Option<f64>,
     pub last_sim: String,
+    /// The pilot's own model name, if set (shown instead of the sim's).
+    pub model: Option<String>,
+    /// Airline the aircraft flies for, if the pilot set one.
+    pub airline: Option<String>,
+    /// The registration the sim reports, kept as the matching key.
+    pub sim_registration: String,
+    /// Added by hand in the hangar.
+    pub manual: bool,
+}
+
+/// The pilot's details for an aircraft. `None` = unchanged; an empty
+/// string clears the field.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct AircraftEdit {
+    pub registration: Option<String>,
+    pub model: Option<String>,
+    pub airline: Option<String>,
+}
+
+/// An aircraft added by hand in the hangar.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct NewAircraft {
+    pub registration: String,
+    pub model: String,
+    pub icao_type: String,
+    /// piston | turboprop | jet | helo | glider
+    pub engine_type: String,
+    pub engine_count: i64,
+    pub airline: Option<String>,
+}
+
+/// A flight entered by hand in the logbook. It has no track: the map
+/// draws it as a line from departure to arrival.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ManualFlight {
+    /// Any time on the day of the flight (UTC).
+    pub date_ms: i64,
+    /// Block out and in, minutes after midnight UTC.
+    pub out_min: Option<i64>,
+    pub in_min: Option<i64>,
+    pub dep: crate::Place,
+    pub arr: crate::Place,
+    pub dep_at: Option<[f64; 2]>,
+    pub arr_at: Option<[f64; 2]>,
+    /// A hangar aircraft, or else a type and registration.
+    pub aircraft_id: Option<i64>,
+    pub aircraft_type: String,
+    pub ident: String,
+    pub callsign: String,
+    pub total_min: i64,
+    pub night_min: i64,
+    pub ifr_min: i64,
+    pub day_landings: i64,
+    pub night_landings: i64,
+    pub remarks: String,
 }
 
 /// One flown route for the map: where a flight left from and landed.
@@ -206,7 +267,7 @@ impl Store {
     pub fn logbook(&self) -> Result<Vec<LogRow>> {
         let mut st = self.conn.prepare(
             "SELECT f.id, COALESCE(f.block_out, f.takeoff, f.start_ms), f.sim, f.status,
-                    COALESCE(NULLIF(a.icao_type, ''), a.title, ''), COALESCE(a.registration, ''),
+                    COALESCE(NULLIF(a.icao_type, ''), a.title, ''), COALESCE(NULLIF(a.user_reg, ''), a.registration, ''),
                     COALESCE(a.category_class, ''), COALESCE(a.engine_count, 0),
                     COALESCE(f.dep_icao, ''), COALESCE(f.arr_icao, ''),
                     COALESCE(f.block_out, f.takeoff), COALESCE(f.block_in, f.landing),
@@ -344,6 +405,18 @@ impl Store {
             )?;
         }
 
+        for (at, lat, lon) in [(p.dep_at, "dep_lat", "dep_lon"), (p.arr_at, "arr_lat", "arr_lon")] {
+            if let Some([la, lo]) = at {
+                tx.execute(
+                    &format!(
+                        "UPDATE flight SET {lat} = ?2, {lon} = ?3 WHERE id = ?1
+                         AND NOT EXISTS (SELECT 1 FROM track WHERE flight_id = ?1)"
+                    ),
+                    params![flight_id, la, lo],
+                )?;
+            }
+        }
+
         // A different type or registration points this flight (only) at the
         // matching hangar aircraft, created if needed.
         if p.aircraft_type.is_some() || p.ident.is_some() {
@@ -386,7 +459,7 @@ impl Store {
                 };
                 tx.execute("UPDATE flight SET aircraft_id = ?2 WHERE id = ?1", params![flight_id, new_id])?;
                 tx.execute(
-                    "DELETE FROM aircraft WHERE id NOT IN (SELECT DISTINCT aircraft_id FROM flight WHERE aircraft_id IS NOT NULL)",
+                    crate::DELETE_ORPHAN_AIRCRAFT,
                     [],
                 )?;
             }
@@ -404,18 +477,19 @@ impl Store {
 
     pub fn hangar(&self) -> Result<Vec<HangarRow>> {
         let mut st = self.conn.prepare(
-            "SELECT a.id, a.title, a.icao_type, a.registration, a.engine_type, a.engine_count, a.category_class,
-                    a.photo IS NOT NULL,
+            "SELECT a.id, a.title, a.icao_type, COALESCE(NULLIF(a.user_reg, ''), a.registration), a.engine_type,
+                    a.engine_count, a.category_class, a.photo IS NOT NULL,
                     COUNT(f.id), COALESCE(SUM(l.total_min), 0), COALESCE(SUM(f.distance_nm), 0),
                     COALESCE(SUM(l.day_landings + l.night_landings), 0),
-                    MIN(f.start_ms), MAX(f.start_ms), MAX(f.landing_rate_fpm),
+                    COALESCE(MIN(f.start_ms), 0), COALESCE(MAX(f.start_ms), 0), MAX(f.landing_rate_fpm),
                     AVG(f.landing_rate_fpm), a.favourite,
-                    (SELECT COALESCE(f2.callsign, '') FROM flight f2 WHERE f2.aircraft_id = a.id ORDER BY f2.start_ms DESC LIMIT 1)
+                    COALESCE((SELECT f2.callsign FROM flight f2 WHERE f2.aircraft_id = a.id ORDER BY f2.start_ms DESC LIMIT 1), ''),
+                    NULLIF(a.user_model, ''), NULLIF(a.airline, ''), a.registration, a.manual
              FROM aircraft a
-             JOIN flight f ON f.aircraft_id = a.id
+             LEFT JOIN flight f ON f.aircraft_id = a.id
              LEFT JOIN log_entry l ON l.flight_id = f.id
              GROUP BY a.id
-             ORDER BY a.favourite DESC, COALESCE(SUM(l.total_min), 0) DESC, MAX(f.start_ms) DESC",
+             ORDER BY a.favourite DESC, COALESCE(SUM(l.total_min), 0) DESC, MAX(f.start_ms) DESC, a.id DESC",
         )?;
         let mut rows: Vec<HangarRow> = st
             .query_map([], |r| {
@@ -445,6 +519,10 @@ impl Store {
                     last_lat: None,
                     last_lon: None,
                     last_sim: String::new(),
+                    model: r.get(18)?,
+                    airline: r.get(19)?,
+                    sim_registration: r.get(20)?,
+                    manual: r.get::<_, i64>(21)? != 0,
                 })
             })?
             .collect::<std::result::Result<_, _>>()?;
@@ -462,9 +540,170 @@ impl Store {
                 row.last_lon = r.get(5)?;
                 row.last_sim = r.get(6)?;
                 Ok(())
-            })?;
+            })
+            .optional()?;
         }
         Ok(rows)
+    }
+
+    /// Change the pilot's details for an aircraft (registration, model name,
+    /// airline). Statistics are never edited.
+    pub fn update_aircraft(&self, id: i64, e: &AircraftEdit) -> Result<bool> {
+        let clean = |v: &Option<String>| v.as_ref().map(|s| s.trim().to_string());
+        let reg = clean(&e.registration).map(|s| s.to_uppercase());
+        let n = self.conn.execute(
+            "UPDATE aircraft SET
+                user_reg = CASE WHEN ?2 IS NULL THEN user_reg WHEN ?2 = '' OR ?2 = registration THEN NULL ELSE ?2 END,
+                user_model = CASE WHEN ?3 IS NULL THEN user_model ELSE NULLIF(?3, '') END,
+                airline = CASE WHEN ?4 IS NULL THEN airline ELSE NULLIF(?4, '') END
+             WHERE id = ?1",
+            params![id, reg, clean(&e.model), clean(&e.airline)],
+        )?;
+        Ok(n > 0)
+    }
+
+    /// Add an aircraft by hand. Its registration then matches flights the
+    /// sim reports with the same registration.
+    pub fn add_aircraft(&self, a: &NewAircraft) -> Result<i64> {
+        let reg = a.registration.trim().to_uppercase();
+        let model = a.model.trim();
+        let ty = a.icao_type.trim().to_uppercase();
+        let engine = match a.engine_type.as_str() {
+            "piston" | "turboprop" | "jet" | "helo" | "glider" => a.engine_type.as_str(),
+            _ => "unknown",
+        };
+        let class = match engine {
+            "helo" => "RH",
+            "glider" => "GL",
+            _ if a.engine_count >= 2 => "MEL",
+            _ => "SEL",
+        };
+        let title = if model.is_empty() { ty.clone() } else { model.to_string() };
+        self.conn.execute(
+            "INSERT INTO aircraft (icao_type, title, registration, engine_count, engine_type, category_class, user_model, airline, manual)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULLIF(?7, ''), NULLIF(?8, ''), 1)",
+            params![ty, title, reg, a.engine_count.max(0), engine, class, model, a.airline.as_deref().unwrap_or("").trim()],
+        )?;
+        Ok(self.conn.last_insert_rowid())
+    }
+
+    /// Remove an aircraft added by hand that has no flights.
+    pub fn remove_aircraft(&self, id: i64) -> Result<bool> {
+        Ok(self.conn.execute(
+            "DELETE FROM aircraft WHERE id = ?1 AND NOT EXISTS (SELECT 1 FROM flight WHERE aircraft_id = ?1)",
+            params![id],
+        )? > 0)
+    }
+
+    /// Log a flight entered by hand. Returns its id.
+    pub fn add_manual_flight(&mut self, m: &ManualFlight) -> Result<i64> {
+        const DAY: i64 = 86_400_000;
+        let tx = self.conn.transaction()?;
+        let day = m.date_ms.div_euclid(DAY) * DAY;
+        let out = m.out_min.map(|v| day + v.clamp(0, 1439) * 60_000);
+        let inn = m.in_min.map(|v| {
+            let t = day + v.clamp(0, 1439) * 60_000;
+            if out.is_some_and(|o| t < o) { t + DAY } else { t }
+        });
+        let total = match (out, inn) {
+            (Some(o), Some(i)) if m.total_min <= 0 => (i - o) / 60_000,
+            _ => m.total_min.max(0),
+        };
+        let start = out.unwrap_or(day + 12 * 3_600_000);
+        let end = inn.unwrap_or(start + total * 60_000);
+
+        let aircraft_id: Option<i64> = match m.aircraft_id {
+            Some(id) => Some(id),
+            None => {
+                let ty = m.aircraft_type.trim().to_uppercase();
+                let reg = m.ident.trim().to_uppercase();
+                if ty.is_empty() && reg.is_empty() {
+                    None
+                } else {
+                    let found: Option<i64> = tx
+                        .query_row(
+                            "SELECT id FROM aircraft
+                             WHERE (?2 <> '' AND UPPER(COALESCE(NULLIF(user_reg, ''), registration)) = ?2)
+                                OR (?2 = '' AND registration = '' AND icao_type = ?1)
+                             ORDER BY id LIMIT 1",
+                            params![ty, reg],
+                            |r| r.get(0),
+                        )
+                        .optional()?;
+                    match found {
+                        Some(id) => Some(id),
+                        None => {
+                            tx.execute(
+                                "INSERT INTO aircraft (icao_type, title, registration) VALUES (?1, ?1, ?2)
+                                 ON CONFLICT(title, registration) DO NOTHING",
+                                params![ty, reg],
+                            )?;
+                            tx.query_row(
+                                "SELECT id FROM aircraft WHERE title = ?1 AND registration = ?2",
+                                params![ty, reg],
+                                |r| r.get(0),
+                            )
+                            .optional()?
+                        }
+                    }
+                }
+            }
+        };
+        let opt = |s: &str| (!s.trim().is_empty()).then(|| s.trim().to_string());
+        let (dla, dlo) = m.dep_at.map(|[a, b]| (Some(a), Some(b))).unwrap_or((None, None));
+        let (ala, alo) = m.arr_at.map(|[a, b]| (Some(a), Some(b))).unwrap_or((None, None));
+        let distance = match (m.dep_at, m.arr_at) {
+            (Some([a, b]), Some([c, d])) => telemetry::geo::distance_nm(a, b, c, d),
+            _ => 0.0,
+        };
+        let now = crate::now_ms();
+        tx.execute(
+            "INSERT INTO flight (sim, aircraft_id, callsign, dep_icao, dep_name, dep_country, dep_region,
+                arr_icao, arr_name, arr_country, arr_region, start_ms, end_ms, block_out, block_in,
+                distance_nm, status, end_reason, created_at, updated_at, dep_lat, dep_lon, arr_lat, arr_lon, source)
+             VALUES ('manual', ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15,
+                     'complete', 'entered by hand', ?16, ?16, ?17, ?18, ?19, ?20, 'manual')",
+            params![
+                aircraft_id,
+                m.callsign.trim().to_uppercase(),
+                opt(&m.dep.icao),
+                opt(&m.dep.name),
+                opt(&m.dep.country),
+                opt(&m.dep.region),
+                opt(&m.arr.icao),
+                opt(&m.arr.name),
+                opt(&m.arr.country),
+                opt(&m.arr.region),
+                start,
+                end,
+                out,
+                inn,
+                distance,
+                now,
+                dla,
+                dlo,
+                ala,
+                alo,
+            ],
+        )?;
+        let id = tx.last_insert_rowid();
+        let xc = if distance > 50.0 { total } else { 0 };
+        tx.execute(
+            "INSERT INTO log_entry (flight_id, total_min, night_min, ifr_min, xc_min, pic_min, day_landings, night_landings, remarks)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?2, ?6, ?7, ?8)",
+            params![
+                id,
+                total,
+                m.night_min.clamp(0, total),
+                m.ifr_min.clamp(0, total),
+                xc,
+                m.day_landings.max(0),
+                m.night_landings.max(0),
+                m.remarks.trim()
+            ],
+        )?;
+        tx.commit()?;
+        Ok(id)
     }
 
     pub fn aircraft_photo(&self, id: i64) -> Result<Option<String>> {
@@ -507,7 +746,7 @@ impl Store {
     /// Remove every flight from one sim (used to clear sample flights).
     pub fn delete_flights_from_sim(&mut self, sim: &str) -> Result<usize> {
         let n = self.conn.execute("DELETE FROM flight WHERE sim = ?1", params![sim])?;
-        self.conn.execute("DELETE FROM aircraft WHERE id NOT IN (SELECT DISTINCT aircraft_id FROM flight WHERE aircraft_id IS NOT NULL)", [])?;
+        self.conn.execute(crate::DELETE_ORPHAN_AIRCRAFT, [])?;
         Ok(n)
     }
 }
