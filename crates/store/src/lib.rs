@@ -17,7 +17,8 @@ use tracker::{FlightStatus, FlightSummary, LandingReport};
 const SCHEMA_V1: &str = include_str!("schema.sql");
 const MIGRATE_V2: &str = include_str!("migrate_v2.sql");
 const MIGRATE_V3: &str = include_str!("migrate_v3.sql");
-const SCHEMA_VERSION: i64 = 3;
+const MIGRATE_V4: &str = include_str!("migrate_v4.sql");
+const SCHEMA_VERSION: i64 = 4;
 /// Tolerance for track simplification.
 const SIMPLIFY_M: f64 = 15.0;
 
@@ -56,6 +57,16 @@ pub struct SaveContext {
     pub flight_no: String,
     /// The flight plan as JSON, if one was loaded.
     pub plan: Option<String>,
+    /// Imported flights: the tracker it came from (e.g. "volanta"), its id
+    /// there, and the original file.
+    pub source: Option<Imported>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct Imported {
+    pub source: String,
+    pub id: String,
+    pub file: String,
 }
 
 /// One row of the flight list, ready for the UI.
@@ -152,6 +163,9 @@ impl Store {
         if version < 3 {
             conn.execute_batch(&format!("BEGIN; {MIGRATE_V3} PRAGMA user_version = 3; COMMIT;"))?;
         }
+        if version < 4 {
+            conn.execute_batch(&format!("BEGIN; {MIGRATE_V4} PRAGMA user_version = 4; COMMIT;"))?;
+        }
         Ok(Store { conn })
     }
 
@@ -186,6 +200,45 @@ impl Store {
             })
             .optional()?
             .flatten())
+    }
+
+    /// The FlightDeck id of a flight imported from `source` with id `source_id`.
+    pub fn find_imported(&self, source: &str, source_id: &str) -> Result<Option<i64>> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT id FROM flight WHERE source = ?1 AND source_id = ?2",
+                params![source, source_id],
+                |r| r.get(0),
+            )
+            .optional()?)
+    }
+
+    /// Where an imported flight came from, and its original file.
+    pub fn get_imported(&self, id: i64) -> Result<Option<Imported>> {
+        let row = self
+            .conn
+            .query_row("SELECT source, source_id, source_file FROM flight WHERE id = ?1", params![id], |r| {
+                Ok((r.get::<_, Option<String>>(0)?, r.get::<_, Option<String>>(1)?, r.get::<_, Option<Vec<u8>>>(2)?))
+            })
+            .optional()?;
+        let Some((Some(source), Some(sid), Some(blob))) = row else { return Ok(None) };
+        let file = String::from_utf8_lossy(&zstd::bulk::decompress(&blob, 256 * 1024 * 1024)?).into_owned();
+        Ok(Some(Imported { source, id: sid, file }))
+    }
+
+    /// Every flight id, oldest first.
+    pub fn all_flight_ids(&self) -> Result<Vec<i64>> {
+        let mut st = self.conn.prepare("SELECT id FROM flight ORDER BY start_ms")?;
+        let rows = st.query_map([], |r| r.get(0))?;
+        Ok(rows.collect::<std::result::Result<_, _>>()?)
+    }
+
+    /// The events saved with a flight (kind and JSON data), in time order.
+    pub fn get_events(&self, id: i64) -> Result<Vec<(i64, String, String)>> {
+        let mut st = self.conn.prepare("SELECT t, kind, data FROM flight_event WHERE flight_id = ?1 ORDER BY t")?;
+        let rows = st.query_map(params![id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
+        Ok(rows.collect::<std::result::Result<_, _>>()?)
     }
 
     pub fn get_flight(&self, id: i64) -> Result<Option<FlightRow>> {
@@ -369,6 +422,13 @@ impl StoreTx<'_> {
         }
         for l in &f.landings {
             ev.execute(params![id, l.t_ms, "landing_report", serde_json::to_string(l)?])?;
+        }
+        if let Some(src) = &ctx.source {
+            let packed = zstd::bulk::compress(src.file.as_bytes(), 9)?;
+            self.conn.execute(
+                "UPDATE flight SET source = ?1, source_id = ?2, source_file = ?3 WHERE id = ?4",
+                params![src.source, src.id, packed, id],
+            )?;
         }
         if let Some(plan) = &ctx.plan {
             // Plans carry the whole briefing (OFP text, NOTAMs), which

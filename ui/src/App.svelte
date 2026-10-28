@@ -80,6 +80,12 @@
       }),
     );
     offs.push(
+      on<number>("flights-changed", () => {
+        refreshKey++;
+        loadRoutes();
+      }),
+    );
+    offs.push(
       on<{ id: number; dep: string | null; arr: string | null }>("flight-saved", (f) => {
         refreshKey++;
         liveTrack = [];

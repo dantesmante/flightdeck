@@ -34,6 +34,7 @@
 
   async function open(id: number) {
     confirmDelete = false;
+    exported = null;
     selected = await api.flight(id);
     onselect(selected ? fromTrack(selected.track) : null, selected?.flight.id ?? null, selected?.plan ?? null);
   }
@@ -45,6 +46,16 @@
   function close() {
     selected = null;
     onselect(null, null);
+  }
+
+  let exported = $state<string | null>(null);
+  async function exportOne() {
+    if (!selected) return;
+    try {
+      exported = `Saved to ${await api.exportFlightVolanta(selected.flight.id)}`;
+    } catch (e) {
+      exported = String(e);
+    }
   }
 
   async function remove() {
@@ -83,6 +94,10 @@
     {#each selected.landings.filter((l) => !l.touch_and_go) as l (l.t_ms)}
       <LandingCard landing={l} />
     {/each}
+    <div class="export">
+      <button class="ghost" onclick={exportOne}>Export as Volanta file</button>
+      {#if exported}<p class="saved">{exported}</p>{/if}
+    </div>
     <div class="danger-zone">
       {#if confirmDelete}
         <p>Delete this flight and its track? This cannot be undone.</p>
@@ -281,5 +296,17 @@
     border: none;
     background: var(--bad);
     color: #fff;
+  }
+  .export {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    align-items: flex-start;
+  }
+  .saved {
+    margin: 0;
+    font-size: 12.5px;
+    color: var(--ink-dim);
+    word-break: break-all;
   }
 </style>

@@ -79,6 +79,55 @@
       sbBusy = false;
     }
   }
+
+  // Volanta: import its flight files, export ours in the same format.
+  let vBusy = $state(false);
+  let vMsg = $state<string | null>(null);
+  let vErr = $state<string | null>(null);
+  let vFailed = $state<[string, string][]>([]);
+  async function importFiles(e: Event) {
+    const input = e.currentTarget as HTMLInputElement;
+    const list = [...(input.files ?? [])];
+    input.value = "";
+    if (!list.length) return;
+    vBusy = true;
+    vMsg = vErr = null;
+    vFailed = [];
+    let imported = 0;
+    let dupes = 0;
+    try {
+      // A few files at a time, so hundreds of flights do not arrive at once.
+      for (let i = 0; i < list.length; i += 20) {
+        const batch = await Promise.all(list.slice(i, i + 20).map(async (f) => ({ name: f.name, text: await f.text() })));
+        const r = await api.importVolanta(batch);
+        imported += r.imported.length;
+        dupes += r.duplicates.length;
+        vFailed = [...vFailed, ...r.failed];
+        vMsg = `Importing… ${Math.min(i + 20, list.length)} of ${list.length}`;
+      }
+      vMsg =
+        `Imported ${imported} ${imported === 1 ? "flight" : "flights"}.` +
+        (dupes ? ` ${dupes} already in FlightDeck, skipped.` : "") +
+        (vFailed.length ? ` ${vFailed.length} could not be read.` : "");
+    } catch (e) {
+      vErr = String(e);
+    } finally {
+      vBusy = false;
+    }
+  }
+  async function exportAll() {
+    vBusy = true;
+    vMsg = vErr = null;
+    vFailed = [];
+    try {
+      const r = await api.exportAllVolanta();
+      vMsg = `Saved ${r.count} ${r.count === 1 ? "flight" : "flights"} to ${r.folder}`;
+    } catch (e) {
+      vErr = String(e);
+    } finally {
+      vBusy = false;
+    }
+  }
 </script>
 
 <section class="settings"><div class="inner">
@@ -133,6 +182,29 @@
       </p>
     {:else if sbError}
       <p class="err" role="alert">{sbError}</p>
+    {/if}
+  </div>
+
+  <div class="group">
+    <h3>Volanta</h3>
+    <p class="help">
+      Bring your Volanta history across: select Volanta flight files (.json), one or many at once. Each becomes a
+      FlightDeck flight on the map, in the logbook, passport and hangar, and the original file is kept so it can be
+      exported again unchanged. Export saves every flight as a Volanta-format file in your Downloads folder.
+    </p>
+    <div class="row">
+      <label class="primary file" class:disabled={vBusy}>
+        Import Volanta flights
+        <input type="file" accept=".json,application/json" multiple onchange={importFiles} disabled={vBusy} />
+      </label>
+      <button class="ghost" onclick={exportAll} disabled={vBusy}>Export all as Volanta files</button>
+    </div>
+    {#if vMsg}<p class="ok" role="status">{vMsg}</p>{/if}
+    {#if vErr}<p class="err" role="alert">{vErr}</p>{/if}
+    {#if vFailed.length}
+      <ul class="failed">
+        {#each vFailed as [name, why] (name)}<li><strong>{name}</strong>: {why}</li>{/each}
+      </ul>
     {/if}
   </div>
 
@@ -344,5 +416,29 @@
     padding: 0;
     font-size: 13px;
     text-decoration: underline;
+  }
+  label.primary.file {
+    flex-direction: row;
+    align-items: center;
+    font-size: 15px;
+    color: #1b1406;
+    background: var(--amber);
+    border-radius: 6px;
+    padding: 8px 14px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  label.primary.file.disabled {
+    opacity: 0.6;
+    pointer-events: none;
+  }
+  label.file input {
+    display: none;
+  }
+  .failed {
+    margin: 0;
+    padding-left: 18px;
+    color: var(--ink-dim);
+    font-size: 13px;
   }
 </style>

@@ -3,6 +3,7 @@
 mod engine;
 mod samples;
 mod simbrief;
+mod volanta;
 mod update;
 
 use std::sync::mpsc::{channel, Sender};
@@ -14,7 +15,7 @@ use std::collections::HashMap;
 use store::book::{FlightPatch, HangarRow, LogPatch, LogRow, Pilot, RouteRow};
 use store::passport::{self, CountryVisit, Stamp};
 use store::{FlightRow, Store, Totals};
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 use telemetry::TrackPoint;
 use tracker::LandingReport;
 
@@ -99,6 +100,128 @@ async fn simbrief_latest(state: tauri::State<'_, AppState>) -> CmdResult<simbrie
 #[tauri::command]
 fn start_flight(state: tauri::State<AppState>, plan: Option<simbrief::FlightPlan>) -> CmdResult<()> {
     send(&state, Command::StartFlight { plan })
+}
+
+#[derive(serde::Deserialize)]
+struct ImportFile {
+    name: String,
+    text: String,
+}
+
+#[derive(serde::Serialize, Default)]
+struct ImportReport {
+    imported: Vec<String>,
+    duplicates: Vec<String>,
+    failed: Vec<(String, String)>,
+}
+
+/// Import Volanta flight files. Each becomes a FlightDeck flight; the
+/// original file is kept so it can be exported again unchanged. Files
+/// already imported are skipped.
+#[tauri::command]
+fn import_volanta(app: tauri::AppHandle, state: tauri::State<AppState>, files: Vec<ImportFile>) -> ImportReport {
+    let mut report = ImportReport::default();
+    for file in files {
+        let parsed = match volanta::parse(&file.text, &state.refdata) {
+            Ok(p) => p,
+            Err(e) => {
+                report.failed.push((file.name, e));
+                continue;
+            }
+        };
+        let mut db = state.db.lock().unwrap();
+        if matches!(db.find_imported(volanta::SOURCE, &parsed.id), Ok(Some(_))) {
+            report.duplicates.push(file.name);
+            continue;
+        }
+        match db.save_flight(&parsed.summary, &parsed.ctx) {
+            Ok(id) => {
+                if let Some(note) = parsed.note {
+                    let patch = store::book::LogPatch { remarks: Some(note), ..Default::default() };
+                    let _ = db.update_log_entry(id, &patch);
+                }
+                let route = format!(
+                    "{} to {}",
+                    parsed.ctx.dep.as_ref().map(|p| p.icao.as_str()).unwrap_or("?"),
+                    parsed.ctx.arr.as_ref().map(|p| p.icao.as_str()).unwrap_or("?")
+                );
+                report.imported.push(route);
+            }
+            Err(e) => report.failed.push((file.name, e.to_string())),
+        }
+    }
+    if !report.imported.is_empty() {
+        let _ = app.emit("flights-changed", report.imported.len());
+    }
+    report
+}
+
+/// One flight as a Volanta file: the original file for flights imported
+/// from Volanta, otherwise built from FlightDeck's record.
+fn volanta_json(state: &AppState, id: i64) -> CmdResult<(String, String)> {
+    let db = state.db.lock().unwrap();
+    if let Some(imp) = db.get_imported(id).map_err(err)?.filter(|i| i.source == volanta::SOURCE) {
+        let name = format!("{}.json", imp.id);
+        return Ok((name, imp.file));
+    }
+    let row = db.get_flight(id).map_err(err)?.ok_or("That flight no longer exists.")?;
+    let track = db.get_track(id).map_err(err)?;
+    let landings = db.get_landings(id).map_err(err)?;
+    let events = db.get_events(id).map_err(err)?;
+    let plan: Option<simbrief::FlightPlan> = db.get_plan(id).map_err(err)?.and_then(|j| serde_json::from_str(&j).ok());
+    let v = volanta::export(
+        &state.refdata,
+        &volanta::ExportInput { row: &row, track: &track, landings: &landings, events: &events, plan: plan.as_ref(), note: None },
+    );
+    Ok((volanta::file_name(&v), serde_json::to_string_pretty(&v).map_err(err)?))
+}
+
+fn export_dir(app: &tauri::AppHandle, sub: Option<String>) -> CmdResult<std::path::PathBuf> {
+    // Downloads, else Documents, else the home folder.
+    let p = app.path();
+    let base = p
+        .download_dir()
+        .or_else(|_| p.document_dir())
+        .or_else(|_| p.home_dir())
+        .map_err(|e| format!("Could not find a folder to save to: {e}"))?;
+    let mut dir = base.join("FlightDeck export");
+    if let Some(s) = sub {
+        dir = dir.join(s);
+    }
+    std::fs::create_dir_all(&dir).map_err(|e| format!("Could not create {}: {e}", dir.display()))?;
+    Ok(dir)
+}
+
+/// Save one flight as a Volanta file in Downloads\FlightDeck export.
+#[tauri::command]
+fn export_flight_volanta(app: tauri::AppHandle, state: tauri::State<AppState>, id: i64) -> CmdResult<String> {
+    let (name, text) = volanta_json(&state, id)?;
+    let path = export_dir(&app, None)?.join(name);
+    std::fs::write(&path, text).map_err(|e| format!("Could not save {}: {e}", path.display()))?;
+    Ok(path.display().to_string())
+}
+
+#[derive(serde::Serialize)]
+struct ExportAll {
+    folder: String,
+    count: usize,
+}
+
+/// Save every flight as a Volanta file, in a new dated folder.
+#[tauri::command]
+fn export_all_volanta(app: tauri::AppHandle, state: tauri::State<AppState>) -> CmdResult<ExportAll> {
+    let ids = state.db.lock().unwrap().all_flight_ids().map_err(err)?;
+    let stamp = volanta::format_time(
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0),
+        false,
+    );
+    let sub = format!("All flights {} {}{}", &stamp[0..10], &stamp[11..13], &stamp[14..16]);
+    let dir = export_dir(&app, Some(sub))?;
+    for id in &ids {
+        let (name, text) = volanta_json(&state, *id)?;
+        std::fs::write(dir.join(name), text).map_err(err)?;
+    }
+    Ok(ExportAll { folder: dir.display().to_string(), count: ids.len() })
 }
 
 /// The full briefing (OFP) of the current flight plan.
@@ -391,6 +514,9 @@ pub fn run() {
             start_flight,
             set_plan,
             current_briefing,
+            import_volanta,
+            export_flight_volanta,
+            export_all_volanta,
             demo_routes,
             get_settings,
             set_setting,

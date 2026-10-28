@@ -23,6 +23,24 @@ fn place(icao: &str, country: &str) -> Option<Place> {
 }
 
 #[test]
+fn imported_flights_keep_their_file() {
+    let mut db = Store::open_in_memory().unwrap();
+    let file = r#"{"id":"8a87d291","positions":[]}"#.to_string();
+    let ctx = SaveContext {
+        source: Some(Imported { source: "volanta".into(), id: "8a87d291".into(), file: file.clone() }),
+        ..Default::default()
+    };
+    let id = db.save_flight(&fly(1), &ctx).unwrap();
+    assert_eq!(db.find_imported("volanta", "8a87d291").unwrap(), Some(id));
+    assert_eq!(db.find_imported("volanta", "other").unwrap(), None);
+    let back = db.get_imported(id).unwrap().unwrap();
+    assert_eq!(back.file, file);
+    let own = db.save_flight(&fly(2), &SaveContext::default()).unwrap();
+    assert!(db.get_imported(own).unwrap().is_none());
+    assert_eq!(db.all_flight_ids().unwrap().len(), 2);
+}
+
+#[test]
 fn flight_plan_is_kept_with_the_flight() {
     let mut db = Store::open_in_memory().unwrap();
     let ctx = SaveContext { plan: Some(r#"{"callsign":"AUA11"}"#.into()), callsign: "AUA11".into(), ..Default::default() };

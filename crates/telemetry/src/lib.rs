@@ -20,6 +20,8 @@ pub enum SimKind {
     Xp12,
     /// Built-in simulated flight, for development and demos without a sim.
     Demo,
+    /// Imported from another tracker that did not say which simulator.
+    Other,
 }
 
 impl SimKind {
@@ -30,6 +32,7 @@ impl SimKind {
             SimKind::Xp11 => "xp11",
             SimKind::Xp12 => "xp12",
             SimKind::Demo => "demo",
+            SimKind::Other => "other",
         }
     }
 
@@ -40,6 +43,7 @@ impl SimKind {
             SimKind::Xp11 => "X-Plane 11",
             SimKind::Xp12 => "X-Plane 12",
             SimKind::Demo => "Demo",
+            SimKind::Other => "Other simulator",
         }
     }
 
@@ -50,6 +54,7 @@ impl SimKind {
             "xp11" => SimKind::Xp11,
             "xp12" => SimKind::Xp12,
             "demo" => SimKind::Demo,
+            "other" => SimKind::Other,
             _ => return None,
         })
     }

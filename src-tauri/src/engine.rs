@@ -115,6 +115,7 @@ pub fn save(
         callsign: plan.map(|p| p.callsign.clone()).unwrap_or_default(),
         flight_no: plan.map(|p| format!("{}{}", p.airline, p.flight_number)).unwrap_or_default(),
         plan: plan.and_then(|p| serde_json::to_string(p).ok()),
+        source: None,
     };
     match db.lock().unwrap().save_flight(f, &ctx) {
         Ok(id) => Some((id, ctx)),

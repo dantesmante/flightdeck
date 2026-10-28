@@ -387,6 +387,10 @@ export const api = {
   startFlight: (plan: FlightPlan | null) => call<void>("start_flight", { plan }),
   setPlan: (plan: FlightPlan | null) => call<void>("set_plan", { plan }),
   currentBriefing: () => call<Ofp | null>("current_briefing"),
+  importVolanta: (files: { name: string; text: string }[]) =>
+    call<{ imported: string[]; duplicates: string[]; failed: [string, string][] }>("import_volanta", { files }),
+  exportFlightVolanta: (id: number) => call<string>("export_flight_volanta", { id }),
+  exportAllVolanta: () => call<{ folder: string; count: number }>("export_all_volanta"),
   demoRoutes: () => call<string[]>("demo_routes"),
   settings: () => call<Settings>("get_settings"),
   setSetting: (key: string, value: string) => call<void>("set_setting", { key, value }),

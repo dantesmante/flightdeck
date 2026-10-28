@@ -46,6 +46,13 @@ MIT licensed.
 - **Altitude & speed graph** for the live flight, every saved flight and
   each logbook entry: altitude as a filled profile in the same colours,
   ground speed as a yellow line. Hover for exact values at any moment.
+- **Volanta import and export**: Settings, Volanta. Import any number of
+  Volanta flight files (.json); each becomes a FlightDeck flight (map,
+  logbook, passport, hangar) with Volanta's block times, distance, fuel
+  and landing record, and the original file is kept so exporting it gives
+  back the identical file. Re-importing is skipped. Export one flight
+  (from its details) or all flights as Volanta-format files into
+  Downloads\FlightDeck export.
 - **Map layers** panel: 3D flight, a live day/night line, stronger
   borders, past routes, airports, and live **rain radar** (RainViewer,
   refreshed every 10 minutes). Your choices are remembered.
