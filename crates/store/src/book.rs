@@ -104,6 +104,9 @@ pub struct HangarRow {
     pub first_flight_ms: i64,
     pub last_flight_ms: i64,
     pub best_landing_fpm: Option<f64>,
+    /// Average landing rate over the flights that recorded one.
+    pub avg_landing_fpm: Option<f64>,
+    pub favourite: bool,
     pub last_icao: Option<String>,
     pub last_name: Option<String>,
     pub last_country: Option<String>,
@@ -392,18 +395,24 @@ impl Store {
     }
 
     /// Every aircraft flown, most recently flown first.
+    /// Mark an aircraft as a favourite (shown first in the hangar).
+    pub fn set_aircraft_favourite(&self, id: i64, favourite: bool) -> Result<bool> {
+        Ok(self.conn.execute("UPDATE aircraft SET favourite = ?2 WHERE id = ?1", params![id, favourite as i64])? > 0)
+    }
+
     pub fn hangar(&self) -> Result<Vec<HangarRow>> {
         let mut st = self.conn.prepare(
             "SELECT a.id, a.title, a.icao_type, a.registration, a.engine_type, a.engine_count, a.category_class,
                     a.photo IS NOT NULL,
                     COUNT(f.id), COALESCE(SUM(l.total_min), 0), COALESCE(SUM(f.distance_nm), 0),
                     COALESCE(SUM(l.day_landings + l.night_landings), 0),
-                    MIN(f.start_ms), MAX(f.start_ms), MAX(f.landing_rate_fpm)
+                    MIN(f.start_ms), MAX(f.start_ms), MAX(f.landing_rate_fpm),
+                    AVG(f.landing_rate_fpm), a.favourite
              FROM aircraft a
              JOIN flight f ON f.aircraft_id = a.id
              LEFT JOIN log_entry l ON l.flight_id = f.id
              GROUP BY a.id
-             ORDER BY MAX(f.start_ms) DESC",
+             ORDER BY a.favourite DESC, MAX(f.start_ms) DESC",
         )?;
         let mut rows: Vec<HangarRow> = st
             .query_map([], |r| {
@@ -423,6 +432,8 @@ impl Store {
                     first_flight_ms: r.get(12)?,
                     last_flight_ms: r.get(13)?,
                     best_landing_fpm: r.get(14)?,
+                    avg_landing_fpm: r.get(15)?,
+                    favourite: r.get::<_, i64>(16)? != 0,
                     last_icao: None,
                     last_name: None,
                     last_country: None,

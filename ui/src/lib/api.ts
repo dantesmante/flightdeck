@@ -345,6 +345,8 @@ export interface HangarItem {
   first_flight_ms: number;
   last_flight_ms: number;
   best_landing_fpm: number | null;
+  avg_landing_fpm: number | null;
+  favourite: boolean;
   last_icao: string | null;
   last_name: string | null;
   last_country: string | null;
@@ -406,6 +408,8 @@ export const api = {
   routes: () => call<Route[]>("get_routes"),
   aircraftPhoto: (id: number) => call<string | null>("get_aircraft_photo", { id }),
   setAircraftPhoto: (id: number, dataUrl: string | null) => call<boolean>("set_aircraft_photo", { id, dataUrl }),
+  setAircraftFavourite: (id: number, favourite: boolean) => call<boolean>("set_aircraft_favourite", { id, favourite }),
+  aircraftFlights: (id: number) => call<FlightRow[]>("aircraft_flights", { id }),
   checkUpdate: () => call<UpdateInfo>("check_update"),
   installUpdate: (url: string) => call<void>("install_update", { url }),
   version: () => call<string>("app_version"),

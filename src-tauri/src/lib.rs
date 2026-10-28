@@ -546,6 +546,17 @@ fn get_routes(state: tauri::State<AppState>) -> CmdResult<Vec<Route>> {
 }
 
 #[tauri::command]
+fn set_aircraft_favourite(state: tauri::State<AppState>, id: i64, favourite: bool) -> CmdResult<bool> {
+    state.db.lock().unwrap().set_aircraft_favourite(id, favourite).map_err(err)
+}
+
+/// Every flight flown in one aircraft, newest first.
+#[tauri::command]
+fn aircraft_flights(state: tauri::State<AppState>, id: i64) -> CmdResult<Vec<FlightRow>> {
+    state.db.lock().unwrap().flights_of_aircraft(id).map_err(err)
+}
+
+#[tauri::command]
 fn get_aircraft_photo(state: tauri::State<AppState>, id: i64) -> CmdResult<Option<String>> {
     state.db.lock().unwrap().aircraft_photo(id).map_err(err)
 }
@@ -640,6 +651,8 @@ pub fn run() {
             export_flight_volanta,
             export_all_volanta,
             get_diagnostics,
+            set_aircraft_favourite,
+            aircraft_flights,
             save_diagnostics,
             demo_routes,
             get_settings,

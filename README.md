@@ -86,9 +86,11 @@ MIT licensed.
   line to see the flight on a mini map, edit any field (date, times,
   airports, aircraft, hours, remarks) or delete it everywhere. Arrows beside
   the book turn the pages.
-- **Hangar**: every aircraft you have flown as a large picture you scroll
-  sideways, with hours, distance, flights, best landing and where you last
-  parked it. Each gets a drawn illustration; you can use your own photo.
+- **Hangar**: a card for every aircraft you have flown: registration, a
+  blueprint drawing of its type (or your own photo: hover the picture and
+  upload one), where it is parked, flights, hours and average landing
+  rate, and a star for favourites. Click a card to open the aircraft with
+  its statistics and every flight, searchable, drawn on a map.
 - **Settings**: pilot details and photo, nautical miles, statute miles or
   kilometres, logbook layout, and **sample flights** to
   fill the passport, logbook and hangar for a quick look.

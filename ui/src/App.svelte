@@ -195,7 +195,7 @@
       {:else if view === "passport"}
         {#key refreshKey}<PassportView onsettings={() => go("settings")} />{/key}
       {:else if view === "hangar"}
-        {#key refreshKey}<HangarView onsettings={() => go("settings")} />{/key}
+        {#key refreshKey}<HangarView onsettings={() => go("settings")} onflight={showFlight} />{/key}
       {:else}
         <SettingsView />
       {/if}

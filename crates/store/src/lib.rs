@@ -18,7 +18,8 @@ const SCHEMA_V1: &str = include_str!("schema.sql");
 const MIGRATE_V2: &str = include_str!("migrate_v2.sql");
 const MIGRATE_V3: &str = include_str!("migrate_v3.sql");
 const MIGRATE_V4: &str = include_str!("migrate_v4.sql");
-const SCHEMA_VERSION: i64 = 4;
+const MIGRATE_V5: &str = include_str!("migrate_v5.sql");
+const SCHEMA_VERSION: i64 = 5;
 /// Tolerance for track simplification.
 const SIMPLIFY_M: f64 = 15.0;
 
@@ -166,6 +167,9 @@ impl Store {
         if version < 4 {
             conn.execute_batch(&format!("BEGIN; {MIGRATE_V4} PRAGMA user_version = 4; COMMIT;"))?;
         }
+        if version < 5 {
+            conn.execute_batch(&format!("BEGIN; {MIGRATE_V5} PRAGMA user_version = 5; COMMIT;"))?;
+        }
         Ok(Store { conn })
     }
 
@@ -240,6 +244,13 @@ impl Store {
                 |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get::<_, i64>(4)? != 0, r.get(5)?, r.get(6)?)),
             )
             .optional()?)
+    }
+
+    /// Every flight flown in one aircraft, newest first.
+    pub fn flights_of_aircraft(&self, aircraft_id: i64) -> Result<Vec<FlightRow>> {
+        let mut st = self.conn.prepare(&format!("{FLIGHT_ROW_SQL} WHERE f.aircraft_id = ?1 ORDER BY f.start_ms DESC"))?;
+        let rows = st.query_map(params![aircraft_id], flight_row)?;
+        Ok(rows.collect::<std::result::Result<_, _>>()?)
     }
 
     /// The most recent flight ids, newest first.
