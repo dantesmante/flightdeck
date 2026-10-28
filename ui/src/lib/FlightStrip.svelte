@@ -15,15 +15,10 @@
   }
   let { aircraft, dep, telemetry, simLabel, active, plan = null }: Props = $props();
   const type = $derived(aircraft?.icao_type || plan?.aircraft_icao || "");
+  /** The aircraft's own registration (what the hangar groups by); the
+   * plan's only when the sim does not report one. */
+  const reg = $derived(aircraft?.registration || plan?.registration || "");
 
-  const level = $derived.by(() => {
-    if (!telemetry) return "";
-    const ft = telemetry.alt_msl_ft;
-    return ft >= 18000 ? `FL${String(Math.round(ft / 100)).padStart(3, "0")}` : String(Math.round(ft / 100) * 100);
-  });
-  const trend = $derived(
-    !telemetry || Math.abs(telemetry.vs_fpm) < 200 ? "" : telemetry.vs_fpm > 0 ? "climbing" : "descending",
-  );
   const engines = $derived(
     aircraft && aircraft.engine_count > 0
       ? `${aircraft.engine_count} ${aircraft.engine_type === "unknown" ? "engine" : aircraft.engine_type}${aircraft.engine_count > 1 ? "s" : ""}`
@@ -35,9 +30,7 @@
   <div class="strip" aria-label="Flight strip">
     <div class="box ident">
       <span class="big">{plan?.callsign || aircraft?.registration || type || "—"}</span>
-      <span class="small" title={aircraft?.title}>
-        {plan?.callsign && aircraft?.registration ? `${aircraft.registration}, ` : ""}{aircraft?.title || "Aircraft not reported yet"}
-      </span>
+      <span class="small" title={aircraft?.title}>{aircraft?.title || "Aircraft not reported yet"}</span>
     </div>
     <div class="box type">
       <span class="big">{type}</span>
@@ -52,8 +45,8 @@
       <span class="small" title={plan?.destination.name}>{plan?.destination.name || "Destination"}</span>
     </div>
     <div class="box level">
-      <span class="big">{level}</span>
-      <span class="small">{trend || simLabel || ""}</span>
+      <span class="big">{reg}</span>
+      <span class="small">Registration</span>
     </div>
   </div>
 </div>

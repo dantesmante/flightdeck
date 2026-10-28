@@ -30,6 +30,12 @@ fn flight_plan_is_kept_with_the_flight() {
     assert_eq!(db.get_plan(id).unwrap().as_deref(), Some(r#"{"callsign":"AUA11"}"#));
     let plain = db.save_flight(&fly(2), &SaveContext::default()).unwrap();
     assert_eq!(db.get_plan(plain).unwrap(), None);
+    // A big briefing is stored compressed and comes back intact.
+    let big = format!(r#"{{"ofp":"{}"}}"#, "LFMN 272330Z 33010KT CAVOK 15/08 Q1020 NOSIG ".repeat(4000));
+    let id = db.save_flight(&fly(3), &SaveContext { plan: Some(big.clone()), ..Default::default() }).unwrap();
+    assert_eq!(db.get_plan(id).unwrap().as_deref(), Some(big.as_str()));
+    let stored: i64 = db.conn.query_row("SELECT length(plan) FROM flight WHERE id = ?1", [id], |r| r.get(0)).unwrap();
+    assert!(stored * 5 < big.len() as i64, "{stored} of {}", big.len());
 }
 
 #[test]

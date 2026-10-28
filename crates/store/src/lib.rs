@@ -29,6 +29,8 @@ pub enum StoreError {
     Codec(#[from] codec::CodecError),
     #[error("json: {0}")]
     Json(#[from] serde_json::Error),
+    #[error("compression: {0}")]
+    Io(#[from] std::io::Error),
     #[error("database was written by a newer FlightDeck (schema {0})")]
     TooNew(i64),
 }
@@ -171,7 +173,17 @@ impl Store {
     pub fn get_plan(&self, id: i64) -> Result<Option<String>> {
         Ok(self
             .conn
-            .query_row("SELECT plan FROM flight WHERE id = ?1", params![id], |r| r.get::<_, Option<String>>(0))
+            .query_row("SELECT plan FROM flight WHERE id = ?1", params![id], |r| {
+                // Plain JSON text (flights saved before compression) or a
+                // zstd blob.
+                Ok(match r.get_ref(0)? {
+                    rusqlite::types::ValueRef::Text(t) => Some(String::from_utf8_lossy(t).into_owned()),
+                    rusqlite::types::ValueRef::Blob(b) => {
+                        zstd::bulk::decompress(b, 64 * 1024 * 1024).ok().map(|v| String::from_utf8_lossy(&v).into_owned())
+                    }
+                    _ => None,
+                })
+            })
             .optional()?
             .flatten())
     }
@@ -359,7 +371,10 @@ impl StoreTx<'_> {
             ev.execute(params![id, l.t_ms, "landing_report", serde_json::to_string(l)?])?;
         }
         if let Some(plan) = &ctx.plan {
-            self.conn.execute("UPDATE flight SET plan = ?1 WHERE id = ?2", params![plan, id])?;
+            // Plans carry the whole briefing (OFP text, NOTAMs), which
+            // shrinks several times with zstd. Stored as a blob.
+            let packed = zstd::bulk::compress(plan.as_bytes(), 9)?;
+            self.conn.execute("UPDATE flight SET plan = ?1 WHERE id = ?2", params![packed, id])?;
         }
         Ok(id)
     }
