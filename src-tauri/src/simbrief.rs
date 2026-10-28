@@ -30,6 +30,55 @@ pub struct PlanFix {
     pub procedure: bool,
 }
 
+/// One NOTAM.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub struct Notam {
+    pub id: String,
+    pub location: String,
+    pub text: String,
+}
+
+/// One row of the flight log (navlog).
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub struct LogRow {
+    pub ident: String,
+    pub airway: String,
+    pub stage: String,
+    pub alt_ft: f64,
+    pub track_mag: f64,
+    pub dist_leg: f64,
+    /// Seconds since departure.
+    pub time_total: f64,
+    pub fuel_onboard: f64,
+    pub wind_dir: f64,
+    pub wind_kt: f64,
+    pub oat: f64,
+    pub tas: f64,
+    pub gs: f64,
+    pub mach: String,
+    /// Winds aloft at this fix: (altitude ft, direction, speed kt, OAT).
+    pub winds: Vec<[f64; 4]>,
+}
+
+/// The briefing: the OFP itself and the sections pilots jump to.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub struct Ofp {
+    /// SimBrief's formatted OFP (HTML around preformatted text).
+    pub html: String,
+    /// "kgs" or "lbs": the unit of every weight and fuel figure below.
+    pub units: String,
+    /// The ICAO ATC flight plan, "(FPL-...)".
+    pub fpl: String,
+    /// Raw sections as SimBrief sends them, shown as labelled tables.
+    pub times: serde_json::Map<String, Value>,
+    pub weights: serde_json::Map<String, Value>,
+    pub fuel: serde_json::Map<String, Value>,
+    /// (label, METAR or TAF text)
+    pub weather: Vec<(String, String)>,
+    pub notams: Vec<Notam>,
+    pub log: Vec<LogRow>,
+}
+
 /// A flight plan, from SimBrief or (later) other sources.
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct FlightPlan {
@@ -56,6 +105,9 @@ pub struct FlightPlan {
     pub sched_out_ms: Option<i64>,
     pub sched_in_ms: Option<i64>,
     pub fixes: Vec<PlanFix>,
+    /// The full briefing, when the source has one.
+    #[serde(default)]
+    pub ofp: Option<Ofp>,
 }
 
 /// A text field. SimBrief writes empty fields as `{}`, so anything that is
@@ -90,6 +142,123 @@ fn airport(v: &Value, key: &str) -> PlanAirport {
         lat: n(v, &[key, "pos_lat"]),
         lon: n(v, &[key, "pos_long"]),
         runway: s(v, &[key, "plan_rwy"]),
+    }
+}
+
+/// A list that may come as a single object, an array, or nothing.
+fn list(v: Option<&Value>) -> Vec<Value> {
+    match v {
+        Some(Value::Array(a)) => a.clone(),
+        Some(o @ Value::Object(_)) => vec![o.clone()],
+        _ => vec![],
+    }
+}
+
+/// Keep only the plain values of an object (strings and numbers).
+fn flat(v: Option<&Value>) -> serde_json::Map<String, Value> {
+    let mut out = serde_json::Map::new();
+    if let Some(Value::Object(m)) = v {
+        for (k, x) in m {
+            match x {
+                Value::String(t) if !t.trim().is_empty() => {
+                    out.insert(k.clone(), Value::String(t.trim().to_string()));
+                }
+                Value::Number(_) => {
+                    out.insert(k.clone(), x.clone());
+                }
+                _ => {}
+            }
+        }
+    }
+    out
+}
+
+/// Text that may be a string or a list of strings.
+fn text(v: Option<&Value>) -> String {
+    match v {
+        Some(Value::String(t)) => t.trim().to_string(),
+        Some(Value::Array(a)) => a.iter().filter_map(|x| x.as_str()).map(str::trim).collect::<Vec<_>>().join("\n"),
+        _ => String::new(),
+    }
+}
+
+fn ofp(v: &Value) -> Ofp {
+    let w = v.get("weather");
+    let mut weather = Vec::new();
+    for (key, label) in [
+        ("orig_metar", "Departure METAR"),
+        ("orig_taf", "Departure TAF"),
+        ("dest_metar", "Destination METAR"),
+        ("dest_taf", "Destination TAF"),
+        ("altn_metar", "Alternate METAR"),
+        ("altn_taf", "Alternate TAF"),
+    ] {
+        let t = text(w.and_then(|w| w.get(key)));
+        if !t.is_empty() {
+            weather.push((label.to_string(), t));
+        }
+    }
+    let mut notams = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    let sources = [
+        v.get("origin").and_then(|o| o.get("notam")),
+        v.get("destination").and_then(|o| o.get("notam")),
+        v.get("alternate").and_then(|o| o.get("notam")),
+        v.get("notams").and_then(|o| o.get("notamdrec")),
+    ];
+    for src in sources {
+        for n in list(src) {
+            let body = [s(&n, &["notam_text"]), s(&n, &["notam_raw"]), s(&n, &["notam_html"])]
+                .into_iter()
+                .find(|t| !t.is_empty())
+                .unwrap_or_default();
+            if body.is_empty() {
+                continue;
+            }
+            let id = s(&n, &["notam_id"]);
+            if !id.is_empty() && !seen.insert(id.clone()) {
+                continue;
+            }
+            let mut location = s(&n, &["location_icao"]);
+            if location.is_empty() {
+                location = s(&n, &["location_id"]);
+            }
+            notams.push(Notam { id, location, text: body });
+        }
+    }
+    let log = list(v.get("navlog").and_then(|n| n.get("fix")))
+        .iter()
+        .map(|f| LogRow {
+            ident: s(f, &["ident"]),
+            airway: s(f, &["via_airway"]),
+            stage: s(f, &["stage"]),
+            alt_ft: n(f, &["altitude_feet"]),
+            track_mag: n(f, &["track_mag"]),
+            dist_leg: n(f, &["distance"]),
+            time_total: n(f, &["time_total"]),
+            fuel_onboard: n(f, &["fuel_plan_onboard"]),
+            wind_dir: n(f, &["wind_dir"]),
+            wind_kt: n(f, &["wind_spd"]),
+            oat: n(f, &["oat"]),
+            tas: n(f, &["true_airspeed"]),
+            gs: n(f, &["groundspeed"]),
+            mach: s(f, &["mach"]),
+            winds: list(f.get("wind_data").and_then(|d| d.get("level")))
+                .iter()
+                .map(|l| [n(l, &["altitude"]), n(l, &["wind_dir"]), n(l, &["wind_spd"]), n(l, &["oat"])])
+                .collect(),
+        })
+        .collect();
+    Ofp {
+        html: s(v, &["text", "plan_html"]),
+        units: s(v, &["params", "units"]).to_lowercase(),
+        fpl: s(v, &["atc", "flightplan_text"]),
+        times: flat(v.get("times")),
+        weights: flat(v.get("weights")),
+        fuel: flat(v.get("fuel")),
+        weather,
+        notams,
+        log,
     }
 }
 
@@ -151,6 +320,7 @@ pub fn parse_ofp(v: &Value) -> Result<FlightPlan, String> {
         sched_out_ms: t_ms(v, &["times", "sched_out"]),
         sched_in_ms: t_ms(v, &["times", "sched_in"]),
         fixes,
+        ofp: Some(ofp(v)),
     })
 }
 
@@ -215,6 +385,34 @@ mod tests {
         assert_eq!(p.ete_min, 62.0);
         assert_eq!(p.block_fuel_kg, 4990.0);
         assert_eq!(p.sched_out_ms, Some(1_793_141_000_000));
+        let o = p.ofp.unwrap();
+        assert_eq!(o.units, "lbs");
+        assert_eq!(o.log.len(), 2);
+        assert_eq!(o.times.get("est_time_enroute").and_then(|x| x.as_str()), Some("3720"));
+    }
+
+    #[test]
+    fn briefing_sections() {
+        let v: Value = serde_json::json!({
+            "origin": { "icao_code": "LFMN", "notam": [
+                { "notam_id": "A1", "location_icao": "LFMN", "notam_text": "RWY 04L CLSD" },
+                { "notam_id": "A1", "location_icao": "LFMN", "notam_text": "duplicate" }
+            ]},
+            "destination": { "icao_code": "LIRQ", "notam": { "notam_id": "B2", "location_icao": "LIRQ", "notam_raw": "ILS U/S" } },
+            "atc": { "flightplan_text": "(FPL-AUA11-IS -A320/M -LFMN0010 -N0450F260 DCT -LIRQ0037)" },
+            "weather": { "orig_metar": "LFMN 280020Z 33010KT CAVOK 15/08 Q1020", "dest_taf": ["TAF LIRQ 1", "BECMG 2"] },
+            "text": { "plan_html": "<div><pre><b>[ OFP ]</b></pre></div>" },
+            "navlog": { "fix": [ { "ident": "BASIP", "pos_lat": "43.7", "pos_long": "7.6",
+                "wind_data": { "level": [ { "altitude": "26000", "wind_dir": "290", "wind_spd": "18", "oat": "-27" } ] } } ] }
+        });
+        let o = parse_ofp(&v).unwrap().ofp.unwrap();
+        assert_eq!(o.notams.len(), 2);
+        assert_eq!(o.notams[1].text, "ILS U/S");
+        assert!(o.fpl.starts_with("(FPL-AUA11"));
+        assert_eq!(o.weather.len(), 2);
+        assert_eq!(o.weather[1].1, "TAF LIRQ 1\nBECMG 2");
+        assert_eq!(o.log[0].winds, vec![[26000.0, 290.0, 18.0, -27.0]]);
+        assert!(o.html.contains("[ OFP ]"));
     }
 
     #[test]

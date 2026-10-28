@@ -21,6 +21,9 @@ MIT licensed.
   flight** on the map and import your latest dispatched plan. The planned
   route shows as a dashed line with its waypoints, the flight strip gets
   the callsign and destination, and the plan is saved with the flight.
+  **Briefing (OFP)** opens the full SimBrief OFP with jump tabs for times,
+  weights and fuel, the flight log, winds aloft, the ICAO flight plan,
+  weather and NOTAMs.
 - **Seven flight phases**: preflight, taxi out, takeoff roll, airborne,
   landing rollout, taxi in, arrived. Every change is debounced, so bounces
   and gusts never split a flight.

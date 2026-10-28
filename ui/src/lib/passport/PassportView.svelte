@@ -559,7 +559,6 @@
     /* Saturated rainbow that slides with the pointer, seen only through the
        line art mask: the photo between the lines is left untouched. */
     background:
-      radial-gradient(circle at var(--mx) var(--my), rgba(255, 255, 255, 0.9), transparent 45%),
       linear-gradient(
         125deg,
         #ff5c8a,
@@ -571,12 +570,18 @@
         #ff6fd8,
         #ff5c8a
       );
-    background-size: 100% 100%, 300% 300%;
-    background-position: 0 0, var(--mx) var(--my);
-    -webkit-mask-image: var(--lines);
-    mask-image: var(--lines);
-    -webkit-mask-size: 100% 100%;
-    mask-size: 100% 100%;
+    background-size: 300% 300%;
+    background-position: var(--mx) var(--my);
+    /* Only the lines within 30px of the pointer light up: the line art is
+       intersected with a soft-edged 30px circle that follows the pointer. */
+    -webkit-mask-image: radial-gradient(circle 30px at var(--mx) var(--my), #000 0, #000 60%, transparent 100%), var(--lines);
+    mask-image: radial-gradient(circle 30px at var(--mx) var(--my), #000 0, #000 60%, transparent 100%), var(--lines);
+    -webkit-mask-size: 100% 100%, 100% 100%;
+    mask-size: 100% 100%, 100% 100%;
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+    -webkit-mask-composite: source-in;
+    mask-composite: intersect;
     mix-blend-mode: screen;
   }
   .photo:hover .holo {

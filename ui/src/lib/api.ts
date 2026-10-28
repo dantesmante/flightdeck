@@ -89,6 +89,44 @@ export interface PlanFix {
   procedure: boolean;
 }
 
+export interface Notam {
+  id: string;
+  location: string;
+  text: string;
+}
+
+export interface OfpLogRow {
+  ident: string;
+  airway: string;
+  stage: string;
+  alt_ft: number;
+  track_mag: number;
+  dist_leg: number;
+  time_total: number;
+  fuel_onboard: number;
+  wind_dir: number;
+  wind_kt: number;
+  oat: number;
+  tas: number;
+  gs: number;
+  mach: string;
+  /** [altitude ft, direction, speed kt, OAT] */
+  winds: [number, number, number, number][];
+}
+
+/** The briefing: SimBrief's OFP and its sections. */
+export interface Ofp {
+  html: string;
+  units: string;
+  fpl: string;
+  times: Record<string, string | number>;
+  weights: Record<string, string | number>;
+  fuel: Record<string, string | number>;
+  weather: [string, string][];
+  notams: Notam[];
+  log: OfpLogRow[];
+}
+
 /** A flight plan, e.g. imported from SimBrief. */
 export interface FlightPlan {
   source: string;
@@ -111,6 +149,8 @@ export interface FlightPlan {
   sched_out_ms: number | null;
   sched_in_ms: number | null;
   fixes: PlanFix[];
+  /** Only in saved flights; the live plan's briefing comes from currentBriefing(). */
+  ofp?: Ofp | null;
 }
 
 export interface Status {
@@ -346,6 +386,7 @@ export const api = {
   simbriefLatest: () => call<FlightPlan>("simbrief_latest"),
   startFlight: (plan: FlightPlan | null) => call<void>("start_flight", { plan }),
   setPlan: (plan: FlightPlan | null) => call<void>("set_plan", { plan }),
+  currentBriefing: () => call<Ofp | null>("current_briefing"),
   demoRoutes: () => call<string[]>("demo_routes"),
   settings: () => call<Settings>("get_settings"),
   setSetting: (key: string, value: string) => call<void>("set_setting", { key, value }),

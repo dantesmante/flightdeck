@@ -75,6 +75,9 @@ pub struct FullStatus {
 pub struct Shared {
     pub status: Status,
     pub track: Vec<Pt>,
+    /// The current plan's full briefing, kept out of the twice-a-second
+    /// status and fetched when the pilot opens it.
+    pub briefing: Option<crate::simbrief::Ofp>,
 }
 
 /// One live track point: [lon, lat, altitude ft, ground speed kt, time ms].
@@ -249,6 +252,7 @@ impl Engine {
             }
             Command::SetPlan(plan) => self.plan = plan,
         }
+        self.shared.lock().unwrap().briefing = self.plan.as_ref().and_then(|p| p.ofp.clone());
         self.publish(true);
     }
 
@@ -415,6 +419,7 @@ impl Engine {
 
     fn store(&mut self, f: &FlightSummary) {
         let plan = self.plan.take();
+        self.shared.lock().unwrap().briefing = None;
         self.armed = false;
         self.need_reset = true;
         // The sim gave no usable type code: take it from the flight plan.
@@ -484,7 +489,7 @@ impl Engine {
                 || !self.aircraft.registration.is_empty())
             .then(|| self.aircraft.clone()),
             waiting_for_pilot: self.conn.is_some() && self.tracker.as_ref().is_none_or(Tracker::is_finished),
-            plan: self.plan.clone(),
+            plan: self.plan.as_ref().map(|p| FlightPlan { ofp: None, ..p.clone() }),
             armed: self.armed,
             phase,
             phase_label: phase.map(|p| p.label().to_string()),

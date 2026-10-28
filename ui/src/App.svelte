@@ -10,6 +10,8 @@
   import { loadPrefs } from "./lib/prefs.svelte";
   import SettingsView from "./lib/SettingsView.svelte";
   import UpdateBanner from "./lib/UpdateBanner.svelte";
+  import Briefing from "./lib/Briefing.svelte";
+  import { briefing, closeBriefing } from "./lib/briefing.svelte";
   import { fromTrack, type Pt } from "./lib/track";
   import { checkForUpdates } from "./lib/updates.svelte";
 
@@ -119,6 +121,26 @@
     { id: "hangar", label: "Hangar", icon: "M3 20V9l9-5 9 5v11M7 20v-6h10v6M3 20h18" },
   ];
 
+  /** The right-hand panel can be folded away to give the map the room. */
+  const PANEL_KEY = "fd.panelCollapsed";
+  let collapsed = $state((() => {
+    try {
+      return localStorage.getItem(PANEL_KEY) === "1";
+    } catch {
+      return false;
+    }
+  })());
+  function togglePanel() {
+    collapsed = !collapsed;
+    try {
+      localStorage.setItem(PANEL_KEY, collapsed ? "1" : "0");
+    } catch {
+      /* not saved, still works */
+    }
+    // Let the map notice its new size.
+    requestAnimationFrame(() => window.dispatchEvent(new Event("resize")));
+  }
+
   const linkText = $derived(
     !status || status.link === "waiting"
       ? "Waiting for a simulator"
@@ -128,7 +150,7 @@
   );
 </script>
 
-<div class="shell" class:full>
+<div class="shell" class:full class:collapsed={collapsed && !full}>
   <nav class="rail" aria-label="Main">
     <div class="mark" aria-hidden="true">
       <svg viewBox="0 0 1024 1024" width="30" height="30">
@@ -151,7 +173,10 @@
 
   <main class="stage" class:hidden={full}>
     <Map live={liveTrack} {aircraft} {origin} {history} {routes} selected={selectedFlight} onroute={showFlight} plan={history ? historyPlan : (status?.plan ?? null)} />
-    <footer class="status-line">
+    <button class="fold" onclick={togglePanel} aria-label={collapsed ? "Show the side panel" : "Hide the side panel"} title={collapsed ? "Show panel" : "Hide panel"}>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d={collapsed ? "M15 5l-7 7 7 7" : "M9 5l7 7-7 7"} /></svg>
+    </button>
+    <footer class="status-line" class:connected={status?.link === "connected"}>
       <span class="lamp {status?.link ?? 'waiting'}"></span>
       <span>{linkText}</span>
     </footer>
@@ -175,8 +200,11 @@
     <div class="toast" role="status">{toast}</div>
   {/if}
   <UpdateBanner />
+  {#if briefing.plan && briefing.ofp}
+    <Briefing plan={briefing.plan} ofp={briefing.ofp} onclose={closeBriefing} />
+  {/if}
 
-  <aside class="panel" class:hidden={full}>
+  <aside class="panel" class:hidden={full || collapsed}>
     {#if view === "live"}
       <LivePanel {status} {completed} track={liveTrack} ondismiss={dismiss} onsettings={() => go("settings")} />
     {:else}
@@ -197,8 +225,41 @@
     grid-template-columns: 76px 1fr 380px;
     height: 100%;
   }
-  .shell.full {
+  .shell.full,
+  .shell.collapsed {
     grid-template-columns: 76px 1fr;
+  }
+  .fold {
+    position: absolute;
+    z-index: 4;
+    right: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 22px;
+    height: 64px;
+    padding: 0;
+    display: grid;
+    place-items: center;
+    border: 1px solid var(--rule);
+    border-right: none;
+    border-radius: 8px 0 0 8px;
+    background: rgba(28, 30, 33, 0.92);
+    color: var(--ink-dim);
+    transition: width 0.15s, color 0.15s, background 0.15s;
+  }
+  .fold:hover {
+    width: 28px;
+    color: var(--amber);
+    background: var(--panel-2);
+  }
+  .fold svg {
+    width: 16px;
+    height: 16px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2.4;
+    stroke-linecap: round;
+    stroke-linejoin: round;
   }
   .hidden {
     display: none;
@@ -276,6 +337,9 @@
     border: 1px solid var(--rule);
     font-size: 13px;
     color: var(--ink-dim);
+  }
+  .status-line.connected {
+    color: var(--good);
   }
   .lamp {
     width: 9px;

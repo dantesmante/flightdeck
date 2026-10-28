@@ -101,6 +101,12 @@ fn start_flight(state: tauri::State<AppState>, plan: Option<simbrief::FlightPlan
     send(&state, Command::StartFlight { plan })
 }
 
+/// The full briefing (OFP) of the current flight plan.
+#[tauri::command]
+fn current_briefing(state: tauri::State<AppState>) -> Option<simbrief::Ofp> {
+    state.shared.lock().unwrap().briefing.clone()
+}
+
 #[tauri::command]
 fn set_plan(state: tauri::State<AppState>, plan: Option<simbrief::FlightPlan>) -> CmdResult<()> {
     send(&state, Command::SetPlan(plan))
@@ -384,6 +390,7 @@ pub fn run() {
             simbrief_latest,
             start_flight,
             set_plan,
+            current_briefing,
             demo_routes,
             get_settings,
             set_setting,

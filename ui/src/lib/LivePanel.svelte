@@ -127,7 +127,7 @@
     </div>
   {:else if connected && status}
     <header>
-      <h2>Connected to {status.sim_label}</h2>
+      <h2><span class="good">Connected</span> to {status.sim_label}</h2>
       <p class="sub">
         {#if status.armed}
           Flight started. Tracking begins the moment you are in the cockpit.
@@ -286,5 +286,8 @@
     margin: -8px 0 0;
     color: var(--bad);
     font-size: 13px;
+  }
+  .good {
+    color: var(--good);
   }
 </style>

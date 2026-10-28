@@ -27,6 +27,43 @@ export const samplePlan: FlightPlan = {
     { ident: "PRT", kind: "vor", lat: 43.82, lon: 11.03, alt_ft: 5000, stage: "DSC", procedure: true },
   ],
 };
+const ofpText = `<div style="line-height:14px"><pre><b>[ OFP ]</b>
+--------------------------------------------------------------------
+AUA0011   28OCT2026    LFMN-LIRQ   A320 OELZE   RELEASE 2328 27OCT26
+OFP 1      NICE/COTE D'AZUR-PERETOLA
+                                       WX PROG 2800 2803   OBS 2718 2718
+
+  ATC C/S   AUA11        LFMN/NCE   LIRQ/FLR      CRZ SYS      CI 24
+28OCT2026   OELZE        0000/0020  0057/0105     GND DIST       215
+FENIX A320 AUSTRIAN / CFM56-5B4/P   STA  0105     AIR DIST       204
+
+MAXIMUM    TOW  73500  LAW  64500  ZFW  61000      AVG WIND  293/018
+ESTIMATED  TOW  65756  LAW  64014  ZFW  60677      AVG W/C      P017
+--------------------------------------------------------------------
+         PLANNED FUEL
+FUEL           ARPT   FUEL   TIME
+TRIP            FLR   1742   0037
+CONT 15 MIN            697   0015
+ALTN            FCO   1581   0037
+FINRES                1059   0030
+--------------------------------------------------------------------
+BLOCK FUEL      NCE   5309
+</pre><img src="x" onerror="alert(1)"><script>alert(2)</script></div>`;
+const sampleOfp = {
+  html: ofpText, units: "kgs",
+  fpl: "(FPL-AUA11-IS\n-A320/M-SDE2E3FGHIJ1RWY/LB1\n-LFMN0010\n-N0450F260 BASI8A BASIP DCT ANAKI DCT OTMUV DCT BEROK Y138 GAPMI GAPM1A\n-LIRQ0037 LIRF\n-PBN/A1B1C1D1O1S2 DOF/261028 REG/OELZE)",
+  times: { sched_out: Math.round(now / 1000), sched_off: Math.round(now / 1000) + 1200, sched_on: Math.round(now / 1000) + 3420, sched_in: Math.round(now / 1000) + 3900, est_time_enroute: 2220, taxi_out: 1200, taxi_in: 480, est_block: 3900, reserve_time: 1800, endurance: 7140 },
+  weights: { oew: 42600, pax_count: 168, cargo: 1200, payload: 18077, est_zfw: 60677, max_zfw: 61000, est_tow: 65756, max_tow: 73500, est_ldw: 64014, max_ldw: 64500, est_ramp: 65986 },
+  fuel: { taxi: 230, enroute_burn: 1742, contingency: 697, alternate_burn: 1581, reserve: 1059, extra: 0, min_takeoff: 5079, plan_takeoff: 5079, plan_ramp: 5309, plan_landing: 3337, avg_fuel_flow: 2788 },
+  weather: [["Departure METAR", "LFMN 272330Z 33010KT CAVOK 15/08 Q1020 NOSIG"], ["Destination TAF", "TAF LIRQ 272300Z 2800/2809 VRB03KT 9999 FEW030\nBECMG 2806/2808 4000 BR"]] as [string, string][],
+  notams: [{ id: "A3317/26", location: "LFMN", text: "RWY 04L/22R CLOSED DUE TO WORKS. 2300-0500." }, { id: "B1102/26", location: "LIRQ", text: "ILS RWY 05 GP UNSERVICEABLE." }],
+  log: [
+    { ident: "BASIP", airway: "BASI8A", stage: "CLB", alt_ft: 12000, track_mag: 98, dist_leg: 22, time_total: 360, fuel_onboard: 4600, wind_dir: 290, wind_kt: 14, oat: -9, tas: 330, gs: 344, mach: "", winds: [[10000, 285, 12, -5], [18000, 290, 16, -19], [26000, 293, 18, -33], [34000, 295, 24, -49]] },
+    { ident: "ANAKI", airway: "DCT", stage: "CRZ", alt_ft: 26000, track_mag: 76, dist_leg: 48, time_total: 900, fuel_onboard: 3900, wind_dir: 293, wind_kt: 18, oat: -33, tas: 448, gs: 466, mach: "0.74", winds: [[10000, 280, 10, -4], [18000, 288, 15, -18], [26000, 292, 19, -33], [34000, 296, 26, -50]] },
+    { ident: "OTMUV", airway: "DCT", stage: "CRZ", alt_ft: 26000, track_mag: 92, dist_leg: 55, time_total: 1320, fuel_onboard: 3500, wind_dir: 296, wind_kt: 17, oat: -32, tas: 448, gs: 464, mach: "0.74", winds: [[10000, 279, 9, -3], [18000, 286, 14, -17], [26000, 296, 17, -32], [34000, 298, 25, -49]] },
+    { ident: "GAPMI", airway: "Y138", stage: "DSC", alt_ft: 11000, track_mag: 140, dist_leg: 40, time_total: 1980, fuel_onboard: 3380, wind_dir: 300, wind_kt: 8, oat: -6, tas: 300, gs: 306, mach: "", winds: [[10000, 300, 8, -5], [18000, 300, 12, -18], [26000, 300, 16, -32], [34000, 300, 22, -49]] },
+  ],
+};
 const scene = typeof location !== "undefined" ? new URLSearchParams(location.search).get("mock") : null;
 
 const status: FullStatus = {
@@ -114,7 +151,8 @@ export async function mockCall<T>(cmd: string, _args?: Record<string, unknown>):
     ],
     app_version: "0.1.0",
     check_update: { current: "0.1.0", latest: "0.1.0", available: false, notes: "", download_url: null, size_mb: 0 },
-    simbrief_latest: samplePlan,
+    simbrief_latest: { ...samplePlan, ofp: sampleOfp },
+    current_briefing: sampleOfp,
     get_settings: { simbrief_id: "123456" },
     demo_routes: ["KSEA to KPDX", "EGLL to LFPG", "KSFO to KLAX", "EDDF to LOWW", "CYVR to KSEA"],
   };
