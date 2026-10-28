@@ -18,7 +18,7 @@ pub enum CodecError {
     Zstd(#[from] std::io::Error),
 }
 
-/// Simplify a track with Ramer–Douglas–Peucker in 3D (metres), never dropping
+/// Simplify a track with Ramer–Douglas–Peucker in 3D (meters), never dropping
 /// points for which `protect` returns true.
 pub fn simplify(points: &[TrackPoint], epsilon_m: f64, protect: impl Fn(&TrackPoint) -> bool) -> Vec<TrackPoint> {
     if points.len() <= 2 {
@@ -101,7 +101,7 @@ fn get_varint(buf: &[u8], pos: &mut usize) -> Result<i64, CodecError> {
 }
 
 /// Quantised fields: 1e-7 degrees (~1 cm), 1 ft, 0.1 kt, 1 fpm, 0.1 degree.
-fn quantise(p: &TrackPoint) -> [i64; 7] {
+fn quantize(p: &TrackPoint) -> [i64; 7] {
     [
         p.t_ms,
         (p.lat * 1e7).round() as i64,
@@ -119,7 +119,7 @@ pub fn encode(points: &[TrackPoint]) -> Result<Vec<u8>, CodecError> {
     raw.extend_from_slice(&(points.len() as u32).to_le_bytes());
     let mut prev = [0i64; 7];
     for p in points {
-        let q = quantise(p);
+        let q = quantize(p);
         for i in 0..7 {
             put_varint(&mut raw, q[i] - prev[i]);
         }

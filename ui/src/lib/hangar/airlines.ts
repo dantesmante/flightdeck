@@ -1,6 +1,6 @@
-// Airlines the hangar knows: ICAO and IATA codes, name and livery colours
-// (main colour, accent). Used to tint an aircraft's registration strip.
-// Airlines not listed still work: they get a neutral colour of their own.
+// Airlines the hangar knows: ICAO and IATA codes, name and livery colors
+// (main color, accent). Used to tint an aircraft's registration strip.
+// Airlines not listed still work: they get a neutral color of their own.
 
 export interface Airline {
   icao: string;
@@ -155,13 +155,13 @@ export function suggestAirlines(q: string, n = 8): Airline[] {
   return AIRLINES.filter((a) => a.icao.startsWith(s) || a.iata === s || a.name.toUpperCase().includes(s)).slice(0, n);
 }
 
-/** Display name and colours for whatever the pilot typed as the airline. */
+/** Display name and colors for whatever the pilot typed as the airline. */
 export function airlineLook(q: string | null | undefined): { name: string; colors: [string, string] } | null {
   const s = (q ?? "").trim();
   if (!s) return null;
   const a = findAirline(s);
   if (a) return { name: a.name, colors: a.colors };
-  // Unknown airline: a steady colour from its name.
+  // Unknown airline: a steady color from its name.
   let h = 0;
   for (const c of s.toUpperCase()) h = (h * 31 + c.charCodeAt(0)) >>> 0;
   const hue = h % 360;

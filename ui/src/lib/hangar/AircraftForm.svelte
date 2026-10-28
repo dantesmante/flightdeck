@@ -81,12 +81,32 @@
     }
   }
 
+  // Another hangar aircraft already has the registration typed: saving
+  // (editing) merges the two; adding is refused.
+  let clash = $state<HangarItem | null>(null);
+  let fleet = $state<HangarItem[]>([]);
+  $effect(() => {
+    api.hangar().then((h) => (fleet = h ?? []));
+  });
+  $effect(() => {
+    const reg = registration.trim().toUpperCase();
+    clash = reg ? (fleet.find((a) => a.id !== start?.id && a.registration.toUpperCase() === reg) ?? null) : null;
+  });
+
+  // Deleting: what happens to the aircraft's flights.
+  let deleting = $state(false);
+  let moveTo = $state<string>("delete");
+  const others = $derived(fleet.filter((a) => a.id !== start?.id));
+
   async function remove() {
     if (!item) return;
     busy = true;
+    error = null;
     try {
-      await api.removeAircraft(item.id);
+      await api.deleteAircraft(item.id, moveTo === "delete" ? null : Number(moveTo));
       onsaved(-1);
+    } catch (e) {
+      error = String(e);
     } finally {
       busy = false;
     }
@@ -133,7 +153,12 @@
       <span>Registration</span>
       <input bind:value={registration} placeholder="e.g. N172SP or D-AINA" autocomplete="off" spellcheck="false" required />
     </label>
-    {#if editing && item && item.sim_registration && item.sim_registration !== registration.trim().toUpperCase()}
+    {#if clash}
+      <p class="warn">
+        {clash.registration} is already in your hangar ({modelName(clash)}, {clash.flights} {clash.flights === 1 ? "flight" : "flights"}).
+        {editing ? "Saving merges the two into one aircraft with all their flights." : "Edit that aircraft instead, or use another registration."}
+      </p>
+    {:else if editing && item && item.sim_registration && item.sim_registration !== registration.trim().toUpperCase()}
       <p class="hint">The sim reports this aircraft as {item.sim_registration}. Flights it reports either way are logged here.</p>
     {:else if !editing}
       <p class="hint">Flights the sim reports with this registration are logged to this aircraft.</p>
@@ -172,17 +197,46 @@
       <input bind:value={airline} list="fd-airlines" placeholder="Code or name, e.g. DLH or Lufthansa" autocomplete="off" />
     </label>
 
-    <footer>
-      {#if error}<span class="err">{error}</span>{/if}
-      {#if editing && item?.manual && item.flights === 0}
-        <button type="button" class="ghost danger" onclick={remove} disabled={busy}>Remove aircraft</button>
-      {/if}
-      <span class="sp"></span>
-      <button type="button" class="ghost" onclick={onclose}>Cancel</button>
-      <button type="submit" class="primary" disabled={busy || !registration.trim() || !(model.trim() || icao.trim())}>
-        {editing ? "Save" : "Add aircraft"}
-      </button>
-    </footer>
+    {#if deleting && item}
+      <div class="danger-zone">
+        <strong>Delete {item.registration || "this aircraft"}?</strong>
+        {#if item.flights > 0}
+          <p>
+            It has {item.flights} {item.flights === 1 ? "flight" : "flights"}. Deleting the aircraft deletes them too, with their
+            logbook lines and passport stamps, unless you move them to another aircraft.
+          </p>
+          <label>
+            <span>Its flights</span>
+            <select bind:value={moveTo}>
+              <option value="delete">Delete them with the aircraft</option>
+              {#each others as o (o.id)}
+                <option value={String(o.id)}>Move them to {o.registration || o.icao_type || "Unregistered"} · {modelName(o)}</option>
+              {/each}
+            </select>
+          </label>
+        {:else}
+          <p>It has no flights.</p>
+        {/if}
+        <div class="row end">
+          <button type="button" class="ghost" onclick={() => (deleting = false)}>Keep it</button>
+          <button type="button" class="danger-btn" onclick={remove} disabled={busy}>
+            {item.flights > 0 && moveTo === "delete" ? `Delete aircraft and ${item.flights} ${item.flights === 1 ? "flight" : "flights"}` : "Delete aircraft"}
+          </button>
+        </div>
+      </div>
+    {:else}
+      <footer>
+        {#if error}<span class="err">{error}</span>{/if}
+        {#if editing}
+          <button type="button" class="ghost danger" onclick={() => (deleting = true)} disabled={busy}>Delete aircraft</button>
+        {/if}
+        <span class="sp"></span>
+        <button type="button" class="ghost" onclick={onclose}>Cancel</button>
+        <button type="submit" class="primary" disabled={busy || !registration.trim() || !(model.trim() || icao.trim()) || (!editing && !!clash)}>
+          {editing ? (clash ? "Save and merge" : "Save") : "Add aircraft"}
+        </button>
+      </footer>
+    {/if}
   </form>
 </div>
 
@@ -329,6 +383,39 @@
   }
   .ghost:hover {
     color: var(--ink);
+  }
+  .warn {
+    margin: -6px 0 0;
+    font-size: 12.5px;
+    color: var(--amber);
+  }
+  .danger-zone {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px;
+    border-radius: 8px;
+    border: 1px solid rgba(229, 96, 80, 0.45);
+    background: rgba(229, 96, 80, 0.07);
+  }
+  .danger-zone p {
+    margin: 0;
+    font-size: 13px;
+    color: var(--ink-dim);
+  }
+  .row.end {
+    justify-content: flex-end;
+  }
+  .danger-btn {
+    border: none;
+    border-radius: 6px;
+    padding: 8px 14px;
+    background: var(--bad);
+    color: #fff;
+    font-weight: 600;
+  }
+  .danger-btn:disabled {
+    opacity: 0.5;
   }
   .danger:hover {
     color: var(--bad);

@@ -1,6 +1,6 @@
 <script lang="ts">
   // Live and historical flight map: MapLibre GL + OpenFreeMap vector tiles
-  // (OpenStreetMap data), recoloured at load into a night-chart palette.
+  // (OpenStreetMap data), recolored at load into a night-chart palette.
   import maplibregl, { type GeoJSONSource, type LngLatBoundsLike } from "maplibre-gl";
   import { onDestroy, onMount, untrack } from "svelte";
   import type { FlightPlan, HangarItem, Route } from "./api";
@@ -85,7 +85,7 @@
   const stretch = $derived(three && shown.length > 1 ? wallScale(shown) : 1);
   const range = $derived(altRange(shown));
   // The key runs from the lowest to the highest point actually flown, in
-  // the same colours the line uses (a low flight never reaches green).
+  // the same colors the line uses (a low flight never reaches green).
   const keyBar = $derived.by(() => {
     const { lo, hi, top } = range;
     const end = (top - lo) / (hi - lo || 1);
@@ -325,7 +325,7 @@
       paint: { "line-gradient": altGradient([]), "line-width": 10, "line-opacity": 0.22, "line-blur": 5 },
       layout: { "line-cap": "round", "line-join": "round" },
     });
-    // Soft, even light so the wall keeps its colours from every side.
+    // Soft, even light so the wall keeps its colors from every side.
     map.setLight({ anchor: "viewport", color: "#ffffff", intensity: 0.18, position: [1.15, 210, 30] });
     // The 3D wall, from the ground up to the altitude flown. Only shown in 3D.
     // tolerance 0: the wall is made of many small, thin pieces that the
@@ -400,6 +400,7 @@
     // Hover and click on past routes.
     const tip = new maplibregl.Popup({ closeButton: false, closeOnClick: false, className: "route-tip", offset: 10 });
     let hovered: number | null = null;
+    let tipHtml = "";
     const clearHover = () => {
       if (hovered != null) map?.setFeatureState({ source: "routes", id: hovered }, { hover: false });
       hovered = null;
@@ -418,7 +419,16 @@
         }
         map.getCanvas().style.cursor = "pointer";
         const p = f.properties as { label: string; sub: string };
-        tip.setLngLat(e.lngLat).setHTML(`<strong>${esc(p.label)}</strong><span>${esc(p.sub)}</span><em>Click for flight details</em>`).addTo(map);
+        // Move the open tip rather than adding it again on every mouse move:
+        // a re-added popup is a new element, which could flash in the
+        // corner of the map before it is placed.
+        const html = `<strong>${esc(p.label)}</strong><span>${esc(p.sub)}</span><em>Click for flight details</em>`;
+        if (tipHtml !== html) {
+          tip.setHTML(html);
+          tipHtml = html;
+        }
+        tip.setLngLat(e.lngLat);
+        if (!tip.isOpen()) tip.addTo(map);
       });
       map.on("mouseleave", layer, clearHover);
       map.on("click", layer, (e) => {
@@ -638,11 +648,19 @@
   // there, shown only when the layer is switched on.
   let parkedMarkers: maplibregl.Marker[] = [];
   let parkedPopups: maplibregl.Popup[] = [];
+  let parkedKey: string | null = null;
   $effect(() => {
     const list = parked;
     const on = layers.has("parked");
     const fly = onfly;
     if (!loaded || !map) return;
+    // The list arrives anew with every status update: rebuild the markers
+    // (and close an open card) only when something shown has changed.
+    const key = on && list
+      ? JSON.stringify([!!fly, list.map((g) => [g.id, g.registration, g.title, g.model, g.last_lat, g.last_lon, g.flights, g.minutes, g.last_icao])])
+      : "";
+    if (key === parkedKey) return;
+    parkedKey = key;
     for (const m of parkedMarkers) m.remove();
     for (const p of parkedPopups) p.remove();
     parkedMarkers = [];
@@ -729,7 +747,7 @@
 {/if}
 <MapLayers {three} on={layers} onthree={setThree} ontoggle={toggleLayer} {radarTime} {radarError} parkedLayer={parked != null} />
 {#if shown.length > 1}
-  <div class="alt-key" aria-label="Line colour shows altitude">
+  <div class="alt-key" aria-label="Line color shows altitude">
     <span class="t">Altitude{#if three && stretch > 1}<em>heights ×{stretch}</em>{/if}</span>
     <span class="bar" style:background={keyBar}></span>
     <span class="ends"><span>{altLabel(range.lo)}</span><span>{altLabel(range.top)}</span></span>
@@ -841,6 +859,11 @@
   }
   .map :global(.maplibregl-ctrl-attrib a) {
     color: var(--ink-dim);
+  }
+  /* The hover tip never takes the pointer, so it cannot flicker by
+     stealing the hover from the line under it. */
+  .map :global(.route-tip) {
+    pointer-events: none;
   }
   .map :global(.route-tip .maplibregl-popup-content) {
     background: var(--panel-2);

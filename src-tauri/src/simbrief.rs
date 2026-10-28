@@ -69,7 +69,7 @@ pub struct Ofp {
     pub units: String,
     /// The ICAO ATC flight plan, "(FPL-...)".
     pub fpl: String,
-    /// Raw sections as SimBrief sends them, shown as labelled tables.
+    /// Raw sections as SimBrief sends them, shown as labeled tables.
     pub times: serde_json::Map<String, Value>,
     pub weights: serde_json::Map<String, Value>,
     pub fuel: serde_json::Map<String, Value>,

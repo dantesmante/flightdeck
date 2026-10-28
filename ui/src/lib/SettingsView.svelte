@@ -56,7 +56,7 @@
   const units = [
     { id: "nm", label: "Nautical miles" },
     { id: "mi", label: "Statute miles" },
-    { id: "km", label: "Kilometres" },
+    { id: "km", label: "Kilometers" },
   ];
 
   // SimBrief: the Pilot ID (or username) used to fetch the latest plan.

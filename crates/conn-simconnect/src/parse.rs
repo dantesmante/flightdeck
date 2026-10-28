@@ -122,7 +122,7 @@ pub fn sim_from_version(major: u32, hint: SimKind) -> SimKind {
     }
 }
 
-/// Some aircraft report ATC MODEL as a localisation key such as
+/// Some aircraft report ATC MODEL as a localization key such as
 /// "TT:ATCCOM.AC_MODEL_C172.0.text", "ATCCOM.AC_MODEL A320.0.text" or
 /// "$$:ATCCOM.AC_MODEL_B738.0.text"; pull the type designator out of it.
 /// Anything else that is not a plausible type comes back empty.

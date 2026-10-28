@@ -112,7 +112,7 @@ pub struct HangarRow {
     pub best_landing_fpm: Option<f64>,
     /// Average landing rate over the flights that recorded one.
     pub avg_landing_fpm: Option<f64>,
-    pub favourite: bool,
+    pub favorite: bool,
     /// Callsign of the latest flight (helps tell cargo from passenger).
     pub last_callsign: String,
     pub last_icao: Option<String>,
@@ -418,13 +418,15 @@ impl Store {
         }
 
         // A different type or registration points this flight (only) at the
-        // matching hangar aircraft, created if needed.
+        // hangar aircraft with that registration (the registration is how
+        // the hangar knows an aircraft), created if there is none.
         if p.aircraft_type.is_some() || p.ident.is_some() {
-            // (title, type, registration, engines, engine type, category/class)
+            // (title, type, display registration, engines, engine type, category/class)
             type Ac = (String, String, String, i64, String, String);
             let cur: Ac = match aircraft_id {
                 Some(id) => tx.query_row(
-                    "SELECT title, icao_type, registration, engine_count, engine_type, category_class FROM aircraft WHERE id = ?1",
+                    "SELECT title, icao_type, COALESCE(NULLIF(user_reg, ''), registration), engine_count, engine_type, category_class
+                     FROM aircraft WHERE id = ?1",
                     params![id],
                     |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)),
                 )?,
@@ -432,22 +434,32 @@ impl Store {
             };
             let ty = p.aircraft_type.clone().unwrap_or(cur.1.clone()).trim().to_uppercase();
             let reg = p.ident.clone().unwrap_or(cur.2.clone()).trim().to_uppercase();
-            if ty != cur.1 || reg != cur.2 {
-                let title = if ty == cur.1 && !cur.0.is_empty() { cur.0.clone() } else { ty.clone() };
-                let existing: Option<i64> = tx
-                    .query_row(
-                        "SELECT id FROM aircraft WHERE icao_type = ?1 AND registration = ?2 ORDER BY id LIMIT 1",
-                        params![ty, reg],
+            if !ty.eq_ignore_ascii_case(&cur.1) || !reg.eq_ignore_ascii_case(&cur.2) {
+                let existing: Option<i64> = if reg.is_empty() {
+                    tx.query_row(
+                        "SELECT id FROM aircraft WHERE merged_into IS NULL AND icao_type = ?1
+                           AND COALESCE(NULLIF(user_reg, ''), registration) = '' ORDER BY id LIMIT 1",
+                        params![ty],
                         |r| r.get(0),
                     )
-                    .optional()?;
+                    .optional()?
+                } else {
+                    crate::aircraft_by_reg(&tx, &reg)?
+                };
                 let new_id = match existing {
-                    Some(id) => id,
+                    Some(id) => {
+                        // Same airframe, new type code: correct it for the aircraft.
+                        if p.aircraft_type.is_some() && !ty.is_empty() {
+                            tx.execute("UPDATE aircraft SET icao_type = ?2 WHERE id = ?1", params![id, ty])?;
+                        }
+                        id
+                    }
                     None => {
+                        let title = if ty == cur.1 && !cur.0.is_empty() { cur.0.clone() } else { ty.clone() };
                         tx.execute(
                             "INSERT INTO aircraft (icao_type, title, registration, engine_count, engine_type, category_class)
                              VALUES (?1, ?2, ?3, ?4, ?5, ?6)
-                             ON CONFLICT(title, registration) DO UPDATE SET icao_type = excluded.icao_type",
+                             ON CONFLICT(title, registration) DO UPDATE SET icao_type = excluded.icao_type, merged_into = NULL",
                             params![ty, title, reg, cur.3, cur.4, cur.5],
                         )?;
                         tx.query_row(
@@ -458,10 +470,7 @@ impl Store {
                     }
                 };
                 tx.execute("UPDATE flight SET aircraft_id = ?2 WHERE id = ?1", params![flight_id, new_id])?;
-                tx.execute(
-                    crate::DELETE_ORPHAN_AIRCRAFT,
-                    [],
-                )?;
+                tx.execute(crate::DELETE_ORPHAN_AIRCRAFT, [])?;
             }
         }
         tx.execute("UPDATE flight SET updated_at = ?2 WHERE id = ?1", params![flight_id, crate::now_ms()])?;
@@ -470,9 +479,9 @@ impl Store {
     }
 
     /// Every aircraft flown, most recently flown first.
-    /// Mark an aircraft as a favourite (shown first in the hangar).
-    pub fn set_aircraft_favourite(&self, id: i64, favourite: bool) -> Result<bool> {
-        Ok(self.conn.execute("UPDATE aircraft SET favourite = ?2 WHERE id = ?1", params![id, favourite as i64])? > 0)
+    /// Mark an aircraft as a favorite (shown first in the hangar).
+    pub fn set_aircraft_favorite(&self, id: i64, favorite: bool) -> Result<bool> {
+        Ok(self.conn.execute("UPDATE aircraft SET favorite = ?2 WHERE id = ?1", params![id, favorite as i64])? > 0)
     }
 
     pub fn hangar(&self) -> Result<Vec<HangarRow>> {
@@ -482,14 +491,15 @@ impl Store {
                     COUNT(f.id), COALESCE(SUM(l.total_min), 0), COALESCE(SUM(f.distance_nm), 0),
                     COALESCE(SUM(l.day_landings + l.night_landings), 0),
                     COALESCE(MIN(f.start_ms), 0), COALESCE(MAX(f.start_ms), 0), MAX(f.landing_rate_fpm),
-                    AVG(f.landing_rate_fpm), a.favourite,
+                    AVG(f.landing_rate_fpm), a.favorite,
                     COALESCE((SELECT f2.callsign FROM flight f2 WHERE f2.aircraft_id = a.id ORDER BY f2.start_ms DESC LIMIT 1), ''),
                     NULLIF(a.user_model, ''), NULLIF(a.airline, ''), a.registration, a.manual
              FROM aircraft a
              LEFT JOIN flight f ON f.aircraft_id = a.id
              LEFT JOIN log_entry l ON l.flight_id = f.id
+             WHERE a.merged_into IS NULL
              GROUP BY a.id
-             ORDER BY a.favourite DESC, COALESCE(SUM(l.total_min), 0) DESC, MAX(f.start_ms) DESC, a.id DESC",
+             ORDER BY a.favorite DESC, COALESCE(SUM(l.total_min), 0) DESC, MAX(f.start_ms) DESC, a.id DESC",
         )?;
         let mut rows: Vec<HangarRow> = st
             .query_map([], |r| {
@@ -510,7 +520,7 @@ impl Store {
                     last_flight_ms: r.get(13)?,
                     best_landing_fpm: r.get(14)?,
                     avg_landing_fpm: r.get(15)?,
-                    favourite: r.get::<_, i64>(16)? != 0,
+                    favorite: r.get::<_, i64>(16)? != 0,
                     last_callsign: r.get(17)?,
                     last_icao: None,
                     last_name: None,
@@ -559,6 +569,8 @@ impl Store {
              WHERE id = ?1",
             params![id, reg, clean(&e.model), clean(&e.airline)],
         )?;
+        // A registration another aircraft already has: the two become one.
+        crate::merge_duplicate_aircraft(&self.conn)?;
         Ok(n > 0)
     }
 
@@ -587,12 +599,36 @@ impl Store {
         Ok(self.conn.last_insert_rowid())
     }
 
-    /// Remove an aircraft added by hand that has no flights.
-    pub fn remove_aircraft(&self, id: i64) -> Result<bool> {
-        Ok(self.conn.execute(
-            "DELETE FROM aircraft WHERE id = ?1 AND NOT EXISTS (SELECT 1 FROM flight WHERE aircraft_id = ?1)",
-            params![id],
-        )? > 0)
+    /// The hangar aircraft with this registration, if any.
+    pub fn aircraft_with_registration(&self, reg: &str) -> Result<Option<i64>> {
+        crate::aircraft_by_reg(&self.conn, reg)
+    }
+
+    /// Delete an aircraft from the hangar. Its flights move to `move_to`
+    /// when given; otherwise they are deleted with it (logbook lines,
+    /// tracks and stamps too). Returns how many flights moved or went.
+    pub fn delete_aircraft(&mut self, id: i64, move_to: Option<i64>) -> Result<usize> {
+        let tx = self.conn.transaction()?;
+        let n = match move_to.filter(|m| *m != id) {
+            Some(target) => {
+                let n = tx.execute("UPDATE flight SET aircraft_id = ?2 WHERE aircraft_id = ?1", params![id, target])?;
+                // The sim's names for it now find the other aircraft.
+                tx.execute("UPDATE aircraft SET merged_into = ?2 WHERE merged_into = ?1", params![id, target])?;
+                tx.execute(
+                    "UPDATE aircraft SET merged_into = ?2, favorite = 0, photo = NULL, manual = 0,
+                        user_reg = NULL, user_model = NULL, airline = NULL WHERE id = ?1",
+                    params![id, target],
+                )?;
+                n
+            }
+            None => {
+                let n = tx.execute("DELETE FROM flight WHERE aircraft_id = ?1", params![id])?;
+                tx.execute("DELETE FROM aircraft WHERE id = ?1 OR merged_into = ?1", params![id])?;
+                n
+            }
+        };
+        tx.commit()?;
+        Ok(n)
     }
 
     /// Log a flight entered by hand. Returns its id.
@@ -620,16 +656,17 @@ impl Store {
                 if ty.is_empty() && reg.is_empty() {
                     None
                 } else {
-                    let found: Option<i64> = tx
-                        .query_row(
-                            "SELECT id FROM aircraft
-                             WHERE (?2 <> '' AND UPPER(COALESCE(NULLIF(user_reg, ''), registration)) = ?2)
-                                OR (?2 = '' AND registration = '' AND icao_type = ?1)
+                    let found: Option<i64> = if reg.is_empty() {
+                        tx.query_row(
+                            "SELECT id FROM aircraft WHERE merged_into IS NULL AND registration = '' AND icao_type = ?1
                              ORDER BY id LIMIT 1",
-                            params![ty, reg],
+                            params![ty],
                             |r| r.get(0),
                         )
-                        .optional()?;
+                        .optional()?
+                    } else {
+                        crate::aircraft_by_reg(&tx, &reg)?
+                    };
                     match found {
                         Some(id) => Some(id),
                         None => {

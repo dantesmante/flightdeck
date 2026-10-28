@@ -10,8 +10,8 @@ export interface RadarFrame {
 }
 
 const API = "https://api.rainviewer.com/public/weather-maps.json";
-/** 256 px tiles, colour scheme 2 ("Universal Blue", the free one),
- * smoothed, snow shown in its own colours. */
+/** 256 px tiles, color scheme 2 ("Universal Blue", the free one),
+ * smoothed, snow shown in its own colors. */
 const TILE = "/256/{z}/{x}/{y}/2/1_1.png";
 
 /** The newest radar frame, or null if RainViewer could not be reached. */

@@ -348,7 +348,7 @@ export interface HangarItem {
   last_flight_ms: number;
   best_landing_fpm: number | null;
   avg_landing_fpm: number | null;
-  favourite: boolean;
+  favorite: boolean;
   last_callsign: string;
   last_icao: string | null;
   last_name: string | null;
@@ -465,10 +465,11 @@ export const api = {
   routes: () => call<Route[]>("get_routes"),
   aircraftPhoto: (id: number) => call<string | null>("get_aircraft_photo", { id }),
   setAircraftPhoto: (id: number, dataUrl: string | null) => call<boolean>("set_aircraft_photo", { id, dataUrl }),
-  setAircraftFavourite: (id: number, favourite: boolean) => call<boolean>("set_aircraft_favourite", { id, favourite }),
+  setAircraftFavorite: (id: number, favorite: boolean) => call<boolean>("set_aircraft_favorite", { id, favorite }),
   updateAircraft: (id: number, edit: AircraftEdit) => call<boolean>("update_aircraft", { id, edit }),
   addAircraft: (aircraft: NewAircraft) => call<number>("add_aircraft", { aircraft }),
-  removeAircraft: (id: number) => call<boolean>("remove_aircraft", { id }),
+  deleteAircraft: (id: number, moveTo: number | null) => call<number>("delete_aircraft", { id, moveTo }),
+  aircraftWithRegistration: (registration: string) => call<number | null>("aircraft_with_registration", { registration }),
   addManualEntry: (entry: ManualEntry) => call<number>("add_manual_entry", { entry }),
   aircraftFlights: (id: number) => call<FlightRow[]>("aircraft_flights", { id }),
   checkUpdate: () => call<UpdateInfo>("check_update"),

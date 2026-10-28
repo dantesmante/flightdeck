@@ -37,14 +37,14 @@ MIT licensed.
   great-circle line between its airports. Hover a line to see the route and
   date; click it to open that flight. Flights that land where they took off
   show as a ring at the airport.
-- **Altitude colours**: the flight path shades from red near the ground,
+- **Altitude colors**: the flight path shades from red near the ground,
   through orange, to green at cruise, scaled to each flight's own top
   altitude. A key on the map shows the range. Switch the map to **3D** and
-  the flight stands up as a coloured curtain from the ground to the
+  the flight stands up as a colored curtain from the ground to the
   altitude flown, seen from the side (heights are stretched on long
   flights so they stay visible; the key says by how much).
 - **Altitude & speed graph** for the live flight, every saved flight and
-  each logbook entry: altitude as a filled profile in the same colours,
+  each logbook entry: altitude as a filled profile in the same colors,
   ground speed as a yellow line. Hover for exact values at any moment.
 - **Volanta import and export**: Settings, Volanta. Import any number of
   Volanta flight files (.json); each becomes a FlightDeck flight (map,
@@ -60,6 +60,9 @@ MIT licensed.
 - **Cancel a flight**: if tracking has started but you decide not to fly,
   Cancel flight throws it away without saving anything.
 - **Flights list**: point at a flight and its route lights up on the map.
+- **Its own title bar**: FlightDeck draws its own window frame, with the
+  time in UTC (Zulu) and your local time under it, and the simulator
+  link.
 - **Real airport names and countries** for every departure and arrival,
   from 72,635 airports (OurAirports, public domain) built into the app.
 - **Saved flights** with block and air times, distance, fuel, track and
@@ -72,7 +75,7 @@ MIT licensed.
 - **Telemetry recorder**: record a real flight once, then replay it through
   the tracker for testing (see below).
 - **Passport book**: a passport whose cover turns open like a real one,
-  in a cover colour you choose (burgundy, red, navy, royal blue, teal,
+  in a cover color you choose (burgundy, red, navy, royal blue, teal,
   green, brown or black). Inside the cover, a world map spread over both
   pages shades every country you have landed in. Then a data page (your
   photo, details and a machine-readable zone), generated rubber stamps and
@@ -94,24 +97,28 @@ MIT licensed.
   flight if you prefer a plain table to the paper look. **Add manual
   entry** logs a flight FlightDeck did not record; the map shows it as a
   line from departure to arrival.
-- **Hangar**: a card for every aircraft you have flown, favourites first
-  and then by hours flown; show all or only favourites. Each card shows the
+- **Hangar**: a card for every aircraft you have flown, favorites first
+  and then by hours flown; show all or only favorites. Each card shows the
   registration, a photo (your own: hover the picture and upload one;
   otherwise the latest photo of that registration from Planespotters.net,
   credited to its photographer; otherwise a silhouette of the type), a
   plain model name worked out from the sim's title (so "PMDG 737-700
   Ryanair" reads "Boeing 737-700"), where it is parked, flights, hours and
-  average landing rate, and a star for favourites. Edit an aircraft's
+  average landing rate, and a star for favorites. Edit an aircraft's
   registration, model name and airline (the registration strip then takes
-  the airline's colours), or **add an aircraft** by hand: flights the sim
-  reports with that registration are logged to it. Click a card to open
+  the airline's colors), or **add an aircraft** by hand: flights the sim
+  reports with that registration are logged to it. The registration is
+  how the hangar knows an aircraft, so there is only ever one aircraft per
+  registration: giving a flight or an aircraft a registration already in
+  the hangar merges them. Delete an aircraft from its Edit screen, either
+  with its flights or moving them to another aircraft. Click a card to open
   the aircraft with its statistics and every flight, searchable, drawn on
   a map.
 - **Fly this aircraft**: with the Parked aircraft layer on, click a parked
   aircraft and press Fly this aircraft. The next flight is logged to that
   aircraft whatever the sim shows.
 - **Settings**: pilot details and photo, nautical miles, statute miles or
-  kilometres, logbook layout, and **sample flights** to
+  kilometers, logbook layout, and **sample flights** to
   fill the passport, logbook and hangar for a quick look.
 
 ## Install (the easy way)
@@ -166,7 +173,7 @@ The easiest route: install the MSFS SDK from the sim's Developer Mode
 (Help → SDK Installer). It installs to one of the folders above. If
 the DLL is missing while MSFS is running, the app tells you.
 
-Before shipping SimConnect.dll inside the installer, check the SDK licence
+Before shipping SimConnect.dll inside the installer, check the SDK license
 terms allow redistribution.
 
 ## Try it without a sim

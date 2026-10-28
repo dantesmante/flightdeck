@@ -86,7 +86,7 @@
       <feColorMatrix in="blot" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  -1.7 0 0 0 1.6" result="press" />
       <feComposite in="rough" in2="press" operator="in" />
     </filter>
-    <!-- The flag: a slight wave and patchy ink, like a second colour stamp. -->
+    <!-- The flag: a slight wave and patchy ink, like a second color stamp. -->
     <filter id="flag-{id}" x="-10%" y="-15%" width="120%" height="130%">
       <feTurbulence type="fractalNoise" baseFrequency="0.06 0.12" numOctaves="1" seed={d.wear + 3} result="wave" />
       <feDisplacementMap in="SourceGraphic" in2="wave" scale="3" xChannelSelector="R" yChannelSelector="G" result="waved" />

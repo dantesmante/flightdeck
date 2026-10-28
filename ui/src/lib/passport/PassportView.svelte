@@ -39,7 +39,7 @@
   let spread = $state(-1);
   let book = $state<Book | null>(null);
 
-  /** Cover colours, all real passport shades that carry gold foil well. */
+  /** Cover colors, all real passport shades that carry gold foil well. */
   const COVERS = [
     { id: "burgundy", name: "Burgundy", color: "#5a1e2a" },
     { id: "red", name: "Red", color: "#7a1c24" },
@@ -271,11 +271,11 @@
           {data.stamps.length} {data.stamps.length === 1 ? "stamp" : "stamps"}, {data.countries.length}
           {data.countries.length === 1 ? "country" : "countries"}. Click the cover to open.
         </span>
-        <div class="colours" role="radiogroup" aria-label="Cover colour">
+        <div class="colors" role="radiogroup" aria-label="Cover color">
           <span class="clabel">Cover</span>
           {#each COVERS as c (c.id)}
             <button
-              class="colour"
+              class="color"
               class:on={c.id === coverId}
               style:--c={c.color}
               role="radio"
@@ -337,7 +337,7 @@
   .cover:hover {
     filter: brightness(1.12);
   }
-  .colours {
+  .colors {
     display: flex;
     align-items: center;
     gap: 7px;
@@ -348,7 +348,7 @@
     font-size: 13px;
     margin-right: 4px;
   }
-  .colour {
+  .color {
     width: 22px;
     height: 22px;
     border-radius: 50%;
@@ -358,10 +358,10 @@
     cursor: pointer;
     transition: transform 0.15s, border-color 0.15s, box-shadow 0.15s;
   }
-  .colour:hover {
+  .color:hover {
     transform: scale(1.15);
   }
-  .colour.on {
+  .color.on {
     border-color: #d8b46a;
     box-shadow: 0 0 0 3px rgba(216, 180, 106, 0.25);
   }

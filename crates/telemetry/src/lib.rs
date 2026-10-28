@@ -2,7 +2,7 @@
 //!
 //! Every simulator connector converts its own data into these types, so the
 //! tracker, store and UI never need to know which simulator is running.
-//! All units are normalised here: feet, knots, feet per minute, degrees, kg.
+//! All units are normalized here: feet, knots, feet per minute, degrees, kg.
 
 use serde::{Deserialize, Serialize};
 

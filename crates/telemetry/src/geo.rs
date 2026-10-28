@@ -20,7 +20,7 @@ pub fn bearing_deg(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
     (y.atan2(x).to_degrees() + 360.0) % 360.0
 }
 
-/// Point reached by travelling `dist_nm` from a start point on `brg_deg`.
+/// Point reached by traveling `dist_nm` from a start point on `brg_deg`.
 pub fn destination(lat: f64, lon: f64, brg_deg: f64, dist_nm: f64) -> (f64, f64) {
     let d = dist_nm / EARTH_RADIUS_NM;
     let (p1, l1, b) = (lat.to_radians(), lon.to_radians(), brg_deg.to_radians());

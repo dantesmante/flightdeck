@@ -526,8 +526,10 @@ fn add_manual_entry(app: tauri::AppHandle, state: tauri::State<AppState>, entry:
 }
 
 #[tauri::command]
-fn update_aircraft(state: tauri::State<AppState>, id: i64, edit: AircraftEdit) -> CmdResult<bool> {
-    state.db.lock().unwrap().update_aircraft(id, &edit).map_err(err)
+fn update_aircraft(app: tauri::AppHandle, state: tauri::State<AppState>, id: i64, edit: AircraftEdit) -> CmdResult<bool> {
+    let ok = state.db.lock().unwrap().update_aircraft(id, &edit).map_err(err)?;
+    let _ = app.emit("flights-changed", 0);
+    Ok(ok)
 }
 
 #[tauri::command]
@@ -538,7 +540,11 @@ fn add_aircraft(state: tauri::State<AppState>, aircraft: NewAircraft) -> CmdResu
     if aircraft.model.trim().is_empty() && aircraft.icao_type.trim().is_empty() {
         return Err("Enter the aircraft model.".into());
     }
-    state.db.lock().unwrap().add_aircraft(&aircraft).map_err(|e| {
+    let db = state.db.lock().unwrap();
+    if db.aircraft_with_registration(&aircraft.registration).map_err(err)?.is_some() {
+        return Err(format!("{} is already in your hangar.", aircraft.registration.trim().to_uppercase()));
+    }
+    db.add_aircraft(&aircraft).map_err(|e| {
         if e.to_string().contains("UNIQUE") {
             "That aircraft is already in your hangar.".to_string()
         } else {
@@ -547,9 +553,22 @@ fn add_aircraft(state: tauri::State<AppState>, aircraft: NewAircraft) -> CmdResu
     })
 }
 
+/// Delete an aircraft; its flights move to `move_to`, or are deleted too.
 #[tauri::command]
-fn remove_aircraft(state: tauri::State<AppState>, id: i64) -> CmdResult<bool> {
-    state.db.lock().unwrap().remove_aircraft(id).map_err(err)
+fn delete_aircraft(app: tauri::AppHandle, state: tauri::State<AppState>, id: i64, move_to: Option<i64>) -> CmdResult<usize> {
+    let n = state.db.lock().unwrap().delete_aircraft(id, move_to).map_err(err)?;
+    match move_to {
+        Some(t) => log::info!("aircraft #{id} deleted; {n} flights moved to #{t}"),
+        None => log::info!("aircraft #{id} deleted with its {n} flights"),
+    }
+    let _ = app.emit("flights-changed", n);
+    Ok(n)
+}
+
+/// The hangar aircraft with a registration, if any (to warn before merging).
+#[tauri::command]
+fn aircraft_with_registration(state: tauri::State<AppState>, registration: String) -> CmdResult<Option<i64>> {
+    state.db.lock().unwrap().aircraft_with_registration(&registration).map_err(err)
 }
 
 #[derive(serde::Serialize)]
@@ -675,8 +694,8 @@ fn get_routes(state: tauri::State<AppState>) -> CmdResult<Vec<Route>> {
 }
 
 #[tauri::command]
-fn set_aircraft_favourite(state: tauri::State<AppState>, id: i64, favourite: bool) -> CmdResult<bool> {
-    state.db.lock().unwrap().set_aircraft_favourite(id, favourite).map_err(err)
+fn set_aircraft_favorite(state: tauri::State<AppState>, id: i64, favorite: bool) -> CmdResult<bool> {
+    state.db.lock().unwrap().set_aircraft_favorite(id, favorite).map_err(err)
 }
 
 /// The latest Planespotters photo of a registration (None if there is none).
@@ -789,10 +808,11 @@ pub fn run() {
             export_flight_volanta,
             export_all_volanta,
             get_diagnostics,
-            set_aircraft_favourite,
+            set_aircraft_favorite,
             update_aircraft,
             add_aircraft,
-            remove_aircraft,
+            delete_aircraft,
+            aircraft_with_registration,
             add_manual_entry,
             spotter_photo,
             aircraft_flights,

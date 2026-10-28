@@ -20,13 +20,80 @@ const MIGRATE_V3: &str = include_str!("migrate_v3.sql");
 const MIGRATE_V4: &str = include_str!("migrate_v4.sql");
 const MIGRATE_V5: &str = include_str!("migrate_v5.sql");
 const MIGRATE_V6: &str = include_str!("migrate_v6.sql");
-const SCHEMA_VERSION: i64 = 6;
+const MIGRATE_V7: &str = include_str!("migrate_v7.sql");
+const SCHEMA_VERSION: i64 = 7;
+
+/// The hangar aircraft with this registration (as the pilot sees it), if any.
+pub(crate) fn aircraft_by_reg(conn: &Connection, reg: &str) -> Result<Option<i64>> {
+    let reg = reg.trim();
+    if reg.is_empty() {
+        return Ok(None);
+    }
+    Ok(conn
+        .query_row(
+            "SELECT id FROM aircraft
+             WHERE merged_into IS NULL AND UPPER(COALESCE(NULLIF(user_reg, ''), registration)) = UPPER(?1)
+             ORDER BY manual DESC, (user_reg IS NOT NULL) DESC, id LIMIT 1",
+            params![reg],
+            |r| r.get(0),
+        )
+        .optional()?)
+}
+
+/// One aircraft per registration: aircraft that share one are merged into
+/// a single hangar aircraft with all their flights. The others stay as
+/// aliases so the sim keeps finding it. Returns how many were merged.
+pub(crate) fn merge_duplicate_aircraft(conn: &Connection) -> Result<usize> {
+    let groups: Vec<String> = {
+        let mut st = conn.prepare(
+            "SELECT UPPER(COALESCE(NULLIF(user_reg, ''), registration)) AS r FROM aircraft
+             WHERE merged_into IS NULL AND TRIM(COALESCE(NULLIF(user_reg, ''), registration)) <> ''
+             GROUP BY r HAVING COUNT(*) > 1",
+        )?;
+        let rows = st.query_map([], |r| r.get(0))?;
+        rows.collect::<std::result::Result<_, _>>()?
+    };
+    let mut merged = 0;
+    for reg in groups {
+        // Keep the aircraft the pilot set up, else the most flown, else the oldest.
+        let ids: Vec<i64> = {
+            let mut st = conn.prepare(
+                "SELECT a.id FROM aircraft a
+                 WHERE a.merged_into IS NULL AND UPPER(COALESCE(NULLIF(a.user_reg, ''), a.registration)) = ?1
+                 ORDER BY a.manual DESC, (a.user_reg IS NOT NULL) DESC,
+                          (SELECT COUNT(*) FROM flight f WHERE f.aircraft_id = a.id) DESC, a.id",
+            )?;
+            let rows = st.query_map(params![reg], |r| r.get(0))?;
+            rows.collect::<std::result::Result<_, _>>()?
+        };
+        let keep = ids[0];
+        for dup in &ids[1..] {
+            conn.execute("UPDATE flight SET aircraft_id = ?1 WHERE aircraft_id = ?2", params![keep, dup])?;
+            conn.execute(
+                "UPDATE aircraft SET
+                    favorite = MAX(favorite, (SELECT favorite FROM aircraft WHERE id = ?2)),
+                    photo = COALESCE(photo, (SELECT photo FROM aircraft WHERE id = ?2)),
+                    user_model = COALESCE(user_model, (SELECT user_model FROM aircraft WHERE id = ?2)),
+                    airline = COALESCE(airline, (SELECT airline FROM aircraft WHERE id = ?2)),
+                    icao_type = CASE WHEN icao_type = '' THEN (SELECT icao_type FROM aircraft WHERE id = ?2) ELSE icao_type END
+                 WHERE id = ?1",
+                params![keep, dup],
+            )?;
+            conn.execute(
+                "UPDATE aircraft SET merged_into = ?1, favorite = 0, photo = NULL WHERE id = ?2 OR merged_into = ?2",
+                params![keep, dup],
+            )?;
+            merged += 1;
+        }
+    }
+    Ok(merged)
+}
 
 /// Remove aircraft no flight uses any more, unless the pilot added them or
 /// gave them details, a photo or a star of their own.
 pub(crate) const DELETE_ORPHAN_AIRCRAFT: &str = "DELETE FROM aircraft
-     WHERE manual = 0 AND favourite = 0 AND photo IS NULL
-       AND user_reg IS NULL AND user_model IS NULL AND airline IS NULL
+     WHERE manual = 0 AND favorite = 0 AND photo IS NULL
+       AND user_reg IS NULL AND user_model IS NULL AND airline IS NULL AND merged_into IS NULL
        AND id NOT IN (SELECT DISTINCT aircraft_id FROM flight WHERE aircraft_id IS NOT NULL)";
 /// Tolerance for track simplification.
 const SIMPLIFY_M: f64 = 15.0;
@@ -184,6 +251,10 @@ impl Store {
         if version < 6 {
             conn.execute_batch(&format!("BEGIN; {MIGRATE_V6} PRAGMA user_version = 6; COMMIT;"))?;
         }
+        if version < 7 {
+            conn.execute_batch(&format!("BEGIN; {MIGRATE_V7} PRAGMA user_version = 7; COMMIT;"))?;
+        }
+        merge_duplicate_aircraft(&conn)?;
         Ok(Store { conn })
     }
 
@@ -534,27 +605,23 @@ fn backfill_v2(conn: &Connection) -> Result<()> {
 
 impl Store {
     fn aircraft_id_with(conn: &Connection, a: &AircraftInfo) -> Result<i64> {
-        let existing: Option<i64> = conn
+        // (id, merged into)
+        let exact: Option<(i64, Option<i64>)> = conn
             .query_row(
-                "SELECT id FROM aircraft WHERE title = ?1 AND registration = ?2",
+                "SELECT id, merged_into FROM aircraft WHERE title = ?1 AND registration = ?2",
                 params![a.title, a.registration],
-                |r| r.get(0),
+                |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .optional()?;
+        // Merged into another aircraft: fly as that one.
+        if let Some((_, Some(into))) = exact {
+            return Ok(into);
+        }
+        let existing = exact.map(|e| e.0);
         // The registration is how the hangar knows an aircraft: a sim
-        // registration the pilot has given an aircraft (by editing it or
-        // adding it by hand) flies as that aircraft.
-        if existing.is_none() && !a.registration.trim().is_empty() {
-            let mine: Option<i64> = conn
-                .query_row(
-                    "SELECT id FROM aircraft
-                     WHERE UPPER(user_reg) = UPPER(?1) OR (manual = 1 AND UPPER(registration) = UPPER(?1))
-                     ORDER BY manual DESC, id LIMIT 1",
-                    params![a.registration.trim()],
-                    |r| r.get(0),
-                )
-                .optional()?;
-            if let Some(id) = mine {
+        // registration already in the hangar flies as that aircraft.
+        if existing.is_none() {
+            if let Some(id) = aircraft_by_reg(conn, &a.registration)? {
                 return Ok(id);
             }
         }

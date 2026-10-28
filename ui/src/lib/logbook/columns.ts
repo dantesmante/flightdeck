@@ -38,7 +38,7 @@ export const LAYOUTS: Record<Layout, Col[]> = {
     { key: "ident", label: "Aircraft ident", width: 70, side: "L", kind: "text", value: (r) => r.ident },
     { key: "from", label: "From", group: "Route of flight", width: 50, side: "L", kind: "text", value: (r) => r.from_icao },
     { key: "to", label: "To", group: "Route of flight", width: 50, side: "L", kind: "text", value: (r) => r.to_icao },
-    { key: "remarks", label: "Remarks, procedures, manoeuvres", width: 0, side: "L", kind: "text", value: (r) => r.remarks, flex: true },
+    { key: "remarks", label: "Remarks, procedures, maneuvers", width: 0, side: "L", kind: "text", value: (r) => r.remarks, flex: true },
 
     { key: "app", label: "Instr. app.", width: 34, side: "R", kind: "count", value: (r) => r.approaches },
     { key: "ldg_day", label: "Day", group: "Landings", width: 36, side: "R", kind: "count", value: (r) => r.day_landings },

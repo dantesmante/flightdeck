@@ -498,7 +498,7 @@ impl Engine {
     /// Start a flight button) so it does not begin again straight away.
     fn cancel_flight(&mut self) {
         if self.tracker.take().is_some() {
-            log::info!("flight cancelled by pilot; nothing saved");
+            log::info!("flight canceled by pilot; nothing saved");
         }
         if let Some(j) = self.journal.take() {
             let _ = j.finish();

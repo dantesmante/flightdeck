@@ -1,4 +1,4 @@
-// A flight track with altitude and speed, and the altitude colour scale
+// A flight track with altitude and speed, and the altitude color scale
 // shared by the map line, the mini map and the altitude & speed graph.
 import type maplibregl from "maplibre-gl";
 import type { TrackPoint } from "./api";
@@ -24,7 +24,7 @@ export const ALT_STOPS: [number, string][] = [
 
 export const SPEED_COLOR = "#ffd447";
 
-/** The altitude range a flight's colours span: the lowest point flown
+/** The altitude range a flight's colors span: the lowest point flown
  * (about field elevation) up to its highest. */
 export function altRange(pts: Pt[]): { lo: number; hi: number; top: number } {
   let lo = Infinity;
@@ -44,7 +44,7 @@ function hex(c: string): [number, number, number] {
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
 }
 
-/** Colour for a fraction 0..1 of the altitude range. */
+/** Color for a fraction 0..1 of the altitude range. */
 export function altColor(f: number): string {
   const x = Math.min(1, Math.max(0, f));
   for (let i = 1; i < ALT_STOPS.length; i++) {
@@ -67,7 +67,7 @@ function merc(lon: number, lat: number): [number, number] {
   return [lon / 360, Math.log(Math.tan(Math.PI / 4 + l / 2)) / (2 * Math.PI)];
 }
 
-/** A line-gradient expression colouring the track by altitude. The source
+/** A line-gradient expression coloring the track by altitude. The source
  * must be added with lineMetrics: true. */
 export function altGradient(pts: Pt[], maxStops = 240): maplibregl.ExpressionSpecification {
   const solid = (c: string): maplibregl.ExpressionSpecification => ["interpolate", ["linear"], ["line-progress"], 0, c, 1, c];
@@ -90,7 +90,7 @@ export function altGradient(pts: Pt[], maxStops = 240): maplibregl.ExpressionSpe
   for (let i = 0; i < pts.length; i++) {
     const f = cum[i] / total;
     const a = (pts[i][2] - lo) / (hi - lo);
-    // Thin out stops, but keep the ends and every real change of colour.
+    // Thin out stops, but keep the ends and every real change of color.
     const end = i === 0 || i === pts.length - 1;
     if (!end && f - last < step && Math.abs(a - lastA) < 0.05) continue;
     if (f <= last + 1e-9) continue;
@@ -131,8 +131,8 @@ export function wallScale(pts: Pt[]): number {
 
 /** The 3D "curtain": one thin strip per track segment, raised from the
  * ground to the altitude flown there (above the lowest point of the flight),
- * coloured like the line. For a fill-extrusion layer reading the `h` (metres)
- * and `c` (colour) properties. */
+ * colored like the line. For a fill-extrusion layer reading the `h` (meters)
+ * and `c` (color) properties. */
 export function wallFeatures(pts: Pt[], scale: number, maxPieces = 1800): GeoJSON.FeatureCollection {
   const features: GeoJSON.Feature[] = [];
   if (pts.length < 2) return { type: "FeatureCollection", features };

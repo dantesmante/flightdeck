@@ -446,3 +446,68 @@ fn manual_flights_go_in_the_logbook() {
     assert!(r[0].dep_lat.is_some() && r[0].arr_lat.is_some());
     assert_eq!(db.hangar().unwrap().len(), 1);
 }
+
+#[test]
+fn one_aircraft_per_registration() {
+    use crate::book::{AircraftEdit, FlightPatch};
+    let mut db = Store::open_in_memory().unwrap();
+    // Two sim aircraft (different titles), then one renamed to the other's registration.
+    let mut a = fly(1);
+    a.aircraft.title = "Livery A".into();
+    a.aircraft.registration = "N111AA".into();
+    let mut b = fly(2);
+    b.aircraft.title = "Livery B".into();
+    b.aircraft.registration = "N222BB".into();
+    db.save_flight(&a, &SaveContext::default()).unwrap();
+    db.save_flight(&b, &SaveContext::default()).unwrap();
+    let h = db.hangar().unwrap();
+    assert_eq!(h.len(), 2);
+    let bid = h.iter().find(|x| x.registration == "N222BB").unwrap().id;
+    db.update_aircraft(bid, &AircraftEdit { registration: Some("n111aa".into()), ..Default::default() }).unwrap();
+    let h = db.hangar().unwrap();
+    assert_eq!(h.len(), 1, "merged into one aircraft");
+    assert_eq!(h[0].flights, 2);
+    // Either livery flown again still lands on that aircraft.
+    db.save_flight(&b, &SaveContext::default()).unwrap();
+    db.save_flight(&a, &SaveContext::default()).unwrap();
+    let h = db.hangar().unwrap();
+    assert_eq!(h.len(), 1);
+    assert_eq!(h[0].flights, 4);
+
+    // A logbook edit giving an unregistered flight that registration joins it too.
+    let mut c = fly(3);
+    c.aircraft.title = "No reg".into();
+    c.aircraft.registration = String::new();
+    let cid = db.save_flight(&c, &SaveContext::default()).unwrap();
+    assert_eq!(db.hangar().unwrap().len(), 2);
+    db.update_flight(cid, &FlightPatch { ident: Some("N111AA".into()), ..Default::default() }).unwrap();
+    let h = db.hangar().unwrap();
+    assert_eq!(h.len(), 1);
+    assert_eq!(h[0].flights, 5);
+}
+
+#[test]
+fn deleting_an_aircraft_moves_or_deletes_its_flights() {
+    let mut db = Store::open_in_memory().unwrap();
+    let mut a = fly(1);
+    a.aircraft.registration = "N1".into();
+    let mut b = fly(2);
+    b.aircraft.title = "Other".into();
+    b.aircraft.registration = "N2".into();
+    db.save_flight(&a, &SaveContext::default()).unwrap();
+    db.save_flight(&a, &SaveContext::default()).unwrap();
+    db.save_flight(&b, &SaveContext::default()).unwrap();
+    let h = db.hangar().unwrap();
+    let n1 = h.iter().find(|x| x.registration == "N1").unwrap().id;
+    let n2 = h.iter().find(|x| x.registration == "N2").unwrap().id;
+    assert_eq!(db.delete_aircraft(n1, Some(n2)).unwrap(), 2);
+    let h = db.hangar().unwrap();
+    assert_eq!(h.len(), 1);
+    assert_eq!(h[0].flights, 3);
+    // The deleted aircraft's sim name now flies as N2.
+    db.save_flight(&a, &SaveContext::default()).unwrap();
+    assert_eq!(db.hangar().unwrap()[0].flights, 4);
+    assert_eq!(db.delete_aircraft(n2, None).unwrap(), 4);
+    assert!(db.hangar().unwrap().is_empty());
+    assert!(db.logbook().unwrap().is_empty());
+}

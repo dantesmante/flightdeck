@@ -18,7 +18,8 @@
         "height": 820,
         "minWidth": 960,
         "minHeight": 620,
-        "backgroundColor": "#172430"
+        "backgroundColor": "#1b1c1e",
+        "decorations": false
       }
     ],
     "security": {
@@ -27,9 +28,13 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis"],
+    "targets": [
+      "nsis"
+    ],
     "windows": {
-      "nsis": { "installMode": "currentUser" }
+      "nsis": {
+        "installMode": "currentUser"
+      }
     },
     "category": "Utility",
     "shortDescription": "Light, local-first flight tracker for flight simulators",

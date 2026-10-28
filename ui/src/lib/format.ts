@@ -52,7 +52,7 @@ export function heading(v: number | null | undefined): string {
   return String(h).padStart(3, "0");
 }
 
-/** Colour for a landing-rate grade. */
+/** Color for a landing-rate grade. */
 export function gradeTone(grade: string | null | undefined): "good" | "warn" | "bad" | "dim" {
   switch (grade) {
     case "Butter":

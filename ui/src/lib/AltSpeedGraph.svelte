@@ -73,7 +73,7 @@
     for (let t = first; t <= t1; t += tStep * 60000) timeTicks.push(t);
     return {
       w, h, x, ya, ys, alt, spd, area, floor, altTicks, spdTicks, timeTicks, t0, span,
-      // The fill's colour scale runs over the flight's own range, like the line.
+      // The fill's color scale runs over the flight's own range, like the line.
       gy0: ya(lo), gy1: ya(hi),
     };
   });

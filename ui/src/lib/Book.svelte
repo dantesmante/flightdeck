@@ -7,7 +7,7 @@
   // revealing the page underneath.
   //
   // With a `cover`, the book starts closed (spread -1): only the cover shows,
-  // centred. Opening turns the cover like any other leaf, with page 0 printed
+  // centered. Opening turns the cover like any other leaf, with page 0 printed
   // on its inside, while the book slides across to sit open in the middle.
   import type { Snippet } from "svelte";
 
@@ -19,7 +19,7 @@
     /** Front cover. When given, the book can be closed (spread -1). */
     cover?: Snippet;
     spread?: number;
-    /** Extra classes for the book (paper colour etc. come from the pages). */
+    /** Extra classes for the book (paper color etc. come from the pages). */
     label?: string;
     onturn?: (spread: number) => void;
   }
@@ -78,7 +78,7 @@
     requestAnimationFrame(() => start("prev"));
   }
 
-  /** Closed, or about to be: the cover sits centred. */
+  /** Closed, or about to be: the cover sits centered. */
   const shut = $derived(
     !!cover &&
       ((spread === -1 && !(turning === "next" && stage > 0)) || (spread === 0 && turning === "prev" && stage > 0)),

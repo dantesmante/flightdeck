@@ -1,6 +1,6 @@
 <script lang="ts">
-  // The hangar: a card for every aircraft, favourites first, then by hours
-  // flown. Show all or only favourites; add an aircraft by hand; hover the
+  // The hangar: a card for every aircraft, favorites first, then by hours
+  // flown. Show all or only favorites; add an aircraft by hand; hover the
   // picture to upload a photo; click anywhere else on a card to open the
   // aircraft and its flights.
   import { onMount } from "svelte";
@@ -20,8 +20,8 @@
   let photos = $state<Record<number, string>>({});
   let message = $state<string | null>(null);
   let openId = $state<number | null>(null);
-  let onlyFavourites = $state(false);
-  /** Favourites as they were when the list was last ordered: starring a
+  let onlyFavorites = $state(false);
+  /** Favorites as they were when the list was last ordered: starring a
    * card leaves it where it is until the hangar is opened again. */
   let favSnapshot = $state<Set<number>>(new Set());
   /** The add/edit form: "new", an aircraft, or closed. */
@@ -29,7 +29,7 @@
 
   async function load() {
     items = (await api.hangar()) ?? [];
-    favSnapshot = new Set(items.filter((i) => i.favourite).map((i) => i.id));
+    favSnapshot = new Set(items.filter((i) => i.favorite).map((i) => i.id));
     loaded = true;
     for (const it of items.filter((i) => i.has_photo && !photos[i.id])) {
       const p = await api.aircraftPhoto(it.id);
@@ -38,17 +38,17 @@
   }
   onMount(load);
 
-  const favCount = $derived(items.filter((i) => i.favourite).length);
-  const shown = $derived(onlyFavourites ? items.filter((i) => favSnapshot.has(i.id)) : items);
+  const favCount = $derived(items.filter((i) => i.favorite).length);
+  const shown = $derived(onlyFavorites ? items.filter((i) => favSnapshot.has(i.id)) : items);
   const totalMinutes = $derived(items.reduce((a, i) => a + i.minutes, 0));
   const opened = $derived(items.find((i) => i.id === openId) ?? null);
 
   const hours = (min: number) => (min / 60).toLocaleString("en-US", { maximumFractionDigits: 1, minimumFractionDigits: 1 });
   const name = (it: HangarItem) => modelName(it);
 
-  function showFavourites(on: boolean) {
-    favSnapshot = new Set(items.filter((i) => i.favourite).map((i) => i.id));
-    onlyFavourites = on;
+  function showFavorites(on: boolean) {
+    favSnapshot = new Set(items.filter((i) => i.favorite).map((i) => i.id));
+    onlyFavorites = on;
   }
 
   async function pick(it: HangarItem, e: Event) {
@@ -75,8 +75,8 @@
   }
 
   async function star(it: HangarItem) {
-    it.favourite = !it.favourite;
-    await api.setAircraftFavourite(it.id, it.favourite);
+    it.favorite = !it.favorite;
+    await api.setAircraftFavorite(it.id, it.favorite);
   }
 
   async function saved(id: number) {
@@ -111,10 +111,10 @@
     </header>
     {#if items.length}
       <div class="chips" role="group" aria-label="Show">
-        <button class:on={!onlyFavourites} onclick={() => showFavourites(false)}>All <span>{items.length}</span></button>
-        <button class:on={onlyFavourites} onclick={() => showFavourites(true)}>
+        <button class:on={!onlyFavorites} onclick={() => showFavorites(false)}>All <span>{items.length}</span></button>
+        <button class:on={onlyFavorites} onclick={() => showFavorites(true)}>
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.2l2.7 5.6 6.1.8-4.5 4.2 1.1 6.1L12 17l-5.4 2.9 1.1-6.1-4.5-4.2 6.1-.8z" /></svg>
-          Favourites <span>{favCount}</span>
+          Favorites <span>{favCount}</span>
         </button>
       </div>
     {/if}
@@ -139,7 +139,7 @@
             </div>
             <div class="picture">
               <AircraftPicture item={it} own={photos[it.id] ?? null} onpick={(e) => pick(it, e)} onremove={() => removePhoto(it)} />
-              <button class="star" class:on={it.favourite} onclick={() => star(it)} aria-pressed={it.favourite} aria-label={it.favourite ? "Remove from favourites" : "Add to favourites"}>
+              <button class="star" class:on={it.favorite} onclick={() => star(it)} aria-pressed={it.favorite} aria-label={it.favorite ? "Remove from favorites" : "Add to favorites"}>
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.2l2.7 5.6 6.1.8-4.5 4.2 1.1 6.1L12 17l-5.4 2.9 1.1-6.1-4.5-4.2 6.1-.8z" /></svg>
               </button>
             </div>
@@ -156,7 +156,7 @@
             </dl>
           </article>
         {/each}
-        {#if shown.length === 0}<p class="none">No favourites yet. Star an aircraft to keep it here.</p>{/if}
+        {#if shown.length === 0}<p class="none">No favorites yet. Star an aircraft to keep it here.</p>{/if}
       </div>
     {/if}
     {#if message}<p class="msg" role="status">{message}</p>{/if}
@@ -320,8 +320,8 @@
     letter-spacing: 0.02em;
     white-space: nowrap;
   }
-  /* An airline's colours behind the registration: its main colour with a
-     cheat-line stripe in the accent colour. */
+  /* An airline's colors behind the registration: its main color with a
+     cheat-line stripe in the accent color. */
   .reg.airline {
     color: #fff;
     background:

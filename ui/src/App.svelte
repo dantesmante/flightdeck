@@ -12,6 +12,7 @@
   import SettingsView from "./lib/SettingsView.svelte";
   import UpdateBanner from "./lib/UpdateBanner.svelte";
   import Briefing from "./lib/Briefing.svelte";
+  import TitleBar from "./lib/TitleBar.svelte";
   import { briefing, closeBriefing } from "./lib/briefingStore.svelte";
   import { fromTrack, type Pt } from "./lib/track";
   import { checkForUpdates } from "./lib/updates.svelte";
@@ -173,14 +174,10 @@
   );
 </script>
 
+<div class="app">
+<TitleBar {linkText} link={status?.link ?? "waiting"} />
 <div class="shell" class:full class:collapsed={collapsed && !full}>
   <nav class="rail" aria-label="Main">
-    <div class="mark" aria-hidden="true">
-      <svg viewBox="0 0 1024 1024" width="30" height="30">
-        <circle cx="512" cy="512" r="330" fill="none" stroke="#2E4658" stroke-width="60" />
-        <path d="M190 700 C 360 520, 560 640, 820 330" fill="none" stroke="#E2468F" stroke-width="70" stroke-linecap="round" />
-      </svg>
-    </div>
     {#each NAV as item (item.id)}
       <button class:on={view === item.id} onclick={() => go(item.id)} aria-current={view === item.id ? "page" : undefined}>
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d={item.icon} /></svg>
@@ -241,13 +238,20 @@
     {/if}
   </aside>
 </div>
+</div>
 
 <style>
+  .app {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+  }
   .shell {
     position: relative;
     display: grid;
     grid-template-columns: 76px 1fr 380px;
-    height: 100%;
+    flex: 1;
+    min-height: 0;
   }
   .shell.full,
   .shell.collapsed {
@@ -304,11 +308,6 @@
     padding: 14px 6px;
     background: var(--panel);
     border-right: 1px solid var(--rule);
-  }
-  .mark {
-    display: flex;
-    justify-content: center;
-    padding-bottom: 14px;
   }
   .rail button {
     display: flex;

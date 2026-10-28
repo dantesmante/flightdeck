@@ -1,11 +1,11 @@
 // The night-chart look shared by the main map and the logbook's mini map:
-// OpenFreeMap vector tiles recoloured at load, and a plain grid offline.
+// OpenFreeMap vector tiles recolored at load, and a plain grid offline.
 import type maplibregl from "maplibre-gl";
 
 export const STYLE = "https://tiles.openfreemap.org/styles/positron";
 
 export const C = {
-  // A quiet, low-contrast grey chart, so flights stand out on top of it.
+  // A quiet, low-contrast gray chart, so flights stand out on top of it.
   land: "#1b1c1e",
   water: "#141516",
   green: "#1c1e1e",
@@ -28,7 +28,7 @@ function setPaint(map: maplibregl.Map, id: string, prop: string, value: unknown)
     }
   }
 
-/** Recolour every layer of the base style by what it draws. */
+/** Recolor every layer of the base style by what it draws. */
 export function tintMap(map: maplibregl.Map) {
     for (const layer of map.getStyle().layers ?? []) {
       const id = layer.id.toLowerCase();

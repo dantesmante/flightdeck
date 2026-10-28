@@ -1,7 +1,7 @@
 //! Diagnostics: a log kept in memory and in `flightdeck.log` (in the data
 //! folder), and a plain-text report the pilot can copy or save and send,
 //! with the recent flights' timelines. The installed app has no terminal,
-//! so this is how sim-specific behaviour gets diagnosed.
+//! so this is how sim-specific behavior gets diagnosed.
 
 use std::collections::VecDeque;
 use std::fs::{File, OpenOptions};

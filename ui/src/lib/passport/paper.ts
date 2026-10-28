@@ -16,7 +16,7 @@ function guilloche(w: number, h: number, colors: string[]): string {
     }
     lines.push(`<path d="${d}" fill="none" stroke="${colors[i % colors.length]}" stroke-width="0.6" opacity="0.55"/>`);
   }
-  // A faint rosette, drawn as a closed curve through the centre so there
+  // A faint rosette, drawn as a closed curve through the center so there
   // is no empty disc in the middle of the page.
   const cx = w / 2;
   const cy = h * 0.46;
