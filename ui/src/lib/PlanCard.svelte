@@ -2,7 +2,7 @@
   // The loaded flight plan: callsign, airports, the main numbers and the
   // route string, with a way to remove it.
   import type { FlightPlan } from "./api";
-  import { briefing, openBriefing } from "./briefing.svelte";
+  import { briefing, openBriefing } from "./briefingStore.svelte";
   import { hhmm, int } from "./format";
   import { distance } from "./prefs.svelte";
 

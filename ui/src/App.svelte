@@ -11,7 +11,7 @@
   import SettingsView from "./lib/SettingsView.svelte";
   import UpdateBanner from "./lib/UpdateBanner.svelte";
   import Briefing from "./lib/Briefing.svelte";
-  import { briefing, closeBriefing } from "./lib/briefing.svelte";
+  import { briefing, closeBriefing } from "./lib/briefingStore.svelte";
   import { fromTrack, type Pt } from "./lib/track";
   import { checkForUpdates } from "./lib/updates.svelte";
 
