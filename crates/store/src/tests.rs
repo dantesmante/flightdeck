@@ -528,3 +528,19 @@ fn logbook_class_follows_the_type_and_can_be_overridden() {
     db.update_log_entry(id, &LogPatch { class_override: Some(String::new()), ..Default::default() }).unwrap();
     assert_eq!(db.logbook().unwrap()[0].category_class, "SEL");
 }
+
+#[test]
+fn duplicate_flights_are_found_and_deleted() {
+    let mut db = Store::open_in_memory().unwrap();
+    let ctx = SaveContext { dep: place("KSEA", "US"), arr: place("KPDX", "US"), ..Default::default() };
+    let a = db.save_flight(&fly(1), &ctx).unwrap();
+    let b = db.save_flight(&fly(1), &ctx).unwrap();
+    let other = SaveContext { dep: place("KSEA", "US"), arr: place("KSFO", "US"), ..Default::default() };
+    db.save_flight(&fly(1), &other).unwrap();
+    let groups = db.duplicate_flights().unwrap();
+    assert_eq!(groups.len(), 1);
+    let ids: Vec<i64> = groups[0].iter().map(|d| d.flight.id).collect();
+    assert_eq!(ids, vec![a, b], "the older complete record first");
+    assert_eq!(db.delete_flights(&[b]).unwrap(), 1);
+    assert!(db.duplicate_flights().unwrap().is_empty());
+}

@@ -312,8 +312,11 @@ impl Tracker {
     }
 
     /// Has the flight got far enough to be worth saving?
+    /// Worth saving: it took off, or it started in the air and really went
+    /// somewhere. (In the MSFS menus the sim can report an aircraft hanging
+    /// in the air that never moves: that is not a flight.)
     pub fn has_flown(&self) -> bool {
-        self.takeoff.is_some() || self.started_airborne
+        self.takeoff.is_some() || (self.started_airborne && self.distance_nm >= 1.0)
     }
 
     pub fn live(&self) -> Option<LiveFlight> {

@@ -6,6 +6,7 @@
   import { groups, LAYOUTS, LIST_COLS, printValue, type Col, type Layout } from "./columns";
   import EntryCard from "./EntryCard.svelte";
   import ManualEntry from "./ManualEntry.svelte";
+  import Duplicates from "./Duplicates.svelte";
 
   let { onflight }: { onflight?: (flightId: number) => void } = $props();
 
@@ -20,6 +21,7 @@
   let hover = $state<number | null>(null);
   let opened = $state<LogRow | null>(null);
   let adding = $state(false);
+  let dupes = $state(false);
 
   /** A new manual entry: show the page it landed on. */
   async function added(id: number) {
@@ -187,6 +189,10 @@
         </button>
       </div>
     {/if}
+    <button class="add dup" onclick={() => (dupes = true)} title="Find flights logged more than once">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" /></svg>
+      Find duplicates
+    </button>
     <button class="add" onclick={() => (adding = true)}>
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
       Add manual entry
@@ -239,6 +245,10 @@
     <p class="tip">Click any {list ? "flight" : "line"} to see the flight, edit it or delete it.</p>
   {/if}
 </section>
+
+{#if dupes}
+  <Duplicates onclose={() => (dupes = false)} ondone={() => load()} />
+{/if}
 
 {#if adding}
   <ManualEntry onclose={() => (adding = false)} onsaved={added} />
@@ -311,6 +321,13 @@
     padding: 5px 12px;
     font-size: 13px;
     font-weight: 600;
+  }
+  .add.dup + .add {
+    margin-left: 0;
+  }
+  .add svg rect,
+  .add svg path {
+    fill: none;
   }
   .add:hover {
     border-color: var(--amber);

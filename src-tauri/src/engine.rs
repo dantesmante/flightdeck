@@ -391,14 +391,17 @@ impl Engine {
             // pressed "Start a flight". Sims that do not report power (demo,
             // X-Plane) start straight away.
             let msfs = matches!(sim, SimKind::Msfs2020 | SimKind::Msfs2024);
-            let signal = !s.paused && (s.engines_running > 0 || s.powered.unwrap_or(!msfs));
+            // MSFS camera states for the menus, world map and hangar: never
+            // a flight, whatever the aircraft behind them reports.
+            let in_menu = msfs && s.camera_state.is_some_and(|c| matches!(c, 11..=15 | 21));
+            let signal = !s.paused && !in_menu && (s.engines_running > 0 || s.powered.unwrap_or(!msfs));
             if !signal {
                 self.need_reset = false;
             }
             // "Start a flight" skips the power check but still waits for a
             // real cockpit: not paused, and on the ground or powered (the
             // menus can report an unpowered aircraft hanging in the air).
-            let armed_ready = self.armed && !s.paused && (signal || s.on_ground);
+            let armed_ready = self.armed && !s.paused && !in_menu && (signal || s.on_ground);
             if !(armed_ready || (signal && !self.need_reset)) {
                 self.last_sample = Some(s);
                 return;

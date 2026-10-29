@@ -353,3 +353,11 @@ fn standing_still_after_landing_ends_the_flight() {
     assert_eq!(s.status, FlightStatus::Complete);
     assert!(s.events.iter().any(|e| e.kind == "parked_by_timeout"));
 }
+
+#[test]
+fn an_aircraft_hanging_still_in_the_air_is_not_a_flight() {
+    // The MSFS menus can show an aircraft in the air that never moves.
+    let mut f = Script::starting(false);
+    f.run(60.0, 10.0, |s| s.gs_kt = 0.0);
+    assert!(f.tr.end("sim closed").is_none());
+}

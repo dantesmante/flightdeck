@@ -579,6 +579,21 @@ fn delete_aircraft(app: tauri::AppHandle, state: tauri::State<AppState>, id: i64
     Ok(n)
 }
 
+/// Sets of flights that look like the same flight logged twice or more.
+#[tauri::command]
+fn find_duplicates(state: tauri::State<AppState>) -> CmdResult<Vec<Vec<store::DuplicateFlight>>> {
+    state.db.lock().unwrap().duplicate_flights().map_err(err)
+}
+
+/// Delete the chosen flights (from the duplicate finder).
+#[tauri::command]
+fn delete_flights(app: tauri::AppHandle, state: tauri::State<AppState>, ids: Vec<i64>) -> CmdResult<usize> {
+    let n = state.db.lock().unwrap().delete_flights(&ids).map_err(err)?;
+    log::info!("deleted {n} duplicate flights");
+    let _ = app.emit("flights-changed", n);
+    Ok(n)
+}
+
 /// The hangar aircraft with a registration, if any (to warn before merging).
 #[tauri::command]
 fn aircraft_with_registration(state: tauri::State<AppState>, registration: String) -> CmdResult<Option<i64>> {
@@ -827,6 +842,8 @@ pub fn run() {
             update_aircraft,
             add_aircraft,
             delete_aircraft,
+            find_duplicates,
+            delete_flights,
             aircraft_with_registration,
             add_manual_entry,
             spotter_photo,

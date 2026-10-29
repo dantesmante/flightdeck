@@ -150,6 +150,16 @@ pub struct Imported {
     pub file: String,
 }
 
+/// One of a set of flights that look like duplicates.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DuplicateFlight {
+    #[serde(flatten)]
+    pub flight: FlightRow,
+    pub has_track: bool,
+    /// Where it came from: "" (recorded), "manual", "volanta", "elevatex".
+    pub source: String,
+}
+
 /// One row of the flight list, ready for the UI.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FlightRow {
@@ -377,6 +387,56 @@ impl Store {
         let mut st = self.conn.prepare("SELECT t, kind, data FROM flight_event WHERE flight_id = ?1 ORDER BY t")?;
         let rows = st.query_map(params![id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
         Ok(rows.collect::<std::result::Result<_, _>>()?)
+    }
+
+    /// Flights that look like the same flight logged more than once: same
+    /// day (UTC), same aircraft, same departure and arrival. Each group is
+    /// ordered with the most complete record first (it has a track, then
+    /// the longest), so the others are the ones to delete.
+    pub fn duplicate_flights(&self) -> Result<Vec<Vec<DuplicateFlight>>> {
+        let mut st = self.conn.prepare(
+            "SELECT f.id, COALESCE(f.block_out, f.takeoff, f.start_ms) / 86400000, COALESCE(f.aircraft_id, -1),
+                    COALESCE(f.dep_icao, ''), COALESCE(f.arr_icao, ''),
+                    EXISTS (SELECT 1 FROM track t WHERE t.flight_id = f.id), COALESCE(l.total_min, 0), COALESCE(f.source, '')
+             FROM flight f LEFT JOIN log_entry l ON l.flight_id = f.id",
+        )?;
+        type Key = (i64, i64, String, String);
+        let mut groups: std::collections::BTreeMap<Key, Vec<(i64, bool, i64, String)>> = Default::default();
+        let rows = st.query_map([], |r| {
+            Ok(((r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?), (r.get(0)?, r.get(5)?, r.get(6)?, r.get(7)?)))
+        })?;
+        for row in rows {
+            let (k, v): (Key, (i64, bool, i64, String)) = row?;
+            groups.entry(k).or_default().push(v);
+        }
+        let mut out = Vec::new();
+        for (_, mut g) in groups.into_iter().filter(|(_, g)| g.len() > 1) {
+            g.sort_by_key(|(id, track, min, _)| (!*track, -*min, *id));
+            let mut list = Vec::new();
+            for (id, has_track, _, source) in g {
+                if let Some(flight) = self.get_flight(id)? {
+                    list.push(DuplicateFlight { flight, has_track, source });
+                }
+            }
+            if list.len() > 1 {
+                out.push(list);
+            }
+        }
+        // Newest first.
+        out.sort_by_key(|g| std::cmp::Reverse(g[0].flight.start_ms));
+        Ok(out)
+    }
+
+    /// Delete several flights at once. Returns how many went.
+    pub fn delete_flights(&mut self, ids: &[i64]) -> Result<usize> {
+        let tx = self.conn.transaction()?;
+        let mut n = 0;
+        for id in ids {
+            n += tx.execute("DELETE FROM flight WHERE id = ?1", params![id])?;
+        }
+        tx.execute(DELETE_ORPHAN_AIRCRAFT, [])?;
+        tx.commit()?;
+        Ok(n)
     }
 
     pub fn get_flight(&self, id: i64) -> Result<Option<FlightRow>> {

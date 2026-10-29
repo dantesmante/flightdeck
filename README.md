@@ -103,7 +103,10 @@ MIT licensed.
   writing stays sharp. Switch to dark paper, or to a simple list of every
   flight if you prefer a plain table to the paper look. **Add manual
   entry** logs a flight FlightDeck did not record; the map shows it as a
-  line from departure to arrival.
+  line from departure to arrival. **Find duplicates** lists flights logged
+  more than once (same day, aircraft, departure and arrival), ticks all but
+  the most complete of each, and deletes them only after you review the
+  list.
 - **Hangar**: a card for every aircraft you have flown, favorites first
   and then by hours flown; show all or only favorites. Each card shows the
   registration, a photo (your own: hover the picture and upload one;

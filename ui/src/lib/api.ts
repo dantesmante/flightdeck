@@ -213,6 +213,13 @@ export interface FlightRow {
   landings: number;
 }
 
+/** One of a set of flights that look like the same flight logged twice. */
+export interface DuplicateFlight extends FlightRow {
+  has_track: boolean;
+  /** "" (recorded by FlightDeck), "manual", "volanta" or "elevatex". */
+  source: string;
+}
+
 export interface TrackPoint {
   t_ms: number;
   lat: number;
@@ -439,6 +446,8 @@ export const api = {
   totals: () => call<Totals>("get_totals"),
   flight: (id: number) => call<FlightDetail | null>("get_flight", { id }),
   deleteFlight: (id: number) => call<boolean>("delete_flight", { id }),
+  findDuplicates: () => call<DuplicateFlight[][]>("find_duplicates"),
+  deleteFlights: (ids: number[]) => call<number>("delete_flights", { ids }),
   startDemo: (route: number | null, speedup = 30) => call<void>("start_demo", { route, speedup }),
   stopDemo: () => call<void>("stop_demo"),
   endFlight: () => call<void>("end_flight"),
