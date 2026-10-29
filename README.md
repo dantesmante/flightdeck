@@ -91,7 +91,10 @@ MIT licensed.
   handwritten or typed, with page totals carried forward. Night time and
   night landings come from the sun's position along your track. Click a
   line to see the flight on a mini map, edit any field (date, times,
-  airports, aircraft, hours, remarks) or delete it everywhere. Arrows under
+  airports, aircraft, hours, remarks, and the class: SEL, MEL, SES or
+  MES) or delete it everywhere. The class comes from a table of aircraft
+  types (a C172 is always SEL, an A320 MEL, floats make it sea), not from
+  the engine count the sim reports. Arrows under
   the book turn the pages, and the book grows to fill the window so the
   writing stays sharp. Switch to dark paper, or to a simple list of every
   flight if you prefer a plain table to the paper look. **Add manual

@@ -69,6 +69,9 @@ pub struct LogPatch {
     pub night_landings: Option<i64>,
     pub approaches: Option<i64>,
     pub remarks: Option<String>,
+    /// SEL, MEL, SES or MES for this line; empty = the aircraft's own class.
+    #[serde(default)]
+    pub class_override: Option<String>,
 }
 
 /// Flight facts the pilot may correct from the logbook. `None` = unchanged.
@@ -268,7 +271,7 @@ impl Store {
         let mut st = self.conn.prepare(
             "SELECT f.id, COALESCE(f.block_out, f.takeoff, f.start_ms), f.sim, f.status,
                     COALESCE(NULLIF(a.icao_type, ''), a.title, ''), COALESCE(NULLIF(a.user_reg, ''), a.registration, ''),
-                    COALESCE(a.category_class, ''), COALESCE(a.engine_count, 0),
+                    COALESCE(NULLIF(l.class_override, ''), a.category_class, ''), COALESCE(a.engine_count, 0),
                     COALESCE(f.dep_icao, ''), COALESCE(f.arr_icao, ''),
                     COALESCE(f.block_out, f.takeoff), COALESCE(f.block_in, f.landing),
                     l.total_min, l.night_min, l.ifr_min, l.xc_min, l.pic_min, l.dual_min,
@@ -317,7 +320,8 @@ impl Store {
                 dual_min = COALESCE(?7, dual_min), sim_inst_min = COALESCE(?8, sim_inst_min),
                 act_inst_min = COALESCE(?9, act_inst_min), day_landings = COALESCE(?10, day_landings),
                 night_landings = COALESCE(?11, night_landings), approaches = COALESCE(?12, approaches),
-                remarks = COALESCE(?13, remarks)
+                remarks = COALESCE(?13, remarks),
+                class_override = CASE WHEN ?14 IS NULL THEN class_override ELSE NULLIF(?14, '') END
              WHERE flight_id = ?1",
             params![
                 flight_id,
@@ -333,6 +337,10 @@ impl Store {
                 p.night_landings.map(|v| v.max(0)),
                 p.approaches.map(|v| v.max(0)),
                 p.remarks,
+                p.class_override.as_deref().map(|c| match c.trim().to_uppercase().as_str() {
+                    c @ ("SEL" | "MEL" | "SES" | "MES") => c.to_string(),
+                    _ => String::new(),
+                }),
             ],
         )?;
         if n > 0 {
@@ -584,12 +592,7 @@ impl Store {
             "piston" | "turboprop" | "jet" | "helo" | "glider" => a.engine_type.as_str(),
             _ => "unknown",
         };
-        let class = match engine {
-            "helo" => "RH",
-            "glider" => "GL",
-            _ if a.engine_count >= 2 => "MEL",
-            _ => "SEL",
-        };
+        let class = crate::types::class_for(&ty, model, a.engine_count.clamp(0, 255) as u8, crate::types::engine_from_str(engine));
         let title = if model.is_empty() { ty.clone() } else { model.to_string() };
         self.conn.execute(
             "INSERT INTO aircraft (icao_type, title, registration, engine_count, engine_type, category_class, user_model, airline, manual)

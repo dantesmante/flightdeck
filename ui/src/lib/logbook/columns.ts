@@ -29,7 +29,9 @@ const hhmmZ = (ms: number | null) => {
   const d = new Date(ms);
   return `${String(d.getUTCHours()).padStart(2, "0")}${String(d.getUTCMinutes()).padStart(2, "0")}`;
 };
-const singleEngine = (r: LogRow) => r.category_class !== "MEL";
+// Category and class decide the columns: SEL and MEL (land) for the FAA
+// layout; single- or multi-engine for EASA.
+const is = (r: LogRow, ...c: string[]) => c.includes(r.category_class);
 
 export const LAYOUTS: Record<Layout, Col[]> = {
   faa: [
@@ -43,8 +45,8 @@ export const LAYOUTS: Record<Layout, Col[]> = {
     { key: "app", label: "Instr. app.", width: 34, side: "R", kind: "count", value: (r) => r.approaches },
     { key: "ldg_day", label: "Day", group: "Landings", width: 36, side: "R", kind: "count", value: (r) => r.day_landings },
     { key: "ldg_night", label: "Night", group: "Landings", width: 36, side: "R", kind: "count", value: (r) => r.night_landings },
-    { key: "sel", label: "SEL", group: "Category and class", width: 46, side: "R", kind: "minutes", value: (r) => (singleEngine(r) ? r.total_min : 0) },
-    { key: "mel", label: "MEL", group: "Category and class", width: 46, side: "R", kind: "minutes", value: (r) => (singleEngine(r) ? 0 : r.total_min) },
+    { key: "sel", label: "SEL", group: "Category and class", width: 46, side: "R", kind: "minutes", value: (r) => (is(r, "SEL") ? r.total_min : 0) },
+    { key: "mel", label: "MEL", group: "Category and class", width: 46, side: "R", kind: "minutes", value: (r) => (is(r, "MEL") ? r.total_min : 0) },
     { key: "xc", label: "Cross-country", width: 48, side: "R", kind: "minutes", value: (r) => r.xc_min },
     { key: "night", label: "Night", width: 44, side: "R", kind: "minutes", value: (r) => r.night_min },
     { key: "act", label: "Actual", group: "Instrument", width: 44, side: "R", kind: "minutes", value: (r) => r.act_inst_min },
@@ -61,8 +63,8 @@ export const LAYOUTS: Record<Layout, Col[]> = {
     { key: "arr_t", label: "Time", group: "Arrival", width: 38, side: "L", kind: "text", value: (r) => hhmmZ(r.in_ms) },
     { key: "type", label: "Make, model", group: "Aircraft", width: 52, side: "L", kind: "text", value: (r) => r.aircraft_type },
     { key: "reg", label: "Registration", group: "Aircraft", width: 60, side: "L", kind: "text", value: (r) => r.ident },
-    { key: "se", label: "SE", group: "Single-pilot time", width: 44, side: "L", kind: "minutes", value: (r) => (singleEngine(r) ? r.total_min : 0) },
-    { key: "me", label: "ME", group: "Single-pilot time", width: 44, side: "L", kind: "minutes", value: (r) => (singleEngine(r) ? 0 : r.total_min) },
+    { key: "se", label: "SE", group: "Single-pilot time", width: 44, side: "L", kind: "minutes", value: (r) => (is(r, "SEL", "SES") || (is(r, "RH") && r.engine_count <= 1) ? r.total_min : 0) },
+    { key: "me", label: "ME", group: "Single-pilot time", width: 44, side: "L", kind: "minutes", value: (r) => (is(r, "MEL", "MES") || (is(r, "RH") && r.engine_count > 1) ? r.total_min : 0) },
     { key: "mp", label: "Multi-pilot time", width: 42, side: "L", kind: "minutes", value: () => 0 },
     { key: "total", label: "Total time of flight", width: 50, side: "L", kind: "minutes", value: (r) => r.total_min },
 

@@ -63,6 +63,14 @@
     { key: "approaches", label: "Instrument approaches", kind: "count" },
   ];
   let draft = $state<Record<string, string>>({});
+  /** Category and class for this line (the aircraft's own unless changed). */
+  const CLASSES = [
+    { id: "SEL", label: "SEL", title: "Single engine land" },
+    { id: "MEL", label: "MEL", title: "Multi engine land" },
+    { id: "SES", label: "SES", title: "Single engine sea" },
+    { id: "MES", label: "MES", title: "Multi engine sea" },
+  ];
+  let cls = $state("");
 
   function startEdit() {
     error = null;
@@ -81,6 +89,7 @@
       d[f.key] = f.kind === "time" ? asTime(v) : String(v);
     }
     draft = d;
+    cls = row.category_class;
     mode = "edit";
   }
 
@@ -108,6 +117,7 @@
   async function save() {
     error = null;
     const log: LogPatch = { remarks: draft.remarks.trim() };
+    if (cls !== row.category_class && CLASSES.some((c) => c.id === cls)) log.class_override = cls;
     for (const f of TIMES) {
       const raw = draft[f.key] ?? "";
       const v = f.kind === "time" ? parseDuration(raw) : /^\d+$/.test(raw.trim()) ? +raw : raw.trim() === "" ? 0 : null;
@@ -180,6 +190,14 @@
       <label><span>To</span><input bind:value={draft.to} placeholder="ICAO" maxlength="8" class="caps" /></label>
       <label><span>Aircraft type</span><input bind:value={draft.type} placeholder="C172" maxlength="12" class="caps" /></label>
       <label><span>Registration</span><input bind:value={draft.ident} placeholder="N12345" maxlength="12" class="caps" /></label>
+      <div class="cls">
+        <span>Class</span>
+        <div class="seg" role="radiogroup" aria-label="Category and class">
+          {#each CLASSES as c (c.id)}
+            <button type="button" role="radio" aria-checked={cls === c.id} class:on={cls === c.id} title={c.title} onclick={() => (cls = c.id)}>{c.label}</button>
+          {/each}
+        </div>
+      </div>
     </div>
     <div class="fields">
       {#each TIMES as f (f.key)}
@@ -264,6 +282,37 @@
 </div>
 
 <style>
+  .cls {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .cls > span {
+    font-size: 12px;
+    color: var(--ink-dim);
+  }
+  .seg {
+    display: inline-flex;
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    overflow: hidden;
+    align-self: flex-start;
+  }
+  .seg button {
+    border: none;
+    background: transparent;
+    color: var(--ink-dim);
+    padding: 6px 10px;
+    font-weight: 600;
+    font-size: 13px;
+  }
+  .seg button + button {
+    border-left: 1px solid var(--rule);
+  }
+  .seg button.on {
+    background: var(--panel-3);
+    color: var(--amber);
+  }
   .scrim {
     position: fixed;
     inset: 0;

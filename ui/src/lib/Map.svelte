@@ -397,14 +397,14 @@
     map.once("style.load", () => clearTimeout(fallback));
     map.on("dragstart", () => (follow = false));
 
-    // Hover and click on past routes.
-    const tip = new maplibregl.Popup({ closeButton: false, closeOnClick: false, className: "route-tip", offset: 10 });
+    // Hover and click on past routes. The tip is our own element, always
+    // in the page and only moved and shown: a map popup is created afresh
+    // each time and could flash in the window's corner before it was placed.
     let hovered: number | null = null;
-    let tipHtml = "";
     const clearHover = () => {
       if (hovered != null) map?.setFeatureState({ source: "routes", id: hovered }, { hover: false });
       hovered = null;
-      tip.remove();
+      hoverTip = null;
       map!.getCanvas().style.cursor = "";
     };
     for (const layer of ["routes-hit", "routes-loops"]) {
@@ -419,16 +419,7 @@
         }
         map.getCanvas().style.cursor = "pointer";
         const p = f.properties as { label: string; sub: string };
-        // Move the open tip rather than adding it again on every mouse move:
-        // a re-added popup is a new element, which could flash in the
-        // corner of the map before it is placed.
-        const html = `<strong>${esc(p.label)}</strong><span>${esc(p.sub)}</span><em>Click for flight details</em>`;
-        if (tipHtml !== html) {
-          tip.setHTML(html);
-          tipHtml = html;
-        }
-        tip.setLngLat(e.lngLat);
-        if (!tip.isOpen()) tip.addTo(map);
+        hoverTip = { x: e.point.x, y: e.point.y, label: p.label, sub: p.sub };
       });
       map.on("mouseleave", layer, clearHover);
       map.on("click", layer, (e) => {
@@ -437,7 +428,7 @@
         if (f?.id != null) onroute?.(Number(f.id));
       });
     }
-    map.on("movestart", () => tip.remove());
+    map.on("movestart", () => (hoverTip = null));
     // Stop drawing while the window is hidden.
     const vis = () => (document.hidden ? map?.stop() : map?.triggerRepaint());
     document.addEventListener("visibilitychange", vis);
@@ -588,8 +579,13 @@
   let fittedRoutes = false;
   $effect(() => {
     const list = routes;
+    // A flight opened to its own track: its straight line is not drawn too.
+    // (A flight entered by hand has no track and keeps its line.)
+    const open = history && history.length > 1 ? selected : null;
     if (!loaded || !map) return;
-    (map.getSource("routes") as GeoJSONSource | undefined)?.setData(routeFeatures(list));
+    (map.getSource("routes") as GeoJSONSource | undefined)?.setData(
+      routeFeatures(open == null ? list : list.filter((r) => r.flight_id !== open)),
+    );
     if (!fittedRoutes && list.length && !aircraft && !history && !untrack(() => plan)) {
       fittedRoutes = true;
       fit(list.flatMap((r) => [r.from, r.to]), 6);
@@ -649,6 +645,9 @@
   let parkedMarkers: maplibregl.Marker[] = [];
   let parkedPopups: maplibregl.Popup[] = [];
   let parkedKey: string | null = null;
+  /** The route under the pointer, for the hover tip. */
+  let hoverTip = $state<{ x: number; y: number; label: string; sub: string } | null>(null);
+  let mapW = $state(0);
   $effect(() => {
     const list = parked;
     const on = layers.has("parked");
@@ -741,7 +740,19 @@
   });
 </script>
 
-<div class="map" bind:this={el}></div>
+<div class="map" bind:this={el} bind:clientWidth={mapW}></div>
+<div
+  class="hover-tip"
+  class:show={!!hoverTip}
+  aria-hidden="true"
+  style:left="{Math.min(Math.max(hoverTip?.x ?? 0, 110), Math.max(110, mapW - 110))}px"
+  style:top="{hoverTip?.y ?? 0}px"
+  class:below={(hoverTip?.y ?? 100) < 90}
+>
+  <strong>{hoverTip?.label ?? ""}</strong>
+  <span>{hoverTip?.sub ?? ""}</span>
+  <em>Click for flight details</em>
+</div>
 {#if aircraft && !follow && !history}
   <button class="follow" onclick={() => (follow = true)}>Follow aircraft</button>
 {/if}
@@ -860,38 +871,42 @@
   .map :global(.maplibregl-ctrl-attrib a) {
     color: var(--ink-dim);
   }
-  /* The hover tip never takes the pointer, so it cannot flicker by
-     stealing the hover from the line under it. */
-  .map :global(.route-tip) {
+  .hover-tip {
+    position: absolute;
+    z-index: 3;
+    transform: translate(-50%, calc(-100% - 12px));
     pointer-events: none;
-  }
-  .map :global(.route-tip .maplibregl-popup-content) {
-    background: var(--panel-2);
-    color: var(--ink);
-    border: 1px solid var(--rule);
-    border-radius: 6px;
-    padding: 7px 10px;
-    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+    visibility: hidden;
     display: flex;
     flex-direction: column;
     gap: 1px;
+    padding: 7px 10px;
+    border-radius: 6px;
+    background: var(--panel-2);
+    color: var(--ink);
+    border: 1px solid var(--rule);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
     font-family: var(--sans);
     font-size: 13px;
+    white-space: nowrap;
   }
-  .map :global(.route-tip strong) {
+  .hover-tip.below {
+    transform: translate(-50%, 16px);
+  }
+  .hover-tip.show {
+    visibility: visible;
+  }
+  .hover-tip strong {
     font-family: var(--cond);
     font-size: 17px;
   }
-  .map :global(.route-tip span) {
+  .hover-tip span {
     color: var(--ink-dim);
   }
-  .map :global(.route-tip em) {
+  .hover-tip em {
     font-style: normal;
     font-size: 11px;
     color: var(--amber);
-  }
-  .map :global(.route-tip .maplibregl-popup-tip) {
-    display: none;
   }
   .alt-key {
     position: absolute;

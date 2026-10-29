@@ -511,3 +511,20 @@ fn deleting_an_aircraft_moves_or_deletes_its_flights() {
     assert!(db.hangar().unwrap().is_empty());
     assert!(db.logbook().unwrap().is_empty());
 }
+
+#[test]
+fn logbook_class_follows_the_type_and_can_be_overridden() {
+    use crate::book::LogPatch;
+    let mut db = Store::open_in_memory().unwrap();
+    // The sim says two engines for a C172: the type table wins.
+    let mut f = fly(1);
+    f.aircraft.icao_type = "C172".into();
+    f.aircraft.title = "Cessna Skyhawk".into();
+    f.aircraft.engine_count = 2;
+    let id = db.save_flight(&f, &SaveContext::default()).unwrap();
+    assert_eq!(db.logbook().unwrap()[0].category_class, "SEL");
+    db.update_log_entry(id, &LogPatch { class_override: Some("mel".into()), ..Default::default() }).unwrap();
+    assert_eq!(db.logbook().unwrap()[0].category_class, "MEL");
+    db.update_log_entry(id, &LogPatch { class_override: Some(String::new()), ..Default::default() }).unwrap();
+    assert_eq!(db.logbook().unwrap()[0].category_class, "SEL");
+}

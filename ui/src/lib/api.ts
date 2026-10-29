@@ -286,7 +286,10 @@ export interface FlightEdit {
   ident?: string;
 }
 
-export type LogPatch = Partial<Omit<LogRow, "flight_id" | "date_ms" | "sim" | "status" | "aircraft_type" | "ident" | "category_class" | "engine_count" | "from_icao" | "to_icao" | "out_ms" | "in_ms">>;
+export type LogPatch = Partial<Omit<LogRow, "flight_id" | "date_ms" | "sim" | "status" | "aircraft_type" | "ident" | "category_class" | "engine_count" | "from_icao" | "to_icao" | "out_ms" | "in_ms">> & {
+  /** SEL, MEL, SES or MES for this line; "" = the aircraft's own class. */
+  class_override?: string;
+};
 
 export type StampKind = "arrival" | "first_entry";
 

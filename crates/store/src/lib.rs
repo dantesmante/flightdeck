@@ -6,12 +6,13 @@ pub mod codec;
 pub mod journal;
 pub mod night;
 pub mod passport;
+pub mod types;
 
 use std::path::Path;
 
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
-use telemetry::{geo, AircraftInfo, EngineType, TrackPoint};
+use telemetry::{geo, AircraftInfo, TrackPoint};
 use tracker::{FlightStatus, FlightSummary, LandingReport};
 
 const SCHEMA_V1: &str = include_str!("schema.sql");
@@ -21,7 +22,8 @@ const MIGRATE_V4: &str = include_str!("migrate_v4.sql");
 const MIGRATE_V5: &str = include_str!("migrate_v5.sql");
 const MIGRATE_V6: &str = include_str!("migrate_v6.sql");
 const MIGRATE_V7: &str = include_str!("migrate_v7.sql");
-const SCHEMA_VERSION: i64 = 7;
+const MIGRATE_V8: &str = include_str!("migrate_v8.sql");
+const SCHEMA_VERSION: i64 = 8;
 
 /// The hangar aircraft with this registration (as the pilot sees it), if any.
 pub(crate) fn aircraft_by_reg(conn: &Connection, reg: &str) -> Result<Option<i64>> {
@@ -203,12 +205,26 @@ pub(crate) fn now_ms() -> i64 {
 
 /// Logbook category and class for an aircraft.
 pub fn category_class(a: &AircraftInfo) -> &'static str {
-    match a.engine_type {
-        EngineType::Helo => "RH",
-        EngineType::Glider => "GL",
-        _ if a.engine_count > 1 => "MEL",
-        _ => "SEL",
+    types::class_of(a)
+}
+
+/// Bring every aircraft's class in line with the type table (it grows
+/// with new versions), so logbook columns are right for past flights too.
+fn reclassify_aircraft(conn: &Connection) -> Result<usize> {
+    let rows: Vec<(i64, String, String, i64, String, String)> = {
+        let mut st = conn.prepare("SELECT id, icao_type, title, engine_count, engine_type, category_class FROM aircraft")?;
+        let r = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)))?;
+        r.collect::<std::result::Result<_, _>>()?
+    };
+    let mut n = 0;
+    for (id, ty, title, count, engine, class) in rows {
+        let want = types::class_for(&ty, &title, count.clamp(0, 255) as u8, types::engine_from_str(&engine));
+        if want != class {
+            conn.execute("UPDATE aircraft SET category_class = ?2 WHERE id = ?1", params![id, want])?;
+            n += 1;
+        }
     }
+    Ok(n)
 }
 
 impl Store {
@@ -254,7 +270,11 @@ impl Store {
         if version < 7 {
             conn.execute_batch(&format!("BEGIN; {MIGRATE_V7} PRAGMA user_version = 7; COMMIT;"))?;
         }
+        if version < 8 {
+            conn.execute_batch(&format!("BEGIN; {MIGRATE_V8} PRAGMA user_version = 8; COMMIT;"))?;
+        }
         merge_duplicate_aircraft(&conn)?;
+        reclassify_aircraft(&conn)?;
         Ok(Store { conn })
     }
 
