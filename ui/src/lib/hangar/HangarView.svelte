@@ -291,7 +291,7 @@
     border-color: rgba(240, 178, 58, 0.35);
     box-shadow:
       0 0 0 1px rgba(240, 178, 58, 0.12),
-      0 0 36px 6px rgba(240, 178, 58, 0.3),
+      0 0 14px 1px rgba(240, 178, 58, 0.32),
       0 12px 30px rgba(0, 0, 0, 0.35);
   }
   /* The whole card opens the aircraft; the picture, star and upload sit on top. */

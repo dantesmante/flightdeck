@@ -449,6 +449,8 @@ export const api = {
   currentBriefing: () => call<Ofp | null>("current_briefing"),
   importVolanta: (files: { name: string; text: string }[]) =>
     call<{ imported: string[]; duplicates: string[]; failed: [string, string][] }>("import_volanta", { files }),
+  importElevatex: (files: { name: string; text: string }[]) =>
+    call<{ imported: string[]; duplicates: string[]; failed: [string, string][] }>("import_elevatex", { files }),
 
   diagnostics: () => call<string>("get_diagnostics"),
   saveDiagnostics: () => call<string>("save_diagnostics"),

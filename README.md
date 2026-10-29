@@ -53,6 +53,9 @@ MIT licensed.
   back the identical file. Re-importing is skipped. Export opens a list of
   every flight: tick the ones you want and they are saved as
   Volanta-format files into Downloads\FlightDeck export.
+- **Elevatex import**: Settings, Elevatex. Import any number of Elevatex
+  flight files (.json); each becomes a FlightDeck flight with its track,
+  landing and times. Re-importing is skipped.
 - **Map layers** panel: 3D flight, a live day/night line, stronger
   borders, past routes, airports, **parked aircraft** (where you last left
   each aircraft, off by default), and live **rain radar** (RainViewer,
@@ -85,8 +88,9 @@ MIT licensed.
   gets a first-entry seal. Overseas territories such as French Guiana,
   Réunion, Guadeloupe, Martinique, American Samoa and Guam are their own
   places on the map, separate from France or the US. Each stamp carries a
-  small inked flag, and the photo on the data page has a holographic film
-  that shimmers when you move the mouse over it.
+  small inked flag. The photo and data pages carry a holographic film that
+  shimmers around the mouse as you move it over them, and the page facing
+  the data page opens with a quote by John H. Secondari.
 - **Paper logbook**: a two-page ruled logbook in FAA or EASA layout,
   handwritten or typed, with page totals carried forward. Night time and
   night landings come from the sun's position along your track. Click a

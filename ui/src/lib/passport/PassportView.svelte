@@ -5,7 +5,7 @@
   import { hoursMinutes } from "../format";
   import { prefs, setPref } from "../prefs.svelte";
   import Emblem from "./Emblem.svelte";
-  import { holoLines, mrz, paperPattern, passportNumber } from "./paper";
+  import { holoPage, mrz, paperPattern, passportNumber } from "./paper";
   import Stamp from "./Stamp.svelte";
   import WorldMap from "./WorldMap.svelte";
 
@@ -28,7 +28,7 @@
   type World = { w: number; h: number; countries: { c: string; n: string; d: string; dot?: [number, number] }[] };
   let world = $state<World | null>(null);
   let flags = $state<Record<string, string>>({});
-  /** Pointer position over the photo, 0..100, for the hologram's shimmer. */
+  /** Pointer position over the page, 0..100, for the hologram's shimmer. */
   let mx = $state(50);
   let my = $state(50);
   function tilt(e: PointerEvent) {
@@ -151,31 +151,35 @@
     {@render paper(mapPage)}
   {:else if p.kind === "inner"}
     {#snippet inner()}
-      <div class="inner">
-        <div class="watermark"><Emblem size={260} color="#7f9f9b" /></div>
-        <p class="lead">This passport records every border its bearer has crossed by air.</p>
-        <p>A stamp is issued each time you land in a different country from the one you left.</p>
-        <p>The first landing in any country receives a first-entry seal.</p>
-        <p class="small">Issued by FlightDeck. Valid for all simulators.</p>
+      <div class="holo-zone" onpointermove={tilt} style:--mx="{mx}%" style:--my="{my}%" style:--lines={holoPage()} role="presentation">
+        <div class="inner">
+          <div class="watermark"><Emblem size={260} color="#7f9f9b" /></div>
+          <blockquote class="quote">
+            <p>Once you have tasted flight, you will forever walk the earth with your eyes turned skyward, for there you
+              have been and there you will always long to return.</p>
+            <cite>John H. Secondari</cite>
+          </blockquote>
+          <div class="rules">
+            <p class="lead">This passport records every border its bearer has crossed by air.</p>
+            <p>A stamp is issued each time you land in a different country from the one you left.</p>
+            <p>The first landing in any country receives a first-entry seal.</p>
+            <p class="small">Issued by FlightDeck. Valid for all simulators.</p>
+          </div>
+        </div>
+        <span class="holo" aria-hidden="true"></span>
       </div>
     {/snippet}
     {@render paper(inner)}
   {:else if p.kind === "data" && data}
     {#snippet dataPage()}
+      <div class="holo-zone" onpointermove={tilt} style:--mx="{mx}%" style:--my="{my}%" style:--lines={holoPage()} role="presentation">
       <div class="data">
         <div class="head">
           <span class="type">Pilot passport</span>
           <span class="mini"><Emblem size={30} color="#5d4a7a" /></span>
         </div>
         <div class="grid">
-          <div
-            class="photo"
-            onpointermove={tilt}
-            style:--mx="{mx}%"
-            style:--my="{my}%"
-            style:--lines={holoLines()}
-            role="presentation"
-          >
+          <div class="photo">
             {#if data!.pilot.photo_url}
               <img src={data!.pilot.photo_url} alt="Pilot" />
             {:else}
@@ -184,7 +188,6 @@
                 <span>Add a photo</span>
               </button>
             {/if}
-            <span class="holo" aria-hidden="true"></span>
           </div>
           <dl>
             <div class="row3">
@@ -214,6 +217,8 @@
           <div>{lines[0]}</div>
           <div>{lines[1]}</div>
         </div>
+      </div>
+      <span class="holo" aria-hidden="true"></span>
       </div>
     {/snippet}
     {@render paper(dataPage)}
@@ -481,25 +486,65 @@
     background: repeating-linear-gradient(45deg, #5f8f88 0 2px, #3f6f69 2px 3px);
   }
   .inner {
-    padding: 70px 44px;
+    padding: 56px 40px 34px;
     position: relative;
     height: 100%;
-  }
-  .inner p {
-    position: relative;
-    font-size: 14px;
-    line-height: 1.6;
-    max-width: 30ch;
-    margin: 0 0 14px;
-  }
-  .inner .lead {
-    font-size: 17px;
+    display: flex;
+    flex-direction: column;
     font-style: italic;
   }
-  .inner .small {
-    font-size: 12px;
+  .quote {
+    position: relative;
+    margin: 0;
+    padding: 0 6px 0 22px;
+  }
+  .quote::before {
+    content: "\201C";
+    position: absolute;
+    left: -6px;
+    top: -18px;
+    font-family: "Source Serif 4", Georgia, serif;
+    font-size: 64px;
+    line-height: 1;
+    color: rgba(93, 74, 122, 0.35);
+  }
+  .quote p {
+    margin: 0;
+    font-family: "Source Serif 4", Georgia, serif;
+    font-size: 19px;
+    line-height: 1.5;
+    color: #3d3550;
+  }
+  .quote cite {
+    display: block;
+    margin-top: 12px;
+    text-align: right;
+    font-size: 13px;
+    letter-spacing: 0.04em;
     color: #6f6880;
-    margin-top: 26px;
+  }
+  .quote cite::before {
+    content: "\2014\00a0";
+  }
+  .rules {
+    position: relative;
+    margin-top: auto;
+  }
+  .rules p {
+    font-size: 12px;
+    line-height: 1.5;
+    max-width: 34ch;
+    margin: 0 0 8px;
+  }
+  .rules .lead {
+    font-size: 14px;
+    margin-bottom: 10px;
+  }
+  .rules .small {
+    font-style: normal;
+    font-size: 11px;
+    color: #6f6880;
+    margin-top: 16px;
   }
   .watermark {
     position: absolute;
@@ -543,8 +588,12 @@
     overflow: hidden;
     background: #ddd6e6;
   }
-  /* Hologram: a translucent rainbow film over the photo that shows when
-     the pointer is over it and shimmers as the pointer moves. */
+  /* Hologram: a translucent rainbow film over the photo and info pages that
+     shows where the pointer is and shimmers as it moves. */
+  .holo-zone {
+    position: relative;
+    height: 100%;
+  }
   .photo {
     position: relative;
     /* A very slight shadow, as if the photo sits on the page. */
@@ -574,19 +623,20 @@
       );
     background-size: 300% 300%;
     background-position: var(--mx) var(--my);
-    /* Only the lines within 60px of the pointer light up, fading out towards
+    /* Only the lines within 80px of the pointer light up, fading out towards
        the edge: the line art is intersected with a feathered circle. */
-    -webkit-mask-image: radial-gradient(circle 60px at var(--mx) var(--my), #000 0, rgba(0, 0, 0, 0.85) 30%, rgba(0, 0, 0, 0.4) 65%, transparent 100%), var(--lines);
-    mask-image: radial-gradient(circle 60px at var(--mx) var(--my), #000 0, rgba(0, 0, 0, 0.85) 30%, rgba(0, 0, 0, 0.4) 65%, transparent 100%), var(--lines);
+    -webkit-mask-image: radial-gradient(circle 80px at var(--mx) var(--my), #000 0, rgba(0, 0, 0, 0.85) 30%, rgba(0, 0, 0, 0.4) 65%, transparent 100%), var(--lines);
+    mask-image: radial-gradient(circle 80px at var(--mx) var(--my), #000 0, rgba(0, 0, 0, 0.85) 30%, rgba(0, 0, 0, 0.4) 65%, transparent 100%), var(--lines);
     -webkit-mask-size: 100% 100%, 100% 100%;
     mask-size: 100% 100%, 100% 100%;
     -webkit-mask-repeat: no-repeat;
     mask-repeat: no-repeat;
     -webkit-mask-composite: source-in;
     mask-composite: intersect;
-    mix-blend-mode: screen;
+    /* Colored lines that read on the cream paper and over the photo. */
+    mix-blend-mode: multiply;
   }
-  .photo:hover .holo {
+  .holo-zone:hover .holo {
     opacity: 0.9;
   }
   .photo img {

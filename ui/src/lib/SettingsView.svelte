@@ -86,7 +86,10 @@
   let vMsg = $state<string | null>(null);
   let vErr = $state<string | null>(null);
   let vFailed = $state<[string, string][]>([]);
-  async function importFiles(e: Event) {
+  /** Which import the messages belong to. */
+  let vKind = $state<"volanta" | "elevatex">("volanta");
+  async function importFiles(e: Event, kind: "volanta" | "elevatex" = "volanta") {
+    vKind = kind;
     const input = e.currentTarget as HTMLInputElement;
     const list = [...(input.files ?? [])];
     input.value = "";
@@ -100,7 +103,7 @@
       // A few files at a time, so hundreds of flights do not arrive at once.
       for (let i = 0; i < list.length; i += 20) {
         const batch = await Promise.all(list.slice(i, i + 20).map(async (f) => ({ name: f.name, text: await f.text() })));
-        const r = await api.importVolanta(batch);
+        const r = kind === "elevatex" ? await api.importElevatex(batch) : await api.importVolanta(batch);
         imported += r.imported.length;
         dupes += r.duplicates.length;
         vFailed = [...vFailed, ...r.failed];
@@ -163,6 +166,16 @@
     }
   }
 </script>
+
+{#snippet importStatus()}
+  {#if vMsg}<p class="ok" role="status">{vMsg}</p>{/if}
+  {#if vErr}<p class="err" role="alert">{vErr}</p>{/if}
+  {#if vFailed.length}
+    <ul class="failed">
+      {#each vFailed as [name, why] (name)}<li><strong>{name}</strong>: {why}</li>{/each}
+    </ul>
+  {/if}
+{/snippet}
 
 <section class="settings"><div class="inner">
   <h2>Settings</h2>
@@ -229,17 +242,26 @@
     <div class="row">
       <label class="primary file" class:disabled={vBusy}>
         Import Volanta flights
-        <input type="file" accept=".json,application/json" multiple onchange={importFiles} disabled={vBusy} />
+        <input type="file" accept=".json,application/json" multiple onchange={(e) => importFiles(e, "volanta")} disabled={vBusy} />
       </label>
       <button class="ghost" onclick={() => (exporting = true)} disabled={vBusy}>Export…</button>
     </div>
-    {#if vMsg}<p class="ok" role="status">{vMsg}</p>{/if}
-    {#if vErr}<p class="err" role="alert">{vErr}</p>{/if}
-    {#if vFailed.length}
-      <ul class="failed">
-        {#each vFailed as [name, why] (name)}<li><strong>{name}</strong>: {why}</li>{/each}
-      </ul>
-    {/if}
+    {#if vKind === "volanta"}{@render importStatus()}{/if}
+  </div>
+
+  <div class="group">
+    <h3>Elevatex</h3>
+    <p class="help">
+      Bring your Elevatex history across: select Elevatex flight files (.json), one or many at once. Each becomes a
+      FlightDeck flight with its track, landing and times, and the original file is kept with it.
+    </p>
+    <div class="row">
+      <label class="primary file" class:disabled={vBusy}>
+        Import Elevatex flights
+        <input type="file" accept=".json,application/json" multiple onchange={(e) => importFiles(e, "elevatex")} disabled={vBusy} />
+      </label>
+    </div>
+    {#if vKind === "elevatex"}{@render importStatus()}{/if}
   </div>
 
   <div class="group">

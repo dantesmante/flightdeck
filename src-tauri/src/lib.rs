@@ -1,6 +1,7 @@
 //! FlightDeck desktop app: Tauri commands and startup.
 
 mod diag;
+mod elevatex;
 mod engine;
 mod photos;
 mod samples;
@@ -151,9 +152,21 @@ struct ImportReport {
 /// already imported are skipped.
 #[tauri::command]
 fn import_volanta(app: tauri::AppHandle, state: tauri::State<AppState>, files: Vec<ImportFile>) -> ImportReport {
+    import_files(&app, &state, files, volanta::SOURCE, volanta::parse)
+}
+
+/// Import Elevatex flight files, like Volanta's.
+#[tauri::command]
+fn import_elevatex(app: tauri::AppHandle, state: tauri::State<AppState>, files: Vec<ImportFile>) -> ImportReport {
+    import_files(&app, &state, files, elevatex::SOURCE, elevatex::parse)
+}
+
+type Parser = fn(&str, &refdata::RefData) -> Result<volanta::ImportedFlight, String>;
+
+fn import_files(app: &tauri::AppHandle, state: &AppState, files: Vec<ImportFile>, source: &str, parse: Parser) -> ImportReport {
     let mut report = ImportReport::default();
     for file in files {
-        let parsed = match volanta::parse(&file.text, &state.refdata) {
+        let parsed = match parse(&file.text, &state.refdata) {
             Ok(p) => p,
             Err(e) => {
                 report.failed.push((file.name, e));
@@ -161,7 +174,7 @@ fn import_volanta(app: tauri::AppHandle, state: tauri::State<AppState>, files: V
             }
         };
         let mut db = state.db.lock().unwrap();
-        if matches!(db.find_imported(volanta::SOURCE, &parsed.id), Ok(Some(_))) {
+        if matches!(db.find_imported(source, &parsed.id), Ok(Some(_))) {
             report.duplicates.push(file.name);
             continue;
         }
@@ -176,6 +189,7 @@ fn import_volanta(app: tauri::AppHandle, state: tauri::State<AppState>, files: V
                     parsed.ctx.dep.as_ref().map(|p| p.icao.as_str()).unwrap_or("?"),
                     parsed.ctx.arr.as_ref().map(|p| p.icao.as_str()).unwrap_or("?")
                 );
+                log::info!("imported {source} flight {} as #{id}: {route}", parsed.id);
                 report.imported.push(route);
             }
             Err(e) => report.failed.push((file.name, e.to_string())),
@@ -805,6 +819,7 @@ pub fn run() {
             set_plan,
             current_briefing,
             import_volanta,
+            import_elevatex,
             export_flight_volanta,
             export_all_volanta,
             get_diagnostics,
