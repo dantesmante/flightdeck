@@ -114,6 +114,19 @@ pub fn class_of(a: &AircraftInfo) -> &'static str {
     class_for(&a.icao_type, &a.title, a.engine_count, a.engine_type)
 }
 
+/// An engine type stored as text ("piston", "jet", ...).
+pub fn engine_from_str(s: &str) -> EngineType {
+    match s {
+        "piston" => EngineType::Piston,
+        "jet" => EngineType::Jet,
+        "turboprop" => EngineType::Turboprop,
+        "helo" => EngineType::Helo,
+        "glider" => EngineType::Glider,
+        "electric" => EngineType::Electric,
+        _ => EngineType::Unknown,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -132,18 +145,5 @@ mod tests {
         // Unknown type: the engine count decides.
         assert_eq!(class_for("ZZZZ", "Homebuilt", 2, EngineType::Piston), "MEL");
         assert_eq!(class_for("", "Homebuilt", 1, EngineType::Piston), "SEL");
-    }
-}
-
-/// An engine type stored as text ("piston", "jet", ...).
-pub fn engine_from_str(s: &str) -> EngineType {
-    match s {
-        "piston" => EngineType::Piston,
-        "jet" => EngineType::Jet,
-        "turboprop" => EngineType::Turboprop,
-        "helo" => EngineType::Helo,
-        "glider" => EngineType::Glider,
-        "electric" => EngineType::Electric,
-        _ => EngineType::Unknown,
     }
 }
