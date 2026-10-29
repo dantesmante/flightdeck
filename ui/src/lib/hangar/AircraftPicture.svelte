@@ -12,7 +12,7 @@
     item: HangarItem;
     own: string | null;
     /** Card: hover to upload. Hero: picture only (the window has its own button). */
-    variant?: "card" | "hero";
+    variant?: "card" | "hero" | "banner";
     /** Show the photographer credit over the picture (the hero shows it below). */
     credit?: boolean;
     onpick?: (e: Event) => void;

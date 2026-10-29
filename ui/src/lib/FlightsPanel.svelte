@@ -2,6 +2,7 @@
   // Saved flights. Milestone 3 replaces this list with the paper logbook;
   // until then it is a plain, scannable list with a detail view.
   import { api, type FlightDetail, type FlightPlan, type FlightRow, type Totals } from "./api";
+  import FlightAircraft from "./FlightAircraft.svelte";
   import PlanCard from "./PlanCard.svelte";
   import { day, dec, gradeTone, hhmm, hoursMinutes, int, zulu } from "./format";
   import AltSpeedGraph from "./AltSpeedGraph.svelte";
@@ -70,6 +71,7 @@
       {[day(f.start_ms), [f.icao_type || f.aircraft_title, f.registration].filter(Boolean).join(" ")].filter(Boolean).join(", ")}
       {#if f.status !== "complete"}<span class="tag">{f.status}</span>{/if}
     </p>
+    {#key f.id}<FlightAircraft flight={f} />{/key}
     <dl class="times">
       <div><dt>Block out</dt><dd class="num">{zulu(f.block_out)}</dd></div>
       <div><dt>Takeoff</dt><dd class="num">{zulu(f.takeoff)}</dd></div>

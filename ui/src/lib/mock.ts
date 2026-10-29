@@ -120,7 +120,7 @@ function row(id: number, days: number, dep: string, arr: string, type: string, m
   const start = now - days * 86_400_000;
   return {
     id, sim: "msfs2024", status: "complete", aircraft_title: type, icao_type: type, registration: "N320FD",
-    callsign: "", dep_icao: dep, dep_name: dep, dep_country: "US", arr_icao: arr, arr_name: arr, arr_country: "US",
+    callsign: id === 3 ? "SWA1016" : "", dep_icao: dep, dep_name: dep, dep_country: "US", arr_icao: arr, arr_name: arr, arr_country: "US",
     start_ms: start, end_ms: start + min * 60_000, block_out: start, takeoff: start + 6e5, landing: start + (min - 8) * 60_000,
     block_in: start + min * 60_000, total_min: min, distance_nm: min * 4.2, max_alt_ft: 31000, fuel_used_kg: min * 40,
     landing_rate_fpm: fpm, landing_g: 1.2, landing_grade: grade, landings: 1,
