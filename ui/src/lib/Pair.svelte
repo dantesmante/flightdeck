@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Logo from "./Logo.svelte";
   // First visit from another device: enter the code shown in Settings on
   // the flight sim PC.
   import { pair, session } from "./remote.svelte";
@@ -23,10 +24,7 @@
 
 <div class="pair">
   <form onsubmit={go}>
-    <svg viewBox="0 0 1024 1024" width="54" height="54" aria-hidden="true">
-      <circle cx="512" cy="512" r="330" fill="none" stroke="#3a4148" stroke-width="64" />
-      <path d="M190 700 C 360 520, 560 640, 820 330" fill="none" stroke="#E2468F" stroke-width="72" stroke-linecap="round" />
-    </svg>
+    <Logo size={72} />
     <h1>FlightDeck</h1>
     {#if session.offline}
       <p>Can't reach FlightDeck on the flight sim PC. Check that the PC is on, FlightDeck is running, and this device is on the same Wi-Fi.</p>

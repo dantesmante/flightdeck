@@ -154,6 +154,7 @@ export async function mockCall<T>(cmd: string, _args?: Record<string, unknown>):
     check_update: { current: "0.1.0", latest: "0.1.0", available: false, notes: "", download_url: null, size_mb: 0 },
     simbrief_latest: { ...samplePlan, ofp: sampleOfp },
     current_briefing: sampleOfp,
+    get_passport: { pilot: { name: "Alex Pilot", pilot_id: "FD-0001", home_icao: "KSEA", nationality: "United States", photo_url: null, signature_svg: null }, stamps: [], countries: [], first_flight_ms: now - 90 * 864e5, home_name: "Seattle", totals },
     get_settings: { simbrief_id: "123456" },
     get_logbook: scene === "book" ? Array.from({ length: 40 }, (_, i) => ({ flight_id: 100 + i, date_ms: now - (40 - i) * 864e5, sim: "msfs2024", status: "complete", aircraft_type: "A20N", ident: "D-AINA", category_class: "MEL", engine_count: 2, from_icao: "EDDF", to_icao: "LOWW", out_ms: now, in_ms: now + 4.5e6, total_min: 75, night_min: 0, ifr_min: 75, xc_min: 75, pic_min: 75, dual_min: 0, sim_inst_min: 0, act_inst_min: 0, day_landings: 1, night_landings: 0, approaches: 1, remarks: `Line ${i + 1}` })) : [
       { flight_id: 1, date_ms: now - 864e5, sim: "msfs2024", status: "complete", aircraft_type: "A20N", ident: "D-AINA", category_class: "MEL", engine_count: 2, from_icao: "EDDF", to_icao: "LOWW", out_ms: now - 864e5, in_ms: now - 864e5 + 4.5e6, total_min: 75, night_min: 0, ifr_min: 75, xc_min: 75, pic_min: 75, dual_min: 0, sim_inst_min: 0, act_inst_min: 0, day_landings: 1, night_landings: 0, approaches: 1, remarks: "-140 fpm · MSFS 2024" },

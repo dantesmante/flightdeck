@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Logo from "./Logo.svelte";
   // FlightDeck's own title bar (the window has no system frame): the name
   // and simulator link on the left, the time in UTC (Zulu) with local time
   // under it, and the window buttons on the right. Drag the bar to move the
@@ -53,10 +54,7 @@
 
 <header class="bar" data-tauri-drag-region>
   <div class="brand" data-tauri-drag-region>
-    <svg viewBox="0 0 1024 1024" width="26" height="26" aria-hidden="true">
-      <circle cx="512" cy="512" r="330" fill="none" stroke="#3a4148" stroke-width="64" />
-      <path d="M190 700 C 360 520, 560 640, 820 330" fill="none" stroke="#E2468F" stroke-width="72" stroke-linecap="round" />
-    </svg>
+    <Logo size={30} />
     <div class="name" data-tauri-drag-region>
       <strong data-tauri-drag-region>FlightDeck</strong>
       <span class="link {link}" data-tauri-drag-region><i></i>{linkText}</span>

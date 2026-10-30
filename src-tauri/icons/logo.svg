@@ -1,8 +1,19 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
-  <rect width="1024" height="1024" rx="220" fill="#172430"/>
-  <circle cx="512" cy="512" r="330" fill="none" stroke="#2E4658" stroke-width="28"/>
-  <path d="M190 700 C 360 520, 560 640, 820 330" fill="none" stroke="#E2468F" stroke-width="44" stroke-linecap="round" stroke-dasharray="1 0"/>
-  <g transform="translate(820 330) rotate(-38)">
-    <path d="M0 -150 L26 -40 L150 20 L150 56 L26 22 L18 110 L64 146 L64 170 L0 152 L-64 170 L-64 146 L-18 110 L-26 22 L-150 56 L-150 20 L-26 -40 Z" fill="#F0B23A"/>
+  <defs>
+    <linearGradient id="l" gradientUnits="userSpaceOnUse" x1="95" y1="0" x2="1795" y2="0">
+      <stop offset="0" stop-color="#e46f6a"/><stop offset="0.36" stop-color="#e8855a"/><stop offset="0.6" stop-color="#eb954f"/><stop offset="1" stop-color="#f0b03c"/>
+    </linearGradient>
+    <linearGradient id="d" gradientUnits="userSpaceOnUse" x1="263" y1="0" x2="1312" y2="0">
+      <stop offset="0" stop-color="#df534b"/><stop offset="1" stop-color="#e57733"/>
+    </linearGradient>
+  </defs>
+  <g transform="translate(10.3 142.3) scale(0.528)">
+    <path d="M540 100 L972 492 L912 545 L668 395 Z" fill="url(#d)"/>
+    <path d="M263 249 L1312 910 L737 733 Z" fill="url(#d)"/>
+    <path d="M263 249 L650 416 L912 578 L1312 910 Z" fill="url(#l)"/>
+    <path d="M933 562 L1462 100 L1717 140 L1327 892 Z" fill="url(#l)"/>
+    <circle cx="1607" cy="193" r="27" fill="#000"/>
+    <path d="M1734 160 L1795 642 L1622 375 Z" fill="url(#l)"/>
+    <path d="M712 755 L1295 933 L95 1297 Z" fill="url(#l)"/>
   </g>
 </svg>

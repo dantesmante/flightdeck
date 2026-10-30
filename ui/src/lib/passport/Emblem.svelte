@@ -1,6 +1,7 @@
 <script lang="ts">
-  // FlightDeck's own emblem: a compass rose inside a ring of laurel, with an
-  // aircraft crossing it. Used on the cover in gold and as a watermark.
+  // FlightDeck's own emblem: the origami bird logo inside a ring of laurel.
+  // Used on the cover in gold and as a watermark.
+  import { BIRD } from "../Logo.svelte";
   let { size = 120, color = "currentColor" }: { size?: number; color?: string } = $props();
   const leaves = Array.from({ length: 11 }, (_, i) => i);
 </script>
@@ -8,9 +9,6 @@
 <svg viewBox="-100 -100 200 200" width={size} height={size} aria-hidden="true" fill={color} stroke={color}>
   <circle r="62" fill="none" stroke-width="3" />
   <circle r="54" fill="none" stroke-width="1.2" />
-  {#each [0, 45, 90, 135, 180, 225, 270, 315] as a (a)}
-    <path d="M0 -50 L6 -8 L0 0 L-6 -8 Z" transform="rotate({a})" stroke="none" opacity={a % 90 === 0 ? 1 : 0.65} />
-  {/each}
   {#each [-1, 1] as side (side)}
     {#each leaves as i (i)}
       <ellipse
@@ -23,7 +21,12 @@
       />
     {/each}
   {/each}
-  <g transform="rotate(-35) translate(0 0) scale(1.5)" stroke="none">
-    <path d="M0 -26 L3.6 -8 L22 1 L22 6 L3.6 2.6 L2.4 15 L8.5 19.5 L8.5 23 L0 21 L-8.5 23 L-8.5 19.5 L-2.4 15 L-3.6 2.6 L-22 6 L-22 1 L-3.6 -8 Z" />
+  <g transform="translate(-52.9 -37.1) scale(0.056)" stroke="none">
+    <path d={BIRD.back} />
+    <path d={BIRD.wing} />
+    <path d={BIRD.fold} />
+    <path d={BIRD.head + BIRD.eye} fill-rule="evenodd" />
+    <path d={BIRD.beak} />
+    <path d={BIRD.tail} />
   </g>
 </svg>
