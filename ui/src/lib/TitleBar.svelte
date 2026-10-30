@@ -5,6 +5,7 @@
   // window; double-click it to maximize.
   import { onMount } from "svelte";
   import { inTauri } from "./api";
+  import { inRemote, session } from "./remote.svelte";
 
   let { linkText, link }: { linkText: string; link: string } = $props();
 
@@ -62,6 +63,11 @@
     </div>
   </div>
 
+  {#if inRemote}
+    <span class="mode" class:edit={session.canEdit} title={session.canEdit ? "This device can make changes" : "Changes can be allowed in Settings on the flight sim PC"}>
+      {session.offline ? "Reconnecting…" : session.canEdit ? "Remote, can edit" : "Remote, view only"}
+    </span>
+  {/if}
   <span class="grow" data-tauri-drag-region></span>
 
   <div class="clock" title="Coordinated Universal Time (Zulu), and your local time ({zone})" data-tauri-drag-region>
@@ -137,6 +143,19 @@
   .link.connected i {
     background: var(--good);
     box-shadow: 0 0 6px var(--good);
+  }
+  .mode {
+    padding: 2px 9px;
+    border-radius: 999px;
+    border: 1px solid var(--rule);
+    color: var(--ink-dim);
+    font-size: 11.5px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .mode.edit {
+    color: var(--amber);
+    border-color: rgba(240, 178, 58, 0.4);
   }
   .grow {
     flex: 1;

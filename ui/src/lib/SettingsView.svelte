@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { api, type FlightPlan, type Pilot } from "./api";
+  import { api, inRemote, type FlightPlan, type Pilot, type RemoteInfo } from "./api";
   import { shrinkImage } from "./image";
   import { prefs, setPref } from "./prefs.svelte";
   import ExportDialog from "./ExportDialog.svelte";
@@ -165,6 +165,28 @@
       dBusy = false;
     }
   }
+
+  // Access from other devices on the home network (only set up on the PC).
+  let remote = $state<RemoteInfo | null>(null);
+  let rBusy = $state(false);
+  async function remoteDo(f: () => Promise<RemoteInfo>) {
+    rBusy = true;
+    try {
+      remote = await f();
+    } finally {
+      rBusy = false;
+    }
+  }
+  onMount(() => {
+    if (inRemote) return;
+    api.remoteInfo().then((r) => (remote = r));
+    // The code changes after each pairing, and devices come and go.
+    const t = setInterval(() => {
+      if (remote?.enabled) api.remoteInfo().then((r) => (remote = r));
+    }, 3000);
+    return () => clearInterval(t);
+  });
+  const ago = (ms: number) => new Date(ms).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 </script>
 
 {#snippet importStatus()}
@@ -244,7 +266,7 @@
         Import Volanta flights
         <input type="file" accept=".json,application/json" multiple onchange={(e) => importFiles(e, "volanta")} disabled={vBusy} />
       </label>
-      <button class="ghost" onclick={() => (exporting = true)} disabled={vBusy}>Export…</button>
+      {#if !inRemote}<button class="ghost" onclick={() => (exporting = true)} disabled={vBusy}>Export…</button>{/if}
     </div>
     {#if vKind === "volanta"}{@render importStatus()}{/if}
   </div>
@@ -295,6 +317,55 @@
     </div>
   </div>
 
+  {#if !inRemote && remote}
+    <div class="group">
+      <h3>Other devices</h3>
+      <p class="help">
+        Use FlightDeck from a laptop, tablet or phone on your home Wi-Fi, in its web browser. FlightDeck has to keep running
+        on this PC. It only answers devices on your home network, never the internet, and each device is paired once with a
+        code.
+      </p>
+      <label class="switch">
+        <input type="checkbox" checked={remote.enabled} disabled={rBusy} onchange={(e) => remoteDo(() => api.remoteSet((e.currentTarget as HTMLInputElement).checked, null))} />
+        <span>Allow access from other devices</span>
+      </label>
+      {#if remote.enabled}
+        {#if remote.error}
+          <p class="err">{remote.error}</p>
+        {:else}
+          <div class="remote">
+            {#if remote.qr_svg}<div class="qr" aria-label="QR code with the address">{@html remote.qr_svg}</div>{/if}
+            <div class="how">
+              <span class="lbl">Open in a browser on the other device</span>
+              {#each remote.urls as u (u)}<span class="url num">{u}</span>{:else}<span class="err">This PC has no home-network address. Is it connected to Wi-Fi or a router?</span>{/each}
+              <span class="lbl">Then enter this pairing code</span>
+              <span class="code num">{remote.code.slice(0, 3)} {remote.code.slice(3)}</span>
+              <button class="ghost small" onclick={() => remoteDo(() => api.remoteNewCode())} disabled={rBusy}>New code</button>
+            </div>
+          </div>
+          <p class="help">Windows may ask whether FlightDeck can use private networks: choose Allow.</p>
+        {/if}
+        <label class="switch">
+          <input type="checkbox" checked={remote.can_edit} disabled={rBusy} onchange={(e) => remoteDo(() => api.remoteSet(null, (e.currentTarget as HTMLInputElement).checked))} />
+          <span>Other devices can edit <em>(end or cancel flights, edit and delete entries, aircraft and settings)</em></span>
+        </label>
+        {#if !remote.can_edit}<p class="help">Other devices can view only.</p>{/if}
+        <div class="devices">
+          <span class="lbl">Paired devices</span>
+          {#each remote.devices as d, i (i)}
+            <span>{d.name} <em>since {ago(d.paired_ms)}</em></span>
+          {:else}
+            <span class="dim">None yet.</span>
+          {/each}
+          {#if remote.devices.length}
+            <button class="ghost small" onclick={() => remoteDo(() => api.remoteForget())} disabled={rBusy}>Forget all devices</button>
+          {/if}
+        </div>
+      {/if}
+    </div>
+  {/if}
+
+  {#if !inRemote}
   <div class="group">
     <h3>Diagnostics</h3>
     <p class="help">
@@ -326,6 +397,7 @@
     </div>
     {#if updates.error}<p class="err">{updates.error}</p>{/if}
   </div>
+  {/if}
 
   <div class="group">
     <h3>Sample flights</h3>
@@ -346,6 +418,89 @@
 {/if}
 
 <style>
+  label.switch {
+    display: flex;
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 10px;
+    margin: 6px 0;
+    cursor: pointer;
+  }
+  label.switch > span {
+    font-size: 14px;
+    color: var(--ink);
+    text-transform: none;
+    letter-spacing: 0;
+  }
+  .switch input {
+    width: 18px;
+    height: 18px;
+    margin-top: 1px;
+    accent-color: var(--amber);
+  }
+  .switch em,
+  .devices em {
+    font-style: normal;
+    color: var(--ink-dim);
+    font-size: 13px;
+  }
+  .remote {
+    display: flex;
+    gap: 18px;
+    align-items: center;
+    margin: 10px 0;
+    padding: 14px;
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    background: var(--panel-2);
+  }
+  .qr {
+    flex: none;
+    width: 150px;
+    height: 150px;
+    padding: 6px;
+    border-radius: 8px;
+    background: #fff;
+  }
+  .qr :global(svg) {
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+  .how,
+  .devices {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+  .devices {
+    margin-top: 10px;
+  }
+  .lbl {
+    font-size: 11px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--ink-dim);
+    margin-top: 4px;
+  }
+  .url {
+    font-size: 19px;
+    color: var(--amber);
+    user-select: all;
+  }
+  .code {
+    font-size: 34px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+  }
+  .dim {
+    color: var(--ink-dim);
+  }
+  .small {
+    padding: 4px 10px !important;
+    font-size: 12.5px;
+  }
   .settings {
     height: 100%;
     overflow-y: auto;

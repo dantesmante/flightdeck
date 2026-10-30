@@ -12,6 +12,6 @@ import "@fontsource/ibm-plex-mono/400.css";
 import "maplibre-gl/dist/maplibre-gl.css";
 import "./app.css";
 import { mount } from "svelte";
-import App from "./App.svelte";
+import Root from "./Root.svelte";
 
-export default mount(App, { target: document.getElementById("app")! });
+export default mount(Root, { target: document.getElementById("app")! });

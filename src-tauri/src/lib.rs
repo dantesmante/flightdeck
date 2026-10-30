@@ -4,6 +4,7 @@ mod diag;
 mod elevatex;
 mod engine;
 mod photos;
+mod remote;
 mod samples;
 mod simbrief;
 mod volanta;
@@ -404,7 +405,10 @@ fn demo_routes() -> Vec<String> {
 
 #[tauri::command]
 fn get_settings(state: tauri::State<AppState>) -> CmdResult<HashMap<String, String>> {
-    state.db.lock().unwrap().settings().map_err(err)
+    let mut s = state.db.lock().unwrap().settings().map_err(err)?;
+    // Pairing tokens never leave the store.
+    s.retain(|k, _| !k.starts_with("remote_devices"));
+    Ok(s)
 }
 
 #[tauri::command]
@@ -792,6 +796,92 @@ fn app_version(app: tauri::AppHandle) -> String {
     app.package_info().version.to_string()
 }
 
+// --- access from other devices --------------------------------------------
+
+#[tauri::command]
+fn remote_info(app: tauri::AppHandle) -> remote::RemoteInfo {
+    remote::info(&app)
+}
+
+#[tauri::command]
+fn remote_set(app: tauri::AppHandle, enabled: Option<bool>, can_edit: Option<bool>) -> remote::RemoteInfo {
+    if let Some(e) = can_edit {
+        remote::set_edit(&app, e);
+    }
+    if let Some(on) = enabled {
+        remote::set_enabled(&app, on);
+    }
+    remote::info(&app)
+}
+
+#[tauri::command]
+fn remote_new_code(app: tauri::AppHandle) -> remote::RemoteInfo {
+    remote::new_pairing_code(&app);
+    remote::info(&app)
+}
+
+#[tauri::command]
+fn remote_forget(app: tauri::AppHandle) -> remote::RemoteInfo {
+    remote::forget_devices(&app);
+    remote::info(&app)
+}
+
+/// Run a command for a browser on another device: the same functions the
+/// desktop window calls, with the browser's (camelCase) arguments.
+pub(crate) async fn dispatch(app: &tauri::AppHandle, cmd: &str, a: serde_json::Value) -> Result<serde_json::Value, String> {
+    use serde::de::DeserializeOwned;
+    use serde_json::to_value;
+    fn arg<T: DeserializeOwned>(a: &serde_json::Value, k: &str) -> Result<T, String> {
+        serde_json::from_value(a.get(k).cloned().unwrap_or(serde_json::Value::Null)).map_err(|e| format!("{k}: {e}"))
+    }
+    let st = || app.state::<AppState>();
+    let ok = |v: Result<serde_json::Value, serde_json::Error>| v.map_err(|e| e.to_string());
+    match cmd {
+        "get_status" => ok(to_value(get_status(st()))),
+        "list_flights" => ok(to_value(list_flights(st(), arg(&a, "limit")?, arg(&a, "offset")?)?)),
+        "get_totals" => ok(to_value(get_totals(st())?)),
+        "get_flight" => ok(to_value(get_flight(st(), arg(&a, "id")?)?)),
+        "delete_flight" => ok(to_value(delete_flight(st(), arg(&a, "id")?)?)),
+        "start_demo" => ok(to_value(start_demo(st(), arg(&a, "route")?, arg(&a, "speedup")?)?)),
+        "stop_demo" => ok(to_value(stop_demo(st())?)),
+        "end_flight" => ok(to_value(end_flight(st())?)),
+        "cancel_flight" => ok(to_value(cancel_flight(st())?)),
+        "simbrief_latest" => ok(to_value(simbrief_latest(st()).await?)),
+        "start_flight" => ok(to_value(start_flight(st(), arg(&a, "plan")?, arg(&a, "aircraftId")?)?)),
+        "set_plan" => ok(to_value(set_plan(st(), arg(&a, "plan")?)?)),
+        "current_briefing" => ok(to_value(current_briefing(st()))),
+        "import_volanta" => ok(to_value(import_volanta(app.clone(), st(), arg(&a, "files")?))),
+        "import_elevatex" => ok(to_value(import_elevatex(app.clone(), st(), arg(&a, "files")?))),
+        "demo_routes" => ok(to_value(demo_routes())),
+        "get_settings" => ok(to_value(get_settings(st())?)),
+        "set_setting" => ok(to_value(set_setting(st(), arg(&a, "key")?, arg(&a, "value")?)?)),
+        "get_pilot" => ok(to_value(get_pilot(st())?)),
+        "set_pilot" => ok(to_value(set_pilot(st(), arg(&a, "pilot")?)?)),
+        "get_logbook" => ok(to_value(get_logbook(st())?)),
+        "update_log_entry" => ok(to_value(update_log_entry(st(), arg(&a, "flightId")?, arg(&a, "patch")?)?)),
+        "update_flight" => ok(to_value(update_flight(st(), arg(&a, "flightId")?, arg(&a, "edit")?)?)),
+        "add_manual_entry" => ok(to_value(add_manual_entry(app.clone(), st(), arg(&a, "entry")?)?)),
+        "update_aircraft" => ok(to_value(update_aircraft(app.clone(), st(), arg(&a, "id")?, arg(&a, "edit")?)?)),
+        "add_aircraft" => ok(to_value(add_aircraft(st(), arg(&a, "aircraft")?)?)),
+        "delete_aircraft" => ok(to_value(delete_aircraft(app.clone(), st(), arg(&a, "id")?, arg(&a, "moveTo")?)?)),
+        "find_duplicates" => ok(to_value(find_duplicates(st())?)),
+        "delete_flights" => ok(to_value(delete_flights(app.clone(), st(), arg(&a, "ids")?)?)),
+        "aircraft_with_registration" => ok(to_value(aircraft_with_registration(st(), arg(&a, "registration")?)?)),
+        "get_passport" => ok(to_value(get_passport(st())?)),
+        "get_hangar" => ok(to_value(get_hangar(st())?)),
+        "get_routes" => ok(to_value(get_routes(st())?)),
+        "set_aircraft_favorite" => ok(to_value(set_aircraft_favorite(st(), arg(&a, "id")?, arg(&a, "favorite")?)?)),
+        "spotter_photo" => ok(to_value(spotter_photo(st(), arg(&a, "registration")?).await?)),
+        "aircraft_flights" => ok(to_value(aircraft_flights(st(), arg(&a, "id")?)?)),
+        "get_aircraft_photo" => ok(to_value(get_aircraft_photo(st(), arg(&a, "id")?)?)),
+        "set_aircraft_photo" => ok(to_value(set_aircraft_photo(st(), arg(&a, "id")?, arg(&a, "dataUrl")?)?)),
+        "add_sample_flights" => ok(to_value(add_sample_flights(st()))),
+        "remove_sample_flights" => ok(to_value(remove_sample_flights(st()))),
+        "app_version" => ok(to_value(app_version(app.clone()))),
+        _ => Err(format!("unknown command {cmd}")),
+    }
+}
+
 pub fn run() {
     diag::init();
 
@@ -817,6 +907,9 @@ pub fn run() {
             let refdata_for_state = refdata.clone();
             engine::spawn(app.handle().clone(), shared.clone(), db.clone(), refdata, data_dir.clone(), rx);
             app.manage(AppState { db, refdata: refdata_for_state, shared, tx: Mutex::new(tx), data_dir, photos: Default::default() });
+            app.manage(remote::Remote::default());
+            remote::init(app.handle());
+            remote::start_if_enabled(app.handle());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -843,6 +936,10 @@ pub fn run() {
             add_aircraft,
             delete_aircraft,
             find_duplicates,
+            remote_info,
+            remote_set,
+            remote_new_code,
+            remote_forget,
             delete_flights,
             aircraft_with_registration,
             add_manual_entry,

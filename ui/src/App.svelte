@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { fly } from "./lib/flyStore.svelte";
-  import { api, on, type FlightDetail, type FlightPlan, type HangarItem, type Route, type Status } from "./lib/api";
+  import { api, inRemote, on, type FlightDetail, type FlightPlan, type HangarItem, type Route, type Status } from "./lib/api";
   import FlightsPanel from "./lib/FlightsPanel.svelte";
   import HangarView from "./lib/hangar/HangarView.svelte";
   import LivePanel from "./lib/LivePanel.svelte";
@@ -74,14 +74,25 @@
   onMount(() => {
     loadPrefs();
     loadRoutes();
-    checkForUpdates();
+    // Updates are installed on the flight sim PC, not from other devices.
+    if (!inRemote) checkForUpdates();
     const offs: Promise<() => void>[] = [];
-    api.status().then((s) => {
-      if (!s) return;
-      status = s;
-      session = s.session;
-      liveTrack = s.track;
-    });
+    const fullStatus = () =>
+      api.status().then((s) => {
+        if (!s) return;
+        status = s;
+        session = s.session;
+        liveTrack = s.track;
+      });
+    fullStatus();
+    // Another device back online after a gap: catch up on everything.
+    offs.push(
+      on("reconnected", () => {
+        fullStatus();
+        loadRoutes();
+        refreshKey++;
+      }),
+    );
     offs.push(
       on<Status>("status", (s) => {
         // A new flight starts with an empty track.

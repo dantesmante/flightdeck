@@ -25,4 +25,9 @@ conn-simconnect.workspace = true
 conn-demo.workspace = true
 watcher.workspace = true
 tauri-plugin-opener = "2"
+axum = { version = "0.8", default-features = false, features = ["http1", "json", "query", "tokio", "ws"] }
+tokio = { version = "1", features = ["net", "sync", "macros"] }
+getrandom = "0.3"
+if-addrs = "0.13"
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 ureq = { version = "3", features = ["json", "platform-verifier", "win-system-proxy"] }

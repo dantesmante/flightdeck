@@ -3,6 +3,8 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { inRemote, remoteCall, remoteListen } from "./remote.svelte";
+export { inRemote };
 
 export type Phase =
   | "preflight"
@@ -423,6 +425,19 @@ export interface SpotterPhoto {
   photographer: string;
 }
 
+/** Access from other devices on the home network (Settings on the PC). */
+export interface RemoteInfo {
+  enabled: boolean;
+  running: boolean;
+  can_edit: boolean;
+  port: number;
+  urls: string[];
+  qr_svg: string | null;
+  code: string;
+  devices: { name: string; paired_ms: number }[];
+  error: string | null;
+}
+
 export interface UpdateInfo {
   current: string;
   latest: string;
@@ -436,6 +451,7 @@ export const inTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in
 
 async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   if (inTauri) return invoke<T>(cmd, args);
+  if (inRemote) return remoteCall<T>(cmd, args);
   const { mockCall } = await import("./mock");
   return mockCall<T>(cmd, args);
 }
@@ -486,6 +502,10 @@ export const api = {
   aircraftWithRegistration: (registration: string) => call<number | null>("aircraft_with_registration", { registration }),
   addManualEntry: (entry: ManualEntry) => call<number>("add_manual_entry", { entry }),
   aircraftFlights: (id: number) => call<FlightRow[]>("aircraft_flights", { id }),
+  remoteInfo: () => call<RemoteInfo>("remote_info"),
+  remoteSet: (enabled: boolean | null, canEdit: boolean | null) => call<RemoteInfo>("remote_set", { enabled, canEdit }),
+  remoteNewCode: () => call<RemoteInfo>("remote_new_code"),
+  remoteForget: () => call<RemoteInfo>("remote_forget"),
   checkUpdate: () => call<UpdateInfo>("check_update"),
   installUpdate: (url: string) => call<void>("install_update", { url }),
   version: () => call<string>("app_version"),
@@ -495,6 +515,7 @@ export const api = {
 
 export async function on<T>(event: string, cb: (payload: T) => void): Promise<UnlistenFn> {
   if (inTauri) return listen<T>(event, (e) => cb(e.payload));
+  if (inRemote) return remoteListen(event, cb as (p: unknown) => void);
   const { mockListen } = await import("./mock");
   return mockListen(event, cb as (p: unknown) => void);
 }

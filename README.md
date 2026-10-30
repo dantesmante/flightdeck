@@ -130,6 +130,21 @@ MIT licensed.
 - **Settings**: pilot details and photo, nautical miles, statute miles or
   kilometers, logbook layout, and **sample flights** to
   fill the passport, logbook and hangar for a quick look.
+- **Other devices** (Settings, Other devices): use FlightDeck from a
+  laptop, tablet or phone on the same home Wi-Fi, in its web browser, while
+  the app keeps running on the flight sim PC. Turn on **Allow access from
+  other devices**, open the address shown (or scan the QR code) and enter
+  the 6-digit pairing code. Each device pairs once; **Forget all devices**
+  signs them all out. Other devices can only view unless **Other devices
+  can edit** is on. Exports, diagnostics, updates and the access settings
+  themselves stay on the PC. FlightDeck answers only addresses on the home
+  network (port 8420) and never the internet: nothing is forwarded from
+  the router and no outside service is involved. Windows may ask whether
+  FlightDeck can use private networks; choose Allow.
+- **Duplicate flights** (Logbook, Find duplicates): lists flights on the
+  same day, in the same aircraft, between the same airports. The most
+  complete one in each set is kept and the rest are ticked; review the list
+  and confirm before anything is deleted.
 
 ## Install (the easy way)
 
