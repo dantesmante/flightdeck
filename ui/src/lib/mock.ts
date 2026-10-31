@@ -66,20 +66,29 @@ const sampleOfp = {
 };
 const scene = typeof location !== "undefined" ? new URLSearchParams(location.search).get("mock") : null;
 
+/** The boarding pass preview: Seattle to Portland, part way. */
+const passPlan: FlightPlan = {
+  ...samplePlan,
+  callsign: "ASA492", airline: "AS", flight_number: "492", alternate: "KSEA",
+  origin: { icao: "KSEA", name: "Seattle-Tacoma International Airport", lat: 47.449, lon: -122.3093, runway: "16L" },
+  destination: { icao: "KPDX", name: "Portland International Airport", lat: 45.5887, lon: -122.5975, runway: "10R" },
+  fixes: [], ofp: null,
+};
+
 const status: FullStatus = {
   waiting_for_pilot: scene === "waiting" || scene === "plan",
   armed: false,
   forced_aircraft: null,
-  plan: scene === "plan" ? samplePlan : null,
+  plan: scene === "plan" ? samplePlan : scene === "pass" ? passPlan : null,
   link: "connected",
   sim: "msfs2024",
   sim_label: "MSFS 2024",
   sim_version: "12.1",
   notice: null,
-  aircraft: { title: "Airbus A320neo", icao_type: "A20N", registration: "N320FD", engine_count: 2, engine_type: "jet" },
+  aircraft: { title: "Airbus A320neo", icao_type: "A20N", registration: scene === "pass" ? "D-AINA" : "N320FD", engine_count: 2, engine_type: "jet" },
   phase: "airborne",
   phase_label: "Airborne",
-  live: scene ? null : {
+  live: scene && scene !== "pass" ? null : {
     phase: "airborne",
     start_ms: now - 50 * 60_000,
     block_out_ms: now - 44 * 60_000,
@@ -135,7 +144,21 @@ const flights: FlightRow[] = [
 
 const totals: Totals = { flights: 3, minutes: 227, distance_nm: 953, landings: 3, airports: 6, countries: 3 };
 
+const AIRPORTS = [
+  { icao: "KABQ", name: "Albuquerque International Sunport", country: "United States", lat: 35.0402, lon: -106.6092 },
+  { icao: "KLAS", name: "Harry Reid International Airport", country: "United States", lat: 36.084, lon: -115.1537 },
+  { icao: "KDTW", name: "Detroit Metropolitan Wayne County Airport", country: "United States", lat: 42.2124, lon: -83.3534 },
+  { icao: "KSEA", name: "Seattle-Tacoma International Airport", country: "United States", lat: 47.449, lon: -122.3093 },
+  { icao: "KPDX", name: "Portland International Airport", country: "United States", lat: 45.5887, lon: -122.5975 },
+  { icao: "EGLL", name: "London Heathrow Airport", country: "United Kingdom", lat: 51.4706, lon: -0.4619 },
+  { icao: "EGKK", name: "London Gatwick Airport", country: "United Kingdom", lat: 51.1481, lon: -0.1903 },
+];
+
 export async function mockCall<T>(cmd: string, _args?: Record<string, unknown>): Promise<T> {
+  if (cmd === "search_airports") {
+    const q = String(_args?.query ?? "").trim().toUpperCase();
+    return (q ? AIRPORTS.filter((a) => a.icao.startsWith(q) || (q.length >= 3 && a.name.toUpperCase().includes(q))) : []) as T;
+  }
   const answers: Record<string, unknown> = {
     get_status: status,
     list_flights: flights,

@@ -81,6 +81,14 @@ export interface PlanAirport {
   runway: string;
 }
 
+export interface AirportHit {
+  icao: string;
+  name: string;
+  country: string;
+  lat: number;
+  lon: number;
+}
+
 export interface PlanFix {
   ident: string;
   kind: string;
@@ -492,6 +500,7 @@ export const api = {
   updateFlight: (flightId: number, edit: FlightEdit) => call<boolean>("update_flight", { flightId, edit }),
   passport: () => call<PassportData>("get_passport"),
   hangar: () => call<HangarItem[]>("get_hangar"),
+  searchAirports: (query: string) => call<AirportHit[]>("search_airports", { query }),
   routes: () => call<Route[]>("get_routes"),
   aircraftPhoto: (id: number) => call<string | null>("get_aircraft_photo", { id }),
   setAircraftPhoto: (id: number, dataUrl: string | null) => call<boolean>("set_aircraft_photo", { id, dataUrl }),

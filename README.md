@@ -17,10 +17,20 @@ MIT licensed.
   FlightDeck connects through SimConnect. A flight begins once you are in
   the aircraft (battery or main bus on, or an engine running), never from
   the menus, and is logged from block out to block in with no clicks.
-- **SimBrief**: add your SimBrief Pilot ID in Settings, press **Start a
-  flight** on the map and import your latest dispatched plan. The planned
-  route shows as a dashed line with its waypoints, the flight strip gets
-  the callsign and destination, and the plan is saved with the flight.
+- **Start a flight**: on the map, press **Start a flight** and fill in a
+  simple flight plan: callsign and flight number, the aircraft (the one in
+  the sim, or any aircraft in your hangar), origin, destination and
+  alternate. Airports are found by code or name as you type. Or press
+  **Import from SimBrief** to fill it in from your latest dispatched plan.
+  A plan can also be added mid-flight with **Add a flight plan**.
+- **Boarding pass**: the active flight shows as a boarding pass with the
+  callsign and airline, registration and type, the aircraft's picture when
+  it is in your hangar, the route, block out and takeoff times, the ETA,
+  and a progress bar with the distance flown and left.
+- **SimBrief**: add your SimBrief Pilot ID in Settings to import plans. The
+  planned route shows as a dashed line with its waypoints, the boarding
+  pass gets the callsign and destination, and the plan is saved with the
+  flight.
   **Briefing (OFP)** opens the full SimBrief OFP with jump tabs for times,
   weights and fuel, the flight log, winds aloft, the ICAO flight plan,
   weather and NOTAMs.

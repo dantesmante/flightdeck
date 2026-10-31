@@ -129,6 +129,38 @@ impl RefData {
         self.by_ident.get(&ident.to_ascii_uppercase()).map(|&i| &self.airports[i as usize])
     }
 
+    /// Airports matching what the pilot typed: the exact code first, then
+    /// codes starting with it, then names containing it (from 3 letters),
+    /// bigger airports first within each group.
+    pub fn search(&self, query: &str, limit: usize) -> Vec<&Airport> {
+        let q = query.trim().to_ascii_uppercase();
+        if q.is_empty() {
+            return Vec::new();
+        }
+        let words: Vec<String> = q.split_whitespace().map(str::to_string).collect();
+        let mut hits: Vec<(u8, f64, &Airport)> = self
+            .airports
+            .iter()
+            .filter_map(|a| {
+                let rank = if a.ident == q {
+                    0
+                } else if a.ident.starts_with(&q) {
+                    1
+                } else if q.len() >= 3 && {
+                    let name = a.name.to_ascii_uppercase();
+                    words.iter().all(|w| name.contains(w.as_str()))
+                } {
+                    2
+                } else {
+                    return None;
+                };
+                Some((rank, a.kind.weight(), a))
+            })
+            .collect();
+        hits.sort_by(|x, y| x.0.cmp(&y.0).then(y.1.total_cmp(&x.1)).then(x.2.ident.cmp(&y.2.ident)));
+        hits.into_iter().take(limit).map(|h| h.2).collect()
+    }
+
     pub fn country_name(&self, code: &str) -> Option<&str> {
         self.countries.get(code).map(String::as_str)
     }
@@ -200,6 +232,17 @@ mod tests {
         assert_eq!(a.ident, "KSEA");
         let b = data().airport_at(49.0097, 2.5479, false).unwrap();
         assert_eq!(b.ident, "LFPG");
+    }
+
+    #[test]
+    fn searches_by_code_and_name() {
+        let d = data();
+        assert_eq!(d.search("kabq", 5)[0].ident, "KABQ");
+        assert!(d.search("EGL", 8).iter().any(|a| a.ident == "EGLL"));
+        let heathrow = d.search("heathrow", 5);
+        assert_eq!(heathrow[0].ident, "EGLL");
+        assert!(d.search("  ", 5).is_empty());
+        assert!(d.search("zz", 5).iter().all(|a| a.ident.starts_with("ZZ")));
     }
 
     #[test]

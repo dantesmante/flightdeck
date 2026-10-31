@@ -6,7 +6,8 @@
   import { fromTrack, type Pt } from "./track";
   import { hhmm } from "./format";
   import { distance } from "./prefs.svelte";
-  import FlightStrip from "./FlightStrip.svelte";
+  import BoardingPass from "./BoardingPass.svelte";
+  import PlanForm from "./plan/PlanForm.svelte";
   import LandingCard from "./LandingCard.svelte";
   import PhaseLadder from "./PhaseLadder.svelte";
   import Readouts from "./Readouts.svelte";
@@ -21,20 +22,8 @@
   }
   let { status, completed, track = [], ondismiss, onsettings = () => {} }: Props = $props();
 
-  let planBusy = $state(false);
-  let planError = $state<string | null>(null);
-  /** Mid-flight: attach the latest SimBrief plan. */
-  async function addPlan() {
-    planBusy = true;
-    planError = null;
-    try {
-      await api.setPlan(await api.simbriefLatest());
-    } catch (e) {
-      planError = String(e);
-    } finally {
-      planBusy = false;
-    }
-  }
+  /** Mid-flight: the flight plan form, to add a plan to the flight. */
+  let addingPlan = $state(false);
   const finalLanding = $derived(completed?.landings.filter((l) => !l.touch_and_go).at(-1) ?? null);
 
   let routes = $state<string[]>([]);
@@ -72,14 +61,7 @@
         {status.demo ? "Demo flight" : status.sim_label}{status.telemetry?.paused ? ", paused" : ""}
       </p>
     </header>
-    <FlightStrip
-      aircraft={status.aircraft}
-      dep={status.dep}
-      telemetry={status.telemetry}
-      simLabel={status.sim_label}
-      active={status.phase !== "preflight" && status.phase !== "arrived"}
-      plan={status.plan}
-    />
+    <BoardingPass {status} />
     <Readouts telemetry={status.telemetry} live={status.live} />
     {#if track.length > 1}
       <AltSpeedGraph pts={track} height={130} />
@@ -87,10 +69,19 @@
     {#if status.plan}
       <PlanCard plan={status.plan} onremove={() => api.setPlan(null)} />
     {:else if !status.demo}
-      <button class="ghost add-plan" onclick={addPlan} disabled={planBusy}>
-        {planBusy ? "Loading SimBrief…" : "Add my SimBrief plan"}
-      </button>
-      {#if planError}<p class="plan-err">{planError}</p>{/if}
+      {#if addingPlan}
+        <div class="add-sheet">
+          <div class="add-title">
+            <span>Add a flight plan</span>
+            <button class="x" aria-label="Close" onclick={() => (addingPlan = false)}>
+              <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" /></svg>
+            </button>
+          </div>
+          <PlanForm mode="attach" {onsettings} ondone={() => (addingPlan = false)} />
+        </div>
+      {:else}
+        <button class="ghost add-plan" onclick={() => (addingPlan = true)}>Add a flight plan</button>
+      {/if}
     {/if}
     {#if status.last_landing}
       <LandingCard landing={status.last_landing} />
@@ -296,10 +287,34 @@
   .add-plan {
     align-self: flex-start;
   }
-  .plan-err {
-    margin: -8px 0 0;
-    color: var(--bad);
-    font-size: 13px;
+  .add-sheet {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 14px;
+    border-radius: 12px;
+    border: 1px solid var(--rule);
+  }
+  .add-title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-family: var(--cond);
+    font-size: 18px;
+    font-weight: 600;
+  }
+  .x {
+    border: none;
+    background: transparent;
+    color: var(--ink-dim);
+    padding: 2px;
+    display: grid;
+  }
+  .x svg {
+    width: 18px;
+    height: 18px;
+    stroke: currentColor;
+    stroke-width: 2;
   }
   .good {
     color: var(--good);

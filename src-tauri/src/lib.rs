@@ -135,6 +135,32 @@ fn start_flight(
     send(&state, Command::StartFlight { plan, aircraft })
 }
 
+#[derive(serde::Serialize)]
+struct AirportHit {
+    icao: String,
+    name: String,
+    country: String,
+    lat: f64,
+    lon: f64,
+}
+
+/// Airports for the flight plan fields, matched by code or name.
+#[tauri::command]
+fn search_airports(state: tauri::State<AppState>, query: String) -> Vec<AirportHit> {
+    state
+        .refdata
+        .search(&query, 8)
+        .into_iter()
+        .map(|a| AirportHit {
+            icao: a.ident.clone(),
+            name: a.name.clone(),
+            country: state.refdata.country_name(&a.country).unwrap_or(&a.country).to_string(),
+            lat: a.lat,
+            lon: a.lon,
+        })
+        .collect()
+}
+
 #[derive(serde::Deserialize)]
 struct ImportFile {
     name: String,
@@ -853,6 +879,7 @@ pub(crate) async fn dispatch(app: &tauri::AppHandle, cmd: &str, a: serde_json::V
         "import_volanta" => ok(to_value(import_volanta(app.clone(), st(), arg(&a, "files")?))),
         "import_elevatex" => ok(to_value(import_elevatex(app.clone(), st(), arg(&a, "files")?))),
         "demo_routes" => ok(to_value(demo_routes())),
+        "search_airports" => ok(to_value(search_airports(st(), arg(&a, "query")?))),
         "get_settings" => ok(to_value(get_settings(st())?)),
         "set_setting" => ok(to_value(set_setting(st(), arg(&a, "key")?, arg(&a, "value")?)?)),
         "get_pilot" => ok(to_value(get_pilot(st())?)),
@@ -947,6 +974,7 @@ pub fn run() {
             aircraft_flights,
             save_diagnostics,
             demo_routes,
+            search_airports,
             get_settings,
             set_setting,
             get_pilot,

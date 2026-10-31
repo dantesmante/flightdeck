@@ -359,6 +359,20 @@ mod tests {
     use super::*;
 
     #[test]
+    fn reads_a_plan_typed_in_the_app() {
+        // What the Start a flight form sends for a hand-made plan.
+        let json = r#"{"source":"manual","id":"manual-1","generated_ms":1793462094467,"callsign":"DAL864",
+            "airline":"","flight_number":"DL864",
+            "origin":{"icao":"KLAS","name":"Harry Reid","lat":36.084,"lon":-115.1537,"runway":""},
+            "destination":{"icao":"KDTW","name":"Detroit","lat":42.2124,"lon":-83.3534,"runway":""},
+            "alternate":"KCLE","route":"","cruise_ft":0,"distance_nm":1529,"ete_min":0,"aircraft_icao":"B753",
+            "aircraft_name":"Boeing 757-300","registration":"N581NW","block_fuel_kg":0,"sched_out_ms":null,
+            "sched_in_ms":null,"fixes":[],"ofp":null}"#;
+        let p: FlightPlan = serde_json::from_str(json).unwrap();
+        assert_eq!((p.source.as_str(), p.destination.icao.as_str(), p.alternate.as_str()), ("manual", "KDTW", "KCLE"));
+    }
+
+    #[test]
     fn reads_an_ofp() {
         let v: Value = serde_json::json!({
             "params": { "request_id": "123", "time_generated": "1793140000", "units": "lbs" },

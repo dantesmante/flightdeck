@@ -413,6 +413,7 @@ const VIEW: &[&str] = &[
     "get_status", "list_flights", "get_totals", "get_flight", "current_briefing", "demo_routes", "get_settings",
     "get_pilot", "get_logbook", "find_duplicates", "aircraft_with_registration", "get_passport", "get_hangar",
     "get_routes", "spotter_photo", "aircraft_flights", "get_aircraft_photo", "app_version", "simbrief_latest",
+    "search_airports",
 ];
 /// Commands that change something: only when editing is allowed.
 const EDIT: &[&str] = &[
