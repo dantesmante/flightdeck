@@ -154,6 +154,23 @@ MIT licensed.
   Captain. Open any flight's score to see how it was made up. Runway
   centerlines come from OurAirports; runways it has no survey for are
   left out of the landing score.
+- **Scores for imported and older flights**: flights imported from
+  Volanta or Elevatex, and flights recorded before the pilot rating, are
+  scored from what they have. Bank and pitch come from the positions the
+  other tracker logged, or are worked out from the track (bank from the
+  rate of turn, pitch from the climb and descent angle). A flight without
+  a landing report gets its touchdown rate from the positions in the
+  last seconds before touchdown. Parts that were never recorded (touchdown
+  G, bounces, G in flight) are left out and the others count for more. To
+  be rated a flight needs a touchdown rate and at least two minutes of
+  positions in the air, mostly no more than 30 seconds apart; otherwise it
+  shows "Not enough data" and still earns XP. Worked-out flights move your
+  rating less: three quarters as much with logged attitude, half as much
+  from the track alone.
+- **Pilot score on every flight**: the Flights tab shows a flight's score
+  when you land and the flight ends, and on every saved flight you open,
+  with its landing and safety scores, the change to your rating, XP
+  towards your next rank and how it was scored.
 - **Fly this aircraft**: with the Parked aircraft layer on, click a parked
   aircraft and press Fly this aircraft. The next flight is logged to that
   aircraft whatever the sim shows.

@@ -141,6 +141,34 @@ fn wind_parts(hdg: f64, wind_from: f64, kt: f64) -> (f64, f64) {
     (kt * a.cos(), kt * a.sin())
 }
 
+/// Every position in a Volanta file, with the attitude Volanta logged, for
+/// working out how the flight was handled.
+pub fn samples(text: &str) -> Vec<tracker::Sample> {
+    let Ok(v) = serde_json::from_str::<Value>(text) else { return vec![] };
+    let mut out: Vec<tracker::Sample> = v
+        .get("positions")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|p| {
+            Some(tracker::Sample {
+                t_ms: t(p, "time")?,
+                lat: f(p, "latitude")?,
+                lon: f(p, "longitude")?,
+                on_ground: p.get("onGround").and_then(Value::as_bool).unwrap_or(false),
+                gs_kt: f(p, "groundSpeed").unwrap_or(0.0),
+                vs_fpm: f(p, "verticalSpeed").unwrap_or(0.0),
+                hdg_deg: f(p, "headingTrue").unwrap_or(0.0),
+                bank_deg: f(p, "bank").or_else(|| f(p, "roll")),
+                pitch_deg: f(p, "pitch"),
+                g_load: f(p, "gForce"),
+            })
+        })
+        .collect();
+    out.sort_by_key(|s| s.t_ms);
+    out
+}
+
 pub fn parse(text: &str, refdata: &refdata::RefData) -> Result<ImportedFlight, String> {
     let v: Value = serde_json::from_str(text).map_err(|e| format!("not a JSON file ({e})"))?;
     let id = st(&v, "id").ok_or("not a Volanta flight (no id)")?;
@@ -465,6 +493,27 @@ pub fn file_name(json: &Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn positions_carry_attitude_for_the_rating() {
+        // Five minutes of positions every 5 s, banked 50 degrees for one.
+        let positions: Vec<Value> = (0..60)
+            .map(|i| {
+                json!({
+                    "time": format_time(1_700_000_000_000 + i * 5000, true),
+                    "latitude": 47.0, "longitude": -122.0, "groundSpeed": 200.0, "verticalSpeed": 0.0,
+                    "headingTrue": 90.0, "onGround": false, "pitch": 2.0, "bank": if (20..32).contains(&i) { 50.0 } else { 0.0 }
+                })
+            })
+            .collect();
+        let text = json!({ "id": "x", "positions": positions }).to_string();
+        let s = samples(&text);
+        assert_eq!(s.len(), 60);
+        let h = tracker::Handling::estimate(&s).unwrap();
+        assert_eq!(h.source, tracker::handling_source::POSITIONS);
+        assert!((h.bank_s[2] - 55.0).abs() < 0.1, "{:?}", h.bank_s);
+        assert!(samples("not json").is_empty());
+    }
 
     #[test]
     fn times() {

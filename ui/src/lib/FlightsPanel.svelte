@@ -7,6 +7,7 @@
   import { day, dec, gradeTone, hhmm, hoursMinutes, int, zulu } from "./format";
   import AltSpeedGraph from "./AltSpeedGraph.svelte";
   import LandingCard from "./LandingCard.svelte";
+  import PilotScoreCard from "./pilot/PilotScoreCard.svelte";
   import { fromTrack, type Pt } from "./track";
   import { distance } from "./prefs.svelte";
 
@@ -82,6 +83,9 @@
       <div><dt>Max altitude</dt><dd class="num">{int(f.max_alt_ft)} ft</dd></div>
       <div><dt>Fuel used</dt><dd class="num">{int(f.fuel_used_kg)} kg</dd></div>
     </dl>
+    {#if selected.score}
+      {#key f.id}<PilotScoreCard score={selected.score} standing={selected.standing} />{/key}
+    {/if}
     <AltSpeedGraph pts={fromTrack(selected.track)} height={170} />
     {#if selected.plan}<PlanCard plan={selected.plan} />{/if}
     {#each selected.landings.filter((l) => !l.touch_and_go) as l (l.t_ms)}

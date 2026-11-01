@@ -172,10 +172,12 @@ function mockProfile(): PilotProfile {
   for (let i = 0; i < n; i++) {
     const [dep, arr, type, min] = routes[i % routes.length];
     const start = now - (150 - i * 5.6) * 864e5;
-    const unrated = i < 8 ? (i < 5 ? "Imported" : "Recorded before pilot rating") : i === 17 ? "Ended before landing" : null;
+    const unrated = i === 2 ? "Not enough data: too few positions in the air" : i === 17 ? "Ended before landing" : null;
+    // The first flights came from Volanta: bank and pitch from its positions, no bounces or G in flight.
+    const imported = i < 8;
     const s: FlightScore = {
       flight_id: 100 + i, start_ms: start, dep_icao: dep, arr_icao: arr, icao_type: type, performance: null, landing: null, safety: null,
-      unrated, airborne_min: min, xp_base: 0, xp_bonus: 0, xp: 0, rating_before: null, rating_after: null, expected: null, k: null,
+      unrated, confidence: 0, estimated: [], airborne_min: min, xp_base: 0, xp_bonus: 0, xp: 0, rating_before: null, rating_after: null, expected: null, k: null,
     };
     if (!unrated) {
       const wobble = Math.sin(i * 1.7) * 9 + Math.cos(i * 0.6) * 5;
@@ -183,15 +185,18 @@ function mockProfile(): PilotProfile {
       const off = Math.abs(Math.sin(i * 3.1)) * 22;
       const bounces = i % 7 === 3 ? 1 : 0;
       const rate = Math.max(0, Math.min(100, 100 - (Math.abs(vs) - 60) / 4)), g = 92 - (i % 4) * 4, cl = Math.max(0, 100 - off * 2.4), bo = bounces ? 60 : 100;
-      const landing = rate * 0.35 + g * 0.2 + cl * 0.25 + bo * 0.2;
+      const landing = imported ? (rate * 0.35 + g * 0.2 + cl * 0.25) / 0.8 : rate * 0.35 + g * 0.2 + cl * 0.25 + bo * 0.2;
       const safety = Math.min(100, 93 + wobble * 0.6);
       const p = landing / 2 + safety / 2;
-      const e = expected(rating), k = rated < 5 ? 48 : rated < 20 ? 40 : rated < 50 ? 32 : 24;
+      const confidence = imported ? 0.75 : 1;
+      const e = expected(rating), k = (rated < 5 ? 48 : rated < 20 ? 40 : rated < 50 ? 32 : 24) * confidence;
       const after = rating + (k * (p - e)) / 100;
       Object.assign(s, {
+        confidence,
+        estimated: imported ? ["Bank and pitch from the positions the flight was logged with", "Not recorded, so left out: bounces, G-force in flight"] : [],
         performance: p, rating_before: rating, rating_after: after, expected: e, k, xp_base: Math.round(p),
-        landing: { score: landing, rate: { score: rate, weight: 0.35 }, g: { score: g, weight: 0.2 }, centerline: { score: cl, weight: 0.25 }, bounce: { score: bo, weight: 0.2 }, vs_fpm: vs, g_peak: 1.08 + (i % 4) * 0.07, bounces, runway: { airport: arr, runway: ["16L", "28R", "25L", "09", "34R"][i % 5], heading_deg: 160, width_ft: 150, offset_ft: (i % 2 ? 1 : -1) * off, along_ft: 1200 }, crosswind_kt: (i * 3) % 14, discarded: i === 12 ? 1 : 0 },
-        safety: { score: safety, g: { score: Math.min(100, safety + 2), weight: 0.5 }, bank: { score: Math.min(100, safety - 1), weight: 0.25 }, pitch: { score: 100, weight: 0.25 }, aerobatic: false, g_max: 1.35, g_min: 0.72, bank_max: 31 + (i % 5) * 4, pitch_max: 14, pitch_min: -6 },
+        landing: { score: landing, rate: { score: rate, weight: 0.35 }, g: { score: g, weight: 0.2 }, centerline: { score: cl, weight: 0.25 }, bounce: imported ? null : { score: bo, weight: 0.2 }, source: imported ? "volanta" : "sim", vs_fpm: vs, g_peak: 1.08 + (i % 4) * 0.07, bounces, runway: { airport: arr, runway: ["16L", "28R", "25L", "09", "34R"][i % 5], heading_deg: 160, width_ft: 150, offset_ft: (i % 2 ? 1 : -1) * off, along_ft: 1200 }, crosswind_kt: (i * 3) % 14, discarded: i === 12 ? 1 : 0 },
+        safety: { score: safety, g: imported ? null : { score: Math.min(100, safety + 2), weight: 0.5 }, bank: { score: Math.min(100, safety - 1), weight: imported ? 0.5 : 0.25 }, pitch: { score: 100, weight: imported ? 0.5 : 0.25 }, aerobatic: false, source: imported ? "positions" : "recorded", g_max: 1.35, g_min: 0.72, bank_max: 31 + (i % 5) * 4, pitch_max: 14, pitch_min: -6 },
       });
       rating = after;
       peak = Math.max(peak, rating);
@@ -239,6 +244,19 @@ function mockProfile(): PilotProfile {
 export async function mockCall<T>(cmd: string, _args?: Record<string, unknown>): Promise<T> {
   if (cmd === "set_banner") mockBanner = (_args?.dataUrl as string | null) ?? null;
   if (cmd === "set_pilot_photo") mockPhoto = (_args?.dataUrl as string | null) ?? null;
+  if (cmd === "get_flight") {
+    const p = mockProfile();
+    const want = scene === "imported" ? p.rating.flights.find((f) => f.confidence > 0 && f.confidence < 1) : scene === "unrated" ? p.rating.flights.find((f) => f.unrated) : p.rating.flights.find((f) => f.performance != null);
+    const r = p.rating;
+    return {
+      flight: flights[0],
+      track: track.map(([lon, lat, alt_ft, gs_kt, t_ms]) => ({ t_ms, lat, lon, alt_ft, gs_kt, vs_fpm: 0, hdg_deg: 180, on_ground: false })),
+      landings: [{ t_ms: now, lat: 37.6, lon: -122.37, vs_fpm: -142, vs_source: "sim", g_peak: 1.18, pitch_deg: 3.2, bank_deg: 0.4, gs_kt: 128, ias_kt: 131, hdg_deg: 280, headwind_kt: 8, crosswind_kt: 4, bounces: 0, touch_and_go: false }],
+      plan: null,
+      score: want ?? null,
+      standing: { rating: r.rating, xp: r.xp, rank: r.rank, next_rank: r.next_rank },
+    } as T;
+  }
   if (cmd === "get_pilot_profile") {
     const p = mockProfile();
     if (scene === "rookie") {

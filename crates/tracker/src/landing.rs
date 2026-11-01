@@ -69,6 +69,42 @@ impl LandingReport {
     }
 }
 
+/// A touchdown worked out from positions alone, for flights that came
+/// without a landing report: where the aircraft was last back on the
+/// ground, and the average descent rate over the few seconds before it.
+/// `None` when the positions around touchdown are too far apart.
+pub fn estimate_landing(samples: &[crate::Sample]) -> Option<LandingReport> {
+    let i = samples.windows(2).rposition(|w| !w[0].on_ground && w[1].on_ground)? + 1;
+    let td = samples[i];
+    let before: Vec<f64> = samples[..i]
+        .iter()
+        .rev()
+        .take_while(|s| !s.on_ground && td.t_ms - s.t_ms <= 6_000)
+        .map(|s| s.vs_fpm)
+        .collect();
+    if before.is_empty() {
+        return None;
+    }
+    let vs = before.iter().sum::<f64>() / before.len() as f64;
+    Some(LandingReport {
+        t_ms: td.t_ms,
+        lat: td.lat,
+        lon: td.lon,
+        vs_fpm: vs.min(0.0),
+        vs_source: "track".into(),
+        g_peak: 0.0,
+        pitch_deg: td.pitch_deg.unwrap_or(0.0),
+        bank_deg: td.bank_deg.unwrap_or(0.0),
+        gs_kt: td.gs_kt,
+        ias_kt: 0.0,
+        hdg_deg: td.hdg_deg,
+        headwind_kt: 0.0,
+        crosswind_kt: 0.0,
+        bounces: 0,
+        touch_and_go: false,
+    })
+}
+
 pub fn grade_for(vs_fpm: f64) -> &'static str {
     match vs_fpm.abs() {
         v if v <= 60.0 => "Butter",

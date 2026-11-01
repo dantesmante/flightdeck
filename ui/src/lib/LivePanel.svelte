@@ -9,6 +9,7 @@
   import BoardingPass from "./BoardingPass.svelte";
   import PlanForm from "./plan/PlanForm.svelte";
   import LandingCard from "./LandingCard.svelte";
+  import PilotScoreCard from "./pilot/PilotScoreCard.svelte";
   import PhaseLadder from "./PhaseLadder.svelte";
   import Readouts from "./Readouts.svelte";
 
@@ -117,6 +118,9 @@
         Saved to your flights{f.status !== "complete" ? ` as ${f.status}` : ""}.
       </p>
     </header>
+    {#if completed.score}
+      <PilotScoreCard score={completed.score} standing={completed.standing} />
+    {/if}
     {#if completed.track.length > 1}
       <AltSpeedGraph pts={fromTrack(completed.track)} height={150} />
     {/if}

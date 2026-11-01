@@ -246,6 +246,15 @@ export interface FlightDetail {
   track: TrackPoint[];
   landings: LandingReport[];
   plan: FlightPlan | null;
+  score?: FlightScore | null;
+  standing?: Standing | null;
+}
+
+export interface Standing {
+  rating: number;
+  xp: number;
+  rank: Rank;
+  next_rank: Rank | null;
 }
 
 export interface Totals {
@@ -283,9 +292,10 @@ export interface RunwayHit {
 export interface LandingScore {
   score: number;
   rate: ScorePart;
-  g: ScorePart;
+  g: ScorePart | null;
   centerline: ScorePart | null;
-  bounce: ScorePart;
+  bounce: ScorePart | null;
+  source: string;
   vs_fpm: number;
   g_peak: number;
   bounces: number;
@@ -296,10 +306,11 @@ export interface LandingScore {
 
 export interface SafetyScore {
   score: number;
-  g: ScorePart;
+  g: ScorePart | null;
   bank: ScorePart | null;
   pitch: ScorePart | null;
   aerobatic: boolean;
+  source: string;
   g_max: number;
   g_min: number;
   bank_max: number;
@@ -317,6 +328,8 @@ export interface FlightScore {
   landing: LandingScore | null;
   safety: SafetyScore | null;
   unrated: string | null;
+  confidence: number;
+  estimated: string[];
   airborne_min: number;
   xp_base: number;
   xp_bonus: number;

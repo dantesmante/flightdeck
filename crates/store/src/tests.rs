@@ -571,3 +571,22 @@ fn pilot_profile_inputs() {
     db.set_pilot_photo(Some("data:image/jpeg;base64,BBBB")).unwrap();
     assert_eq!(db.pilot().unwrap().photo_url.as_deref(), Some("data:image/jpeg;base64,BBBB"));
 }
+
+#[test]
+fn older_flights_get_their_estimates_once() {
+    let mut db = Store::open_in_memory().unwrap();
+    let id = db.save_flight(&fly(1), &SaveContext::default()).unwrap();
+    assert!(db.flights_needing_estimates().unwrap().is_empty());
+    // As if recorded before FlightDeck kept handling.
+    db.conn.execute("DELETE FROM flight_event WHERE kind = 'handling'", []).unwrap();
+    // Demo flights are never rated; pretend this one was flown in the sim.
+    db.conn.execute("UPDATE flight SET sim = 'msfs2024'", []).unwrap();
+    let need = db.flights_needing_estimates().unwrap();
+    assert_eq!((need.len(), need[0].id, need[0].has_landing), (1, id, true));
+    let track: Vec<tracker::Sample> = db.get_track(id).unwrap().iter().map(tracker::Sample::from_track).collect();
+    let h = tracker::Handling::estimate_simplified(&track).expect("enough track to judge");
+    assert_eq!(h.source, "track");
+    db.save_estimates(id, 0, &h, None).unwrap();
+    assert!(db.flights_needing_estimates().unwrap().is_empty());
+    assert_eq!(db.rating_flights().unwrap()[0].handling.as_ref().map(|h| h.source.as_str()), Some("track"));
+}

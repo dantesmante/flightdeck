@@ -100,6 +100,34 @@ fn landings(v: &Value) -> Vec<LandingReport> {
     out
 }
 
+/// Every position in an Elevatex file, with any attitude it logged.
+pub fn samples(text: &str) -> Vec<tracker::Sample> {
+    let Ok(v) = serde_json::from_str::<Value>(text) else { return vec![] };
+    let any = |p: &Value, keys: &[&str]| keys.iter().find_map(|k| f(p, k));
+    let mut out: Vec<tracker::Sample> = v
+        .get("Positions")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|p| {
+            Some(tracker::Sample {
+                t_ms: t(p, "CreatedAt")?,
+                lat: f(p, "Latitude")?,
+                lon: f(p, "Longitude")?,
+                on_ground: p.get("OnGround").and_then(Value::as_bool).unwrap_or(false),
+                gs_kt: f(p, "GroundSpeed").unwrap_or(0.0),
+                vs_fpm: f(p, "VerticalSpeed").unwrap_or(0.0),
+                hdg_deg: f(p, "Heading").unwrap_or(0.0),
+                bank_deg: any(p, &["Bank", "Roll", "bank", "roll"]),
+                pitch_deg: any(p, &["Pitch", "pitch"]),
+                g_load: any(p, &["GForce", "Gforce", "gForce", "gforce"]),
+            })
+        })
+        .collect();
+    out.sort_by_key(|s| s.t_ms);
+    out
+}
+
 pub fn parse(text: &str, refdata: &refdata::RefData) -> Result<ImportedFlight, String> {
     let v: Value = serde_json::from_str(text).map_err(|e| format!("not a JSON file ({e})"))?;
     if !looks_like(&v) {

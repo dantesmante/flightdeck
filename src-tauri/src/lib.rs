@@ -61,14 +61,36 @@ struct FlightDetail {
     landings: Vec<LandingReport>,
     /// The flight plan flown, if one was loaded.
     plan: Option<simbrief::FlightPlan>,
+    /// Its pilot score, and where the pilot stands now.
+    score: Option<rating::FlightScore>,
+    standing: Option<Standing>,
+}
+
+#[derive(serde::Serialize)]
+struct Standing {
+    rating: f64,
+    xp: f64,
+    rank: rating::Rank,
+    next_rank: Option<rating::Rank>,
 }
 
 #[tauri::command]
 fn get_flight(state: tauri::State<AppState>, id: i64) -> CmdResult<Option<FlightDetail>> {
+    // A score that cannot be worked out never hides the flight itself.
+    let profile = rating_profile(&state).map_err(|e| log::warn!("pilot rating: {e}")).ok();
     let db = state.db.lock().unwrap();
     let Some(flight) = db.get_flight(id).map_err(err)? else { return Ok(None) };
     let plan = db.get_plan(id).map_err(err)?.and_then(|j| serde_json::from_str(&j).ok());
-    Ok(Some(FlightDetail { flight, track: db.get_track(id).map_err(err)?, landings: db.get_landings(id).map_err(err)?, plan }))
+    let score = profile.as_ref().and_then(|p| p.flights.iter().find(|f| f.flight_id == id).cloned());
+    let standing = profile.map(|p| Standing { rating: p.rating, xp: p.xp, rank: p.rank, next_rank: p.next_rank });
+    Ok(Some(FlightDetail {
+        flight,
+        track: db.get_track(id).map_err(err)?,
+        landings: db.get_landings(id).map_err(err)?,
+        plan,
+        score,
+        standing,
+    }))
 }
 
 #[tauri::command]
@@ -466,23 +488,59 @@ struct PilotProfile {
     rating: rating::Profile,
 }
 
+/// Work out the handling (and, where there is no landing report, the
+/// touchdown) of flights that were imported or recorded before FlightDeck
+/// kept handling, so they can be rated. Done once per flight: imported
+/// flights from the positions in their original file, the others from
+/// their saved track.
+fn ensure_estimates(db: &Store) -> CmdResult<()> {
+    for n in db.flights_needing_estimates().map_err(err)? {
+        let file = if n.source.is_empty() { None } else { db.get_imported(n.id).map_err(err)?.map(|i| i.file) };
+        let from_file = match (n.source.as_str(), &file) {
+            (volanta::SOURCE, Some(text)) => volanta::samples(text),
+            (elevatex::SOURCE, Some(text)) => elevatex::samples(text),
+            _ => vec![],
+        };
+        let (samples, handling) = if from_file.len() >= 2 {
+            let h = tracker::Handling::estimate(&from_file);
+            (from_file, h)
+        } else {
+            let track: Vec<tracker::Sample> = db.get_track(n.id).map_err(err)?.iter().map(tracker::Sample::from_track).collect();
+            let h = tracker::Handling::estimate_simplified(&track);
+            (track, h)
+        };
+        let landing = if n.has_landing { None } else { tracker::estimate_landing(&samples) };
+        db.save_estimates(n.id, n.start_ms, &handling.unwrap_or_else(tracker::Handling::none), landing.as_ref())
+            .map_err(err)?;
+    }
+    Ok(())
+}
+
+/// Every flight's score, oldest first in, newest first out.
+fn rating_profile(state: &tauri::State<AppState>) -> CmdResult<rating::Profile> {
+    let flights = {
+        let db = state.db.lock().unwrap();
+        ensure_estimates(&db)?;
+        db.rating_flights().map_err(err)?
+    };
+    Ok(rating::profile(&flights, &state.refdata))
+}
+
 #[tauri::command]
 fn get_pilot_profile(state: tauri::State<AppState>) -> CmdResult<PilotProfile> {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
         .unwrap_or(0);
-    let (pilot, banner, totals, stats, flights) = {
-        let db = state.db.lock().unwrap();
-        (
-            db.pilot().map_err(err)?,
-            db.banner().map_err(err)?,
-            db.totals().map_err(err)?,
-            db.pilot_stats(now).map_err(err)?,
-            db.rating_flights().map_err(err)?,
-        )
-    };
-    Ok(PilotProfile { pilot, banner, totals, stats, rating: rating::profile(&flights, &state.refdata) })
+    let rating = rating_profile(&state)?;
+    let db = state.db.lock().unwrap();
+    Ok(PilotProfile {
+        pilot: db.pilot().map_err(err)?,
+        banner: db.banner().map_err(err)?,
+        totals: db.totals().map_err(err)?,
+        stats: db.pilot_stats(now).map_err(err)?,
+        rating,
+    })
 }
 
 /// Pictures arrive as data URLs; keep them to a sane size.

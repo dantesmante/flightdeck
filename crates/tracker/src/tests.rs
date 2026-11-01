@@ -395,3 +395,21 @@ fn handling_is_saved_with_the_flight() {
     assert!(h.airborne_s > 70.0);
     assert_eq!(h.bank_max, 60.0);
 }
+
+#[test]
+fn a_landing_can_be_estimated_from_positions() {
+    let mut s: Vec<Sample> = (0..20)
+        .map(|i| Sample { t_ms: i * 2000, vs_fpm: -700.0, on_ground: false, gs_kt: 140.0, hdg_deg: 160.0, ..Default::default() })
+        .collect();
+    s[17].vs_fpm = -220.0;
+    s[18].vs_fpm = -180.0;
+    s[19].on_ground = true;
+    s[19].lat = 47.45;
+    let l = estimate_landing(&s).unwrap();
+    // The last 6 s: -700, -220, -180 (the -700 sample is exactly 6 s before).
+    assert!((l.vs_fpm + 366.7).abs() < 1.0, "{}", l.vs_fpm);
+    assert_eq!((l.vs_source.as_str(), l.lat), ("track", 47.45));
+    // Nothing within six seconds of the touchdown: no estimate.
+    let far: Vec<Sample> = vec![Sample { t_ms: 0, ..Default::default() }, Sample { t_ms: 20_000, on_ground: true, ..Default::default() }];
+    assert!(estimate_landing(&far).is_none());
+}

@@ -16,8 +16,8 @@ use std::collections::VecDeque;
 use serde::{Deserialize, Serialize};
 use telemetry::{geo, AircraftInfo, SimKind, Telemetry, TrackPoint};
 
-pub use handling::Handling;
-pub use landing::{grade_for, LandingReport};
+pub use handling::{source as handling_source, Handling, Sample};
+pub use landing::{estimate_landing, grade_for, LandingReport};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

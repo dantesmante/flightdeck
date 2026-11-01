@@ -26,8 +26,21 @@ pub struct RatingFlight {
     pub landing_ms: Option<i64>,
     pub total_min: i64,
     pub landings: Vec<LandingReport>,
-    /// Recorded from version 0.1.28 on.
+    /// A touchdown worked out from the positions, when the flight came
+    /// without a landing report.
+    pub estimated_landing: Option<LandingReport>,
+    /// Recorded from version 0.1.28 on; worked out from the positions for
+    /// older and imported flights.
     pub handling: Option<Handling>,
+}
+
+/// A flight whose handling has not been worked out yet.
+#[derive(Debug, Clone)]
+pub struct NeedsEstimate {
+    pub id: i64,
+    pub start_ms: i64,
+    pub source: String,
+    pub has_landing: bool,
 }
 
 /// A flight singled out in the statistics.
@@ -98,6 +111,7 @@ impl Store {
                     landing_ms: r.get(10)?,
                     total_min: r.get(11)?,
                     landings: vec![],
+                    estimated_landing: None,
                     handling: None,
                 })
             })?;
@@ -105,7 +119,8 @@ impl Store {
         };
         let index: HashMap<i64, usize> = flights.iter().enumerate().map(|(i, f)| (f.id, i)).collect();
         let mut st = self.conn.prepare(
-            "SELECT flight_id, kind, data FROM flight_event WHERE kind IN ('landing_report', 'handling') ORDER BY flight_id, t",
+            "SELECT flight_id, kind, data FROM flight_event
+             WHERE kind IN ('landing_report', 'handling', 'landing_estimate') ORDER BY flight_id, t",
         )?;
         let rows = st.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?)))?;
         for row in rows {
@@ -113,11 +128,47 @@ impl Store {
             let Some(&i) = index.get(&id) else { continue };
             if kind == "handling" {
                 flights[i].handling = serde_json::from_str(&data).ok();
+            } else if kind == "landing_estimate" {
+                flights[i].estimated_landing = serde_json::from_str(&data).ok();
             } else if let Ok(l) = serde_json::from_str(&data) {
                 flights[i].landings.push(l);
             }
         }
         Ok(flights)
+    }
+
+    /// Flights flown in a sim whose handling has not been worked out yet:
+    /// imported ones and those recorded before FlightDeck kept handling.
+    pub fn flights_needing_estimates(&self) -> Result<Vec<NeedsEstimate>> {
+        let mut st = self.conn.prepare(
+            "SELECT f.id, f.start_ms, COALESCE(f.source, ''),
+                    EXISTS (SELECT 1 FROM flight_event e WHERE e.flight_id = f.id AND e.kind = 'landing_report')
+             FROM flight f
+             WHERE f.sim NOT IN ('demo', 'manual') AND COALESCE(f.source, '') <> 'manual'
+               AND NOT EXISTS (SELECT 1 FROM flight_event e WHERE e.flight_id = f.id AND e.kind = 'handling')",
+        )?;
+        let rows = st.query_map([], |r| {
+            Ok(NeedsEstimate { id: r.get(0)?, start_ms: r.get(1)?, source: r.get(2)?, has_landing: r.get(3)? })
+        })?;
+        Ok(rows.collect::<std::result::Result<_, _>>()?)
+    }
+
+    /// Save what was worked out for a flight: its handling and, if it had
+    /// no landing report, an estimated touchdown.
+    pub fn save_estimates(&self, id: i64, t_ms: i64, handling: &Handling, landing: Option<&LandingReport>) -> Result<()> {
+        let tx = self.conn.unchecked_transaction()?;
+        tx.execute(
+            "INSERT INTO flight_event (flight_id, t, kind, data) VALUES (?1, ?2, 'handling', ?3)",
+            params![id, t_ms, serde_json::to_string(handling)?],
+        )?;
+        if let Some(l) = landing {
+            tx.execute(
+                "INSERT INTO flight_event (flight_id, t, kind, data) VALUES (?1, ?2, 'landing_estimate', ?3)",
+                params![id, l.t_ms, serde_json::to_string(l)?],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
     }
 
     /// Career statistics for the pilot profile.

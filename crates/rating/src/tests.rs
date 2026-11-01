@@ -56,6 +56,7 @@ fn flight(id: i64, vs: f64, h: Option<Handling>) -> RatingFlight {
         landing_ms: None,
         total_min: 60,
         landings: vec![landing(id * 86_400_000 + 3_000_000, vs, 1.1, 0.0)],
+        estimated_landing: None,
         handling: h,
     }
 }
@@ -126,7 +127,7 @@ fn no_runway_spreads_the_weights() {
     l.lon = -100.0;
     let s = score_landing(&[l], data()).unwrap();
     assert!(s.centerline.is_none());
-    let w = s.rate.weight + s.g.weight + s.bounce.weight;
+    let w = s.rate.weight + s.g.as_ref().unwrap().weight + s.bounce.as_ref().unwrap().weight;
     assert!((w - 1.0).abs() < 1e-9);
     assert!((s.rate.weight - 0.35 / 0.75).abs() < 1e-9);
 }
@@ -171,7 +172,7 @@ fn safety_penalises_sustained_steep_flying() {
     assert!(steep.bank.as_ref().unwrap().score < 60.0, "{steep:?}");
     // The same in an Extra 330: no bank penalty, G carries it all.
     let aero = score_safety(&h, true).unwrap();
-    assert!(aero.bank.is_none() && aero.score == 100.0 && aero.g.weight == 1.0);
+    assert!(aero.bank.is_none() && aero.score == 100.0 && aero.g.as_ref().unwrap().weight == 1.0);
 }
 
 #[test]
@@ -193,29 +194,69 @@ fn aerobatic_aircraft_are_recognised() {
 
 #[test]
 fn the_profile_rates_only_what_it_can() {
-    let mut imported = flight(1, -150.0, None);
-    imported.source = "volanta".into();
-    let old = flight(2, -150.0, None);
+    let mut manual = flight(1, -150.0, None);
+    manual.sim = "manual".into();
+    // Recorded before handling was kept, and its positions were too sparse.
+    let sparse = flight(2, -150.0, Some(Handling::none()));
     let rated = flight(3, -100.0, Some(smooth_handling(90.0)));
     let mut crashed = flight(4, -100.0, Some(smooth_handling(30.0)));
     crashed.status = "partial".into();
-    let p = profile(&[imported, old, rated, crashed], data());
+    let p = profile(&[manual, sparse, rated, crashed], data());
     assert_eq!(p.rated_flights, 1);
     assert_eq!(p.flights.len(), 4);
     // Newest first.
     assert_eq!(p.flights[0].flight_id, 4);
     assert_eq!(p.flights[0].unrated.as_deref(), Some("Ended before landing"));
     assert_eq!(p.flights[0].xp, 0.0);
-    assert_eq!(p.flights[3].unrated.as_deref(), Some("Imported"));
-    assert_eq!(p.flights[2].unrated.as_deref(), Some("Recorded before pilot rating"));
+    assert_eq!(p.flights[3].unrated.as_deref(), Some("Entered by hand"));
+    assert_eq!(p.flights[2].unrated.as_deref(), Some("Not enough data: too few positions in the air"));
     // Unrated flights still count towards XP and rank.
     assert_eq!(p.flights[3].xp, UNSCORED_XP + 8.0);
     let r = &p.flights[1];
     let perf = r.performance.unwrap();
     assert!(perf > 95.0, "{perf}");
-    assert_eq!(r.xp_bonus, 8.0);
-    assert_eq!(r.k, Some(48.0));
+    assert_eq!((r.confidence, r.xp_bonus, r.k), (1.0, 8.0, Some(48.0)));
+    assert!(r.estimated.is_empty(), "{:?}", r.estimated);
     assert!((p.rating - (1000.0 + 48.0 * (perf - 75.0) / 100.0)).abs() < 1e-9);
     assert_eq!(p.history.len(), 2);
     assert_eq!(p.xp, 2.0 * (UNSCORED_XP + 8.0) + perf.round() + 8.0);
+}
+
+#[test]
+fn imported_flights_are_rated_with_what_they_have() {
+    // A Volanta flight: touchdown rate and G, no bounces; bank and pitch
+    // worked out from its track, no G in flight.
+    let mut f = flight(1, -180.0, None);
+    f.source = "volanta".into();
+    f.landings[0].vs_source = "volanta".into();
+    let mut h = smooth_handling(60.0);
+    h.source = tracker::handling_source::TRACK.into();
+    h.g_s.clear();
+    f.handling = Some(h);
+    let p = profile(&[f], data());
+    let s = &p.flights[0];
+    assert!(s.performance.is_some(), "{:?}", s.unrated);
+    let l = s.landing.as_ref().unwrap();
+    assert!(l.bounce.is_none() && l.g.is_some());
+    let sf = s.safety.as_ref().unwrap();
+    assert!(sf.g.is_none() && (sf.bank.as_ref().unwrap().weight - 0.5).abs() < 1e-9);
+    // Worked out from the track: half the weight on the rating.
+    assert_eq!((s.confidence, s.k), (0.5, Some(24.0)));
+    assert!(s.estimated.iter().any(|e| e.contains("rate of turn")));
+    assert!(s.estimated.iter().any(|e| e.contains("bounces")));
+
+    // No landing report: the touchdown worked out from the positions counts.
+    let mut g = flight(2, -180.0, Some(smooth_handling(60.0)));
+    let mut est = g.landings.remove(0);
+    est.vs_source = "track".into();
+    est.g_peak = 0.0;
+    g.estimated_landing = Some(est);
+    let p = profile(&[g.clone()], data());
+    assert_eq!(p.flights[0].landing.as_ref().unwrap().source, "track");
+    assert_eq!(p.flights[0].confidence, 0.5);
+    // Nothing at all: not rated, but it still earns XP.
+    g.estimated_landing = None;
+    let p = profile(&[g], data());
+    assert_eq!(p.flights[0].unrated.as_deref(), Some("Not enough data: no touchdown rate"));
+    assert_eq!(p.flights[0].xp_base, UNSCORED_XP);
 }
