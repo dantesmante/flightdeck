@@ -280,27 +280,15 @@ export interface ScorePart {
   weight: number;
 }
 
-export interface RunwayHit {
-  airport: string;
-  runway: string;
-  heading_deg: number;
-  width_ft: number;
-  offset_ft: number;
-  along_ft: number;
-}
-
 export interface LandingScore {
   score: number;
   rate: ScorePart;
   g: ScorePart | null;
-  centerline: ScorePart | null;
   bounce: ScorePart | null;
   source: string;
   vs_fpm: number;
   g_peak: number;
   bounces: number;
-  runway: RunwayHit | null;
-  crosswind_kt: number;
   discarded: number;
 }
 

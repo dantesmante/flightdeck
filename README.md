@@ -140,20 +140,20 @@ MIT licensed.
   and career statistics: hours per month, records, most flown aircraft
   and favorite airports.
 - **Pilot rating**: every flight FlightDeck records from gate to gate is
-  scored out of 100, half **Landing quality** (touchdown rate 35%,
-  touchdown G 20%, distance from the runway centerline 25%, with a bonus
-  for crosswind, and bounces 20%) and half **Flight safety** (time spent
-  at high or negative G 50%, beyond 45° of bank 25% and beyond 30° of
-  pitch 25%; aerobatic and fighter aircraft are not marked down for bank
-  and pitch). A go-around or touch-and-go a minute or more before the
-  final landing is not counted. The score moves your rating (everyone
-  starts at 1,000) up or down against what your rating expects, faster
-  over your first flights. Every completed flight earns XP: its score
-  (50 for imported, hand-entered and older flights) plus up to 20 for
-  time in the air. XP sets your rank, from Student Pilot to Fleet
-  Captain. Open any flight's score to see how it was made up. Runway
-  centerlines come from OurAirports; runways it has no survey for are
-  left out of the landing score.
+  scored out of 100, half **Landing quality** (touchdown rate, touchdown
+  G and bounces, weighted 35 : 20 : 20) and half **Flight safety** (time
+  spent at high or negative G 50%, beyond 45° of bank 25%, and beyond 25°
+  nose up or 15° nose down 25%; aerobatic and fighter aircraft are not
+  marked down for bank and pitch). G comes from the sim's own G FORCE
+  value. A go-around or touch-and-go a minute or more before the final
+  landing is not counted. The score moves your rating (everyone starts at
+  1,000) up or down against what your rating expects, faster over your
+  first flights. Every completed flight earns XP: its score (50 for
+  hand-entered flights and those without enough data) plus up to 20 for
+  time in the air, counted only from wheels up to touchdown. XP sets your
+  rank, from Student Pilot to Fleet Captain, shown on a shoulder board
+  with stripes and pilot wings. Open any flight's score to see how it was
+  made up.
 - **Scores for imported and older flights**: flights imported from
   Volanta or Elevatex, and flights recorded before the pilot rating, are
   scored from what they have. Bank and pitch come from the positions the
@@ -170,7 +170,9 @@ MIT licensed.
 - **Pilot score on every flight**: the Flights tab shows a flight's score
   when you land and the flight ends, and on every saved flight you open,
   with its landing and safety scores, the change to your rating, XP
-  towards your next rank and how it was scored.
+  towards your next rank and how it was scored. A flight's summary reads
+  top to bottom: the flight, its landing (rate and smoothness), altitude
+  and speed, pilot score, then the flight plan.
 - **Fly this aircraft**: with the Parked aircraft layer on, click a parked
   aircraft and press Fly this aircraft. The next flight is logged to that
   aircraft whatever the sim shows.

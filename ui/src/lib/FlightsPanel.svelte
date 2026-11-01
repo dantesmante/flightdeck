@@ -83,14 +83,14 @@
       <div><dt>Max altitude</dt><dd class="num">{int(f.max_alt_ft)} ft</dd></div>
       <div><dt>Fuel used</dt><dd class="num">{int(f.fuel_used_kg)} kg</dd></div>
     </dl>
-    {#if selected.score}
-      {#key f.id}<PilotScoreCard score={selected.score} standing={selected.standing} />{/key}
-    {/if}
-    <AltSpeedGraph pts={fromTrack(selected.track)} height={170} />
-    {#if selected.plan}<PlanCard plan={selected.plan} />{/if}
     {#each selected.landings.filter((l) => !l.touch_and_go) as l (l.t_ms)}
       <LandingCard landing={l} />
     {/each}
+    <AltSpeedGraph pts={fromTrack(selected.track)} height={170} />
+    {#if selected.score}
+      {#key f.id}<PilotScoreCard score={selected.score} standing={selected.standing} />{/key}
+    {/if}
+    {#if selected.plan}<PlanCard plan={selected.plan} />{/if}
     <div class="danger-zone">
       {#if confirmDelete}
         <p>Delete this flight and its track? This cannot be undone.</p>

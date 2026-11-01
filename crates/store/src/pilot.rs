@@ -153,6 +153,30 @@ impl Store {
         Ok(rows.collect::<std::result::Result<_, _>>()?)
     }
 
+    /// Throw away worked-out handling and touchdowns saved by an older
+    /// version, so they are worked out again the current way. Once per
+    /// `version`; FlightDeck's own recordings are kept.
+    pub fn reset_estimates(&self, version: u32) -> Result<bool> {
+        let have: Option<String> =
+            self.conn.query_row("SELECT value FROM settings WHERE key = 'estimates_version'", [], |r| r.get(0)).optional()?;
+        if have.and_then(|v| v.parse::<u32>().ok()).is_some_and(|v| v >= version) {
+            return Ok(false);
+        }
+        let tx = self.conn.unchecked_transaction()?;
+        tx.execute(
+            "DELETE FROM flight_event WHERE kind = 'landing_estimate'
+                OR (kind = 'handling' AND json_extract(data, '$.source') IN ('positions', 'track', 'none'))",
+            [],
+        )?;
+        tx.execute(
+            "INSERT INTO settings (key, value) VALUES ('estimates_version', ?1)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![version.to_string()],
+        )?;
+        tx.commit()?;
+        Ok(true)
+    }
+
     /// Save what was worked out for a flight: its handling and, if it had
     /// no landing report, an estimated touchdown.
     pub fn save_estimates(&self, id: i64, t_ms: i64, handling: &Handling, landing: Option<&LandingReport>) -> Result<()> {

@@ -1,7 +1,7 @@
 //! Pilot rating.
 //!
 //! Every eligible flight gets a performance score out of 100: half Landing
-//! Quality (touchdown rate, touchdown G, centerline, bounces), half Flight
+//! Quality (touchdown rate, touchdown G, bounces), half Flight
 //! Safety (time spent at high G, steep bank and steep pitch). The score
 //! moves the Pilot Rating up or down against what the current rating
 //! expects, iRating style. Pilot XP only ever grows: each flight earns its
@@ -13,10 +13,8 @@
 
 mod scales;
 
-use refdata::{RefData, RunwayHit};
 use serde::{Deserialize, Serialize};
 use store::pilot::RatingFlight;
-use telemetry::geo;
 use tracker::{handling_source, Handling, LandingReport};
 
 pub use scales::{rank_for, Insignia, Rank, RANKS};
@@ -40,8 +38,6 @@ pub struct LandingScore {
     pub rate: Part,
     /// None when the touchdown G was not recorded.
     pub g: Option<Part>,
-    /// None when no known runway lined up with the touchdown.
-    pub centerline: Option<Part>,
     /// None when bounces were not recorded.
     pub bounce: Option<Part>,
     /// Where the touchdown figures came from: "sim", "derived", "volanta",
@@ -50,9 +46,6 @@ pub struct LandingScore {
     pub vs_fpm: f64,
     pub g_peak: f64,
     pub bounces: u32,
-    pub runway: Option<RunwayHit>,
-    /// Crosswind across the runway (or the aircraft) at touchdown.
-    pub crosswind_kt: f64,
     /// Earlier landings left out: go-arounds and touch-and-goes.
     pub discarded: u32,
 }
@@ -178,38 +171,22 @@ fn the_landing(landings: &[LandingReport]) -> Option<(LandingReport, u32)> {
 /// Touchdown sources that do not count bounces.
 const NO_BOUNCES: &[&str] = &["volanta", "track"];
 
-pub fn score_landing(landings: &[LandingReport], refdata: &RefData) -> Option<LandingScore> {
+pub fn score_landing(landings: &[LandingReport]) -> Option<LandingScore> {
     let (l, discarded) = the_landing(landings)?;
     let mut rate = Part { score: curve(l.vs_fpm.abs(), scales::RATE), weight: 0.35 };
     let mut g = (l.g_peak > 0.0).then(|| Part { score: curve(l.g_peak, scales::TOUCHDOWN_G), weight: 0.20 });
     let mut bounce = (!NO_BOUNCES.contains(&l.vs_source.as_str()) || l.bounces > 0)
         .then(|| Part { score: curve(l.bounces as f64, scales::BOUNCES), weight: 0.20 });
-    let runway = refdata.runway_at(l.lat, l.lon, l.hdg_deg);
-    // The wind, back from its head and cross parts along the aircraft.
-    let wind_kt = l.headwind_kt.hypot(l.crosswind_kt);
-    let wind_from = l.hdg_deg + l.crosswind_kt.atan2(l.headwind_kt).to_degrees();
-    let along = runway.as_ref().map_or(l.hdg_deg, |r| r.heading_deg);
-    let crosswind_kt = wind_kt * geo::heading_diff(along, wind_from).to_radians().sin().abs();
-    let mut centerline = runway.as_ref().map(|r| {
-        let half = if r.width_ft > 20.0 { r.width_ft / 2.0 } else { 75.0 };
-        let base = curve(r.offset_ft.abs() / half, scales::CENTERLINE);
-        // Holding the centerline in a crosswind earns up to a quarter more.
-        let boost = 1.0 + crosswind_kt.min(25.0) / 100.0;
-        Part { score: (base * boost).min(100.0), weight: 0.25 }
-    });
-    let score = combine(&mut [Some(&mut rate), g.as_mut(), centerline.as_mut(), bounce.as_mut()]);
+    let score = combine(&mut [Some(&mut rate), g.as_mut(), bounce.as_mut()]);
     Some(LandingScore {
         score,
         rate,
         g,
-        centerline,
         bounce,
         source: l.vs_source.clone(),
         vs_fpm: l.vs_fpm,
         g_peak: l.g_peak,
         bounces: l.bounces,
-        runway,
-        crosswind_kt,
         discarded,
     })
 }
@@ -230,7 +207,16 @@ pub fn score_safety(h: &Handling, aerobatic: bool) -> Option<SafetyScore> {
     };
     let mut g = (!h.g_s.is_empty()).then(|| part(&h.g_s, if aerobatic { scales::G_AEROBATIC } else { scales::G_NORMAL }, 0.50));
     let mut bank = (!aerobatic).then(|| part(&h.bank_s, scales::BANK, 0.25));
-    let mut pitch = (!aerobatic).then(|| part(&h.pitch_s, scales::PITCH, 0.25));
+    let mut pitch = (!aerobatic).then(|| {
+        if h.pitch_up_s.is_empty() {
+            // Recorded before nose up and nose down were kept apart.
+            part(&h.pitch_s, scales::PITCH_EITHER, 0.25)
+        } else {
+            let lost = penalty(&h.pitch_up_s, h.airborne_s, scales::PITCH_UP)
+                + penalty(&h.pitch_down_s, h.airborne_s, scales::PITCH_DOWN);
+            Part { score: (100.0 - lost).clamp(0.0, 100.0), weight: 0.25 }
+        }
+    });
     if g.is_none() && bank.is_none() {
         // An aerobatic aircraft without G: nothing left to judge.
         return None;
@@ -326,9 +312,21 @@ fn estimates(l: &LandingScore, s: &SafetyScore) -> Vec<String> {
     out
 }
 
+/// Time in the air for the length bonus: from wheels up to touchdown only,
+/// so time spent parked, taxiing or starting in the air never counts. A
+/// flight FlightDeck recorded counts its airborne time without pauses;
+/// others count from takeoff to landing. No takeoff, no bonus.
+pub fn airborne_minutes(f: &RatingFlight) -> f64 {
+    let (Some(up), Some(down)) = (f.takeoff_ms, f.landing_ms) else { return 0.0 };
+    match &f.handling {
+        Some(h) if h.source == handling_source::RECORDED && h.airborne_s > 0.0 => h.airborne_s / 60.0,
+        _ => ((down - up).max(0)) as f64 / 60_000.0,
+    }
+}
+
 /// Score every flight (oldest first in, newest first out) and work out the
 /// pilot's rating, XP and rank.
-pub fn profile(flights: &[RatingFlight], refdata: &RefData) -> Profile {
+pub fn profile(flights: &[RatingFlight]) -> Profile {
     let mut rating = START_RATING;
     let mut peak = rating;
     let mut rated = 0usize;
@@ -337,18 +335,13 @@ pub fn profile(flights: &[RatingFlight], refdata: &RefData) -> Profile {
     let (mut sum_p, mut sum_l, mut sum_s) = (0.0, 0.0, 0.0);
     let mut out = Vec::with_capacity(flights.len());
     for f in flights {
-        let air_s = f.handling.as_ref().filter(|h| h.is_known()).map(|h| h.airborne_s);
-        let airborne_min = match (air_s, f.takeoff_ms, f.landing_ms) {
-            (Some(s), _, _) => s / 60.0,
-            (None, Some(a), Some(b)) if b > a => (b - a) as f64 / 60_000.0,
-            _ => f.total_min as f64,
-        };
+        let airborne_min = airborne_minutes(f);
         let mut reason = unrated_reason(f).map(str::to_string);
         let landings: Vec<LandingReport> = match (&f.estimated_landing, f.landings.is_empty()) {
             (Some(l), true) => vec![l.clone()],
             _ => f.landings.clone(),
         };
-        let landing = if reason.is_none() { score_landing(&landings, refdata) } else { None };
+        let landing = if reason.is_none() { score_landing(&landings) } else { None };
         let safety = match (&reason, &f.handling) {
             (None, Some(h)) => score_safety(h, is_aerobatic(&f.icao_type, &f.title)),
             _ => None,

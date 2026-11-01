@@ -1,18 +1,7 @@
-use std::sync::OnceLock;
-
 use super::*;
 
-fn data() -> &'static RefData {
-    static D: OnceLock<RefData> = OnceLock::new();
-    D.get_or_init(RefData::load)
-}
-
-/// A touchdown on KSEA 16L, `off_ft` right of the centerline.
-fn landing(t_ms: i64, vs: f64, g: f64, off_ft: f64) -> LandingReport {
-    // 16L runs almost due south along longitude -122.3080.
-    let hdg = 180.0;
-    let lat: f64 = 47.4500;
-    let lon = -122.30800 - off_ft / (60.0 * 6076.12 * lat.to_radians().cos());
+fn landing(t_ms: i64, vs: f64, g: f64) -> LandingReport {
+    let (hdg, lat, lon) = (180.0, 47.45, -122.308);
     LandingReport {
         t_ms,
         lat,
@@ -38,6 +27,8 @@ fn smooth_handling(minutes: f64) -> Handling {
     h.g_s[4] = h.airborne_s;
     h.bank_s[0] = h.airborne_s;
     h.pitch_s[0] = h.airborne_s;
+    h.pitch_up_s[0] = h.airborne_s;
+    h.pitch_down_s[0] = h.airborne_s;
     h
 }
 
@@ -52,10 +43,10 @@ fn flight(id: i64, vs: f64, h: Option<Handling>) -> RatingFlight {
         title: "Airbus A320neo".into(),
         dep_icao: "KPDX".into(),
         arr_icao: "KSEA".into(),
-        takeoff_ms: None,
-        landing_ms: None,
+        takeoff_ms: Some(id * 86_400_000 + 600_000),
+        landing_ms: Some(id * 86_400_000 + 600_000 + 60 * 60_000),
         total_min: 60,
-        landings: vec![landing(id * 86_400_000 + 3_000_000, vs, 1.1, 0.0)],
+        landings: vec![landing(id * 86_400_000 + 3_000_000, vs, 1.1)],
         estimated_landing: None,
         handling: h,
     }
@@ -104,60 +95,68 @@ fn ranks_follow_xp() {
 }
 
 #[test]
-fn a_good_landing_on_the_centerline() {
-    let l = score_landing(&[landing(0, -120.0, 1.15, 2.0)], data()).unwrap();
-    let rwy = l.runway.as_ref().expect("on KSEA 16L");
-    assert_eq!(rwy.runway, "16L");
-    assert!(l.centerline.as_ref().unwrap().score > 95.0, "{l:?}");
+fn a_good_landing() {
+    let l = score_landing(&[landing(0, -120.0, 1.15)]).unwrap();
     assert!(l.score > 95.0, "{}", l.score);
+    // Touchdown rate, G and bounces share the score: 35 : 20 : 20.
+    assert!((l.rate.weight - 0.35 / 0.75).abs() < 1e-9);
+    assert!((l.g.as_ref().unwrap().weight - 0.20 / 0.75).abs() < 1e-9);
 }
 
 #[test]
-fn hard_and_off_center_scores_low() {
-    let l = score_landing(&[landing(0, -650.0, 1.9, 60.0)], data()).unwrap();
+fn a_hard_landing_scores_low() {
+    let l = score_landing(&[landing(0, -650.0, 1.9)]).unwrap();
     // Only the lack of bounces holds it up.
-    assert!(l.score < 40.0, "{}", l.score);
-}
-
-#[test]
-fn no_runway_spreads_the_weights() {
-    let mut l = landing(0, -120.0, 1.15, 0.0);
-    // A field in the middle of nowhere.
-    l.lat = 45.0;
-    l.lon = -100.0;
-    let s = score_landing(&[l], data()).unwrap();
-    assert!(s.centerline.is_none());
-    let w = s.rate.weight + s.g.as_ref().unwrap().weight + s.bounce.as_ref().unwrap().weight;
-    assert!((w - 1.0).abs() < 1e-9);
-    assert!((s.rate.weight - 0.35 / 0.75).abs() < 1e-9);
-}
-
-#[test]
-fn crosswind_rewards_the_centerline_only() {
-    let mut calm = landing(0, -120.0, 1.15, 25.0);
-    let base = score_landing(&[calm.clone()], data()).unwrap();
-    calm.crosswind_kt = 20.0;
-    calm.headwind_kt = 0.0;
-    let windy = score_landing(&[calm], data()).unwrap();
-    assert!((windy.crosswind_kt - 20.0).abs() < 1.5, "{}", windy.crosswind_kt);
-    let (a, b) = (base.centerline.unwrap().score, windy.centerline.unwrap().score);
-    assert!(b > a && b <= 100.0, "{a} {b}");
-    assert_eq!(base.rate, windy.rate);
+    assert!(l.score < 45.0, "{}", l.score);
 }
 
 #[test]
 fn go_arounds_are_discarded_and_close_ones_are_bounces() {
-    let mut first = landing(0, -900.0, 2.4, 50.0);
+    let mut first = landing(0, -900.0, 2.4);
     first.touch_and_go = true;
-    let last = landing(300_000, -100.0, 1.1, 0.0);
-    let s = score_landing(&[first.clone(), last.clone()], data()).unwrap();
+    let last = landing(300_000, -100.0, 1.1);
+    let s = score_landing(&[first.clone(), last.clone()]).unwrap();
     assert_eq!(s.discarded, 1);
     assert_eq!(s.vs_fpm, -100.0);
     // Back on the ground 20 s later: one landing that bounced.
     let mut again = last.clone();
     again.t_ms = first.t_ms + 20_000;
-    let s = score_landing(&[first, again], data()).unwrap();
+    let s = score_landing(&[first, again]).unwrap();
     assert_eq!((s.discarded, s.bounces, s.vs_fpm), (0, 1, -900.0));
+}
+
+#[test]
+fn nose_up_to_25_and_down_to_15_are_fine() {
+    let mut h = smooth_handling(60.0);
+    // Two minutes at 20 degrees nose up: no penalty.
+    h.pitch_up_s[0] = h.airborne_s;
+    assert_eq!(score_safety(&h, false).unwrap().pitch.unwrap().score, 100.0);
+    // Two minutes at 20 degrees nose down: excessive.
+    h.pitch_up_s[0] -= 120.0;
+    h.pitch_down_s[1] += 120.0;
+    let s = score_safety(&h, false).unwrap();
+    assert!(s.pitch.as_ref().unwrap().score < 95.0, "{s:?}");
+    // Flights recorded before up and down were kept apart still score.
+    let mut old = smooth_handling(60.0);
+    old.pitch_up_s.clear();
+    old.pitch_down_s.clear();
+    assert_eq!(score_safety(&old, false).unwrap().pitch.unwrap().score, 100.0);
+}
+
+#[test]
+fn the_length_bonus_counts_only_wheels_up_to_touchdown() {
+    // Four hours on the ground with the engines running, 20 minutes flying.
+    let mut f = flight(1, -150.0, None);
+    f.total_min = 260;
+    f.takeoff_ms = None;
+    assert_eq!(airborne_minutes(&f), 0.0, "no takeoff, no bonus");
+    f.takeoff_ms = Some(1_000_000);
+    f.landing_ms = Some(1_000_000 + 20 * 60_000);
+    assert_eq!(airborne_minutes(&f), 20.0);
+    // Recorded flights count their airborne time without pauses.
+    f.handling = Some(smooth_handling(18.0));
+    assert_eq!(airborne_minutes(&f), 18.0);
+    assert_eq!(length_bonus(airborne_minutes(&f)), 2.0);
 }
 
 #[test]
@@ -201,7 +200,7 @@ fn the_profile_rates_only_what_it_can() {
     let rated = flight(3, -100.0, Some(smooth_handling(90.0)));
     let mut crashed = flight(4, -100.0, Some(smooth_handling(30.0)));
     crashed.status = "partial".into();
-    let p = profile(&[manual, sparse, rated, crashed], data());
+    let p = profile(&[manual, sparse, rated, crashed]);
     assert_eq!(p.rated_flights, 1);
     assert_eq!(p.flights.len(), 4);
     // Newest first.
@@ -233,7 +232,7 @@ fn imported_flights_are_rated_with_what_they_have() {
     h.source = tracker::handling_source::TRACK.into();
     h.g_s.clear();
     f.handling = Some(h);
-    let p = profile(&[f], data());
+    let p = profile(&[f]);
     let s = &p.flights[0];
     assert!(s.performance.is_some(), "{:?}", s.unrated);
     let l = s.landing.as_ref().unwrap();
@@ -251,12 +250,12 @@ fn imported_flights_are_rated_with_what_they_have() {
     est.vs_source = "track".into();
     est.g_peak = 0.0;
     g.estimated_landing = Some(est);
-    let p = profile(&[g.clone()], data());
+    let p = profile(&[g.clone()]);
     assert_eq!(p.flights[0].landing.as_ref().unwrap().source, "track");
     assert_eq!(p.flights[0].confidence, 0.5);
     // Nothing at all: not rated, but it still earns XP.
     g.estimated_landing = None;
-    let p = profile(&[g], data());
+    let p = profile(&[g]);
     assert_eq!(p.flights[0].unrated.as_deref(), Some("Not enough data: no touchdown rate"));
     assert_eq!(p.flights[0].xp_base, UNSCORED_XP);
 }

@@ -3136,10 +3136,8 @@ dependencies = [
 name = "rating"
 version = "0.1.0"
 dependencies = [
- "refdata",
  "serde",
  "store",
- "telemetry",
  "tracker",
 ]
 

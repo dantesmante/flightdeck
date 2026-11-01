@@ -9,11 +9,6 @@
 
   const tone = (v: number | null | undefined) => (v == null ? "dim" : v >= 85 ? "good" : v >= 65 ? "warn" : "bad");
   const pct = (p: ScorePart | null) => (p ? `${Math.round(p.weight * 100)}%` : "");
-  function side(ft: number) {
-    const v = Math.abs(ft);
-    if (v < 1.5) return "on the centerline";
-    return `${int(v)} ft ${ft > 0 ? "right" : "left"}`;
-  }
 </script>
 
 {#snippet bar(label: string, detail: string, part: ScorePart | null, note = "not recorded")}
@@ -35,16 +30,9 @@
         <h4>Landing quality <b class="num {tone(l.score)}">{Math.round(l.score)}</b></h4>
         {@render bar("Touchdown rate", `${int(l.vs_fpm)} fpm${l.source === "track" ? " (est.)" : ""}`, l.rate)}
         {@render bar("Touchdown G", l.g ? `${l.g_peak.toFixed(2)} G` : "–", l.g)}
-        {@render bar(
-          "Centerline",
-          l.runway ? `${side(l.runway.offset_ft)}, ${l.runway.airport} ${l.runway.runway}` : "No runway data here",
-          l.centerline,
-          "not scored",
-        )}
         {@render bar("Bounces", l.bounce ? (l.bounces ? String(l.bounces) : "None") : "–", l.bounce)}
-        {#if l.crosswind_kt >= 1 || l.discarded}
+        {#if l.discarded}
           <p class="notes">
-            {#if l.crosswind_kt >= 1}{int(l.crosswind_kt)} kt crosswind{l.centerline ? `, centerline +${int(Math.min(25, l.crosswind_kt))}%` : ""}.{/if}
             {#if l.discarded}{l.discarded === 1 ? "An earlier landing (go-around or touch-and-go) was" : `${l.discarded} earlier landings were`} not counted.{/if}
           </p>
         {/if}

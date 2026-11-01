@@ -589,4 +589,8 @@ fn older_flights_get_their_estimates_once() {
     db.save_estimates(id, 0, &h, None).unwrap();
     assert!(db.flights_needing_estimates().unwrap().is_empty());
     assert_eq!(db.rating_flights().unwrap()[0].handling.as_ref().map(|h| h.source.as_str()), Some("track"));
+    // A newer way of working them out throws the old ones away, once.
+    assert!(db.reset_estimates(2).unwrap());
+    assert_eq!(db.flights_needing_estimates().unwrap().len(), 1);
+    assert!(!db.reset_estimates(2).unwrap());
 }

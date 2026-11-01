@@ -2,6 +2,7 @@
   // A pilot's shoulder board for a rank: thin or full gold stripes at the
   // shoulder end, wings or an oak leaf in the middle, a button at the tip.
   import type { Insignia } from "../api";
+  import Wings from "./Wings.svelte";
 
   let { insignia, width = 220, dim = false }: { insignia: Insignia; width?: number; dim?: boolean } = $props();
   const uid = $props.id();
@@ -20,9 +21,6 @@
   });
   const middle = $derived(stripes.length ? 16 + stripes.length * ((insignia.thin ? 4 : 9) + 6) + 50 : 104);
 
-  // One wing, pointing left from the badge; feathers fan out behind.
-  const WING =
-    "M-7 -2 C-16 -9 -34 -11 -46 -8 L-38 -5 L-47 -3 L-37 -1 L-44 2 L-34 2.5 L-39 5.5 L-28 4.8 L-31 7.6 L-20 6 C-13 5 -9 3 -7 2 Z";
   const OAK =
     "M0 -12 C3 -10 6 -10 5 -7 C9 -7 10 -4 7 -2 C10 0 9 3 6 3 C7 6 4 8 2 6 L0 12 L-2 6 C-4 8 -7 6 -6 3 C-9 3 -10 0 -7 -2 C-10 -4 -9 -7 -5 -7 C-6 -10 -3 -10 0 -12 Z";
 </script>
@@ -39,13 +37,6 @@
       <stop offset="0.45" stop-color={METAL.gold[1]} />
       <stop offset="1" stop-color={METAL.gold[2]} />
     </linearGradient>
-    {#if wing}
-      <linearGradient id="{uid}-wing" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0" stop-color={wing[0]} />
-        <stop offset="0.5" stop-color={wing[1]} />
-        <stop offset="1" stop-color={wing[2]} />
-      </linearGradient>
-    {/if}
     <clipPath id="{uid}-clip"><path d="M8 4 H168 L214 32 L168 60 H8 Q3 60 3 55 V9 Q3 4 8 4 Z" /></clipPath>
   </defs>
   <path d="M8 4 H168 L214 32 L168 60 H8 Q3 60 3 55 V9 Q3 4 8 4 Z" fill="url(#{uid}-cloth)" stroke="#3a455c" stroke-width="1.2" />
@@ -58,11 +49,8 @@
     {/each}
   </g>
   {#if wing}
-    <g transform="translate({middle} 32)" fill="url(#{uid}-wing)" stroke={wing[2]} stroke-width="0.6" stroke-linejoin="round">
-      <path d={WING} />
-      <path d={WING} transform="scale(-1 1)" />
-      <circle r="7.5" />
-      <circle r="4" fill="none" stroke={wing[2]} stroke-width="1" />
+    <g transform="translate({middle} 32) scale(0.72)">
+      <Wings metal={wing} id="{uid}-w" />
     </g>
   {:else if insignia.oak_leaf}
     <g transform="translate({middle} 32)" fill="url(#{uid}-gold)" stroke="#9c6b1c" stroke-width="0.6" stroke-linejoin="round">

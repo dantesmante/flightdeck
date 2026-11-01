@@ -182,10 +182,9 @@ function mockProfile(): PilotProfile {
     if (!unrated) {
       const wobble = Math.sin(i * 1.7) * 9 + Math.cos(i * 0.6) * 5;
       const vs = -Math.round(110 + Math.abs(Math.sin(i * 2.3)) * 260);
-      const off = Math.abs(Math.sin(i * 3.1)) * 22;
       const bounces = i % 7 === 3 ? 1 : 0;
-      const rate = Math.max(0, Math.min(100, 100 - (Math.abs(vs) - 60) / 4)), g = 92 - (i % 4) * 4, cl = Math.max(0, 100 - off * 2.4), bo = bounces ? 60 : 100;
-      const landing = imported ? (rate * 0.35 + g * 0.2 + cl * 0.25) / 0.8 : rate * 0.35 + g * 0.2 + cl * 0.25 + bo * 0.2;
+      const rate = Math.max(0, Math.min(100, 100 - (Math.abs(vs) - 60) / 6)), g = 92 - (i % 4) * 4, bo = bounces ? 60 : 100;
+      const landing = imported ? (rate * 0.35 + g * 0.2) / 0.55 : (rate * 0.35 + g * 0.2 + bo * 0.2) / 0.75;
       const safety = Math.min(100, 93 + wobble * 0.6);
       const p = landing / 2 + safety / 2;
       const confidence = imported ? 0.75 : 1;
@@ -195,7 +194,7 @@ function mockProfile(): PilotProfile {
         confidence,
         estimated: imported ? ["Bank and pitch from the positions the flight was logged with", "Not recorded, so left out: bounces, G-force in flight"] : [],
         performance: p, rating_before: rating, rating_after: after, expected: e, k, xp_base: Math.round(p),
-        landing: { score: landing, rate: { score: rate, weight: 0.35 }, g: { score: g, weight: 0.2 }, centerline: { score: cl, weight: 0.25 }, bounce: imported ? null : { score: bo, weight: 0.2 }, source: imported ? "volanta" : "sim", vs_fpm: vs, g_peak: 1.08 + (i % 4) * 0.07, bounces, runway: { airport: arr, runway: ["16L", "28R", "25L", "09", "34R"][i % 5], heading_deg: 160, width_ft: 150, offset_ft: (i % 2 ? 1 : -1) * off, along_ft: 1200 }, crosswind_kt: (i * 3) % 14, discarded: i === 12 ? 1 : 0 },
+        landing: { score: landing, rate: { score: rate, weight: imported ? 0.35 / 0.55 : 0.35 / 0.75 }, g: { score: g, weight: imported ? 0.2 / 0.55 : 0.2 / 0.75 }, bounce: imported ? null : { score: bo, weight: 0.2 / 0.75 }, source: imported ? "volanta" : "sim", vs_fpm: vs, g_peak: 1.08 + (i % 4) * 0.07, bounces, discarded: i === 12 ? 1 : 0 },
         safety: { score: safety, g: imported ? null : { score: Math.min(100, safety + 2), weight: 0.5 }, bank: { score: Math.min(100, safety - 1), weight: imported ? 0.5 : 0.25 }, pitch: { score: 100, weight: imported ? 0.5 : 0.25 }, aerobatic: false, source: imported ? "positions" : "recorded", g_max: 1.35, g_min: 0.72, bank_max: 31 + (i % 5) * 4, pitch_max: 14, pitch_min: -6 },
       });
       rating = after;

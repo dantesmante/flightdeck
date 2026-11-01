@@ -10,8 +10,13 @@ use telemetry::Telemetry;
 pub const G_EDGES: [f64; 10] = [-3.0, -1.0, 0.0, 0.5, 1.6, 2.0, 2.5, 3.5, 4.5, 6.0];
 /// Bank angle band edges (either wing down), degrees: 6 bands.
 pub const BANK_EDGES: [f64; 5] = [30.0, 45.0, 60.0, 75.0, 90.0];
-/// Pitch band edges (nose up or down), degrees: 5 bands.
+/// Pitch band edges (nose up or down), degrees: 5 bands. Kept for flights
+/// recorded before nose up and nose down were told apart.
 pub const PITCH_EDGES: [f64; 4] = [20.0, 30.0, 40.0, 50.0];
+/// Nose-up pitch band edges, degrees: 4 bands. Beyond 25 is excessive.
+pub const PITCH_UP_EDGES: [f64; 3] = [25.0, 35.0, 45.0];
+/// Nose-down pitch band edges, degrees: 4 bands. Beyond 15 is excessive.
+pub const PITCH_DOWN_EDGES: [f64; 3] = [15.0, 25.0, 35.0];
 
 /// G is smoothed over about a second, so a single bump of turbulence
 /// weighs far less than a sustained pull.
@@ -71,6 +76,12 @@ pub struct Handling {
     pub g_s: Vec<f64>,
     pub bank_s: Vec<f64>,
     pub pitch_s: Vec<f64>,
+    /// Time nose up and nose down in each band; empty on flights recorded
+    /// before they were kept apart.
+    #[serde(default)]
+    pub pitch_up_s: Vec<f64>,
+    #[serde(default)]
+    pub pitch_down_s: Vec<f64>,
     /// Extremes of the smoothed G and of bank and pitch.
     pub g_max: f64,
     pub g_min: f64,
@@ -91,6 +102,8 @@ impl Default for Handling {
             g_s: vec![0.0; G_EDGES.len() + 1],
             bank_s: vec![0.0; BANK_EDGES.len() + 1],
             pitch_s: vec![0.0; PITCH_EDGES.len() + 1],
+            pitch_up_s: vec![0.0; PITCH_UP_EDGES.len() + 1],
+            pitch_down_s: vec![0.0; PITCH_DOWN_EDGES.len() + 1],
             g_max: 1.0,
             g_min: 1.0,
             bank_max: 0.0,
@@ -140,12 +153,24 @@ impl Handling {
         self.airborne_s += dt;
         self.g_s[band(&G_EDGES, g)] += dt;
         self.bank_s[band(&BANK_EDGES, s.bank_deg.abs())] += dt;
-        self.pitch_s[band(&PITCH_EDGES, s.pitch_deg.abs())] += dt;
+        self.add_pitch(s.pitch_deg, dt);
         self.g_max = self.g_max.max(g);
         self.g_min = self.g_min.min(g);
         self.bank_max = self.bank_max.max(s.bank_deg.abs());
         self.pitch_max = self.pitch_max.max(s.pitch_deg);
         self.pitch_min = self.pitch_min.min(s.pitch_deg);
+    }
+
+    /// Nose up is positive.
+    fn add_pitch(&mut self, pitch: f64, dt: f64) {
+        self.pitch_s[band(&PITCH_EDGES, pitch.abs())] += dt;
+        if pitch >= 0.0 {
+            self.pitch_up_s[band(&PITCH_UP_EDGES, pitch)] += dt;
+            self.pitch_down_s[0] += dt;
+        } else {
+            self.pitch_down_s[band(&PITCH_DOWN_EDGES, -pitch)] += dt;
+            self.pitch_up_s[0] += dt;
+        }
     }
 
     /// The aircraft left the air (or the sim paused): the next sample
@@ -156,7 +181,15 @@ impl Handling {
 
     /// No handling figures could be worked out for a flight.
     pub fn none() -> Self {
-        Handling { source: source::NONE.into(), g_s: vec![], bank_s: vec![], pitch_s: vec![], ..Default::default() }
+        Handling {
+            source: source::NONE.into(),
+            g_s: vec![],
+            bank_s: vec![],
+            pitch_s: vec![],
+            pitch_up_s: vec![],
+            pitch_down_s: vec![],
+            ..Default::default()
+        }
     }
 
     pub fn is_known(&self) -> bool {
@@ -211,7 +244,7 @@ impl Handling {
             };
             h.airborne_s += dt;
             h.bank_s[band(&BANK_EDGES, bank)] += dt;
-            h.pitch_s[band(&PITCH_EDGES, pitch.abs())] += dt;
+            h.add_pitch(pitch, dt);
             h.bank_max = h.bank_max.max(bank);
             h.pitch_max = h.pitch_max.max(pitch);
             h.pitch_min = h.pitch_min.min(pitch);
@@ -305,6 +338,21 @@ mod tests {
         let h: Handling = serde_json::from_str(r#"{"airborne_s":10,"g_s":[],"bank_s":[],"pitch_s":[],"g_max":1,"g_min":1,"bank_max":0,"pitch_max":0,"pitch_min":0}"#).unwrap();
         assert_eq!(h.source, source::RECORDED);
         assert!(!Handling::none().is_known());
+    }
+
+    #[test]
+    fn nose_up_and_nose_down_are_kept_apart() {
+        let mut h = Handling::default();
+        let mut s = Telemetry { g_load: 1.0, pitch_deg: 20.0, ..Default::default() };
+        for i in 0..=100 {
+            s.t_ms = i * 100;
+            // 20 degrees up is fine; 20 degrees down is not.
+            s.pitch_deg = if i <= 50 { 20.0 } else { -20.0 };
+            h.add(&s);
+        }
+        assert!((h.pitch_up_s[0] - 10.0).abs() < 1e-6, "{:?}", h.pitch_up_s);
+        assert!((h.pitch_down_s[1] - 5.0).abs() < 1e-6, "{:?}", h.pitch_down_s);
+        assert_eq!((h.pitch_max, h.pitch_min), (20.0, -20.0));
     }
 
     #[test]

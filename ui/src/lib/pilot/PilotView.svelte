@@ -106,6 +106,8 @@
   });
 
   const maxMonth = $derived(Math.max(60, ...(data?.stats.months ?? []).map((m) => m.minutes)));
+  /** Minutes as hours: one decimal below ten. */
+  const hrs = (min: number) => (min / 60 < 10 ? (Math.round(min / 6) / 10).toString() : String(Math.round(min / 60)));
   const monthName = (m: string) => ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][Number(m.slice(5)) - 1];
   const maxType = $derived(Math.max(1, ...(data?.stats.top_types ?? []).map((t) => t.minutes)));
   const maxPort = $derived(Math.max(1, ...(data?.stats.top_airports ?? []).map((t) => t.count)));
@@ -311,12 +313,18 @@
 
       <div class="two">
         <article class="card">
-          <h2>Hours, last 12 months</h2>
+          <h2 class="split-h">
+            Hours, last 12 months
+            <span class="num">{hrs(s.months.reduce((a, m) => a + m.minutes, 0))} h</span>
+          </h2>
           <div class="months">
             {#each s.months as m (m.month)}
               <div class="month" title="{monthName(m.month)}: {hoursMinutes(m.minutes)}, {m.flights} flights">
-                <span class="col"><i style="height:{(m.minutes / maxMonth) * 100}%" class:none={!m.minutes}></i></span>
-                <small>{monthName(m.month)[0]}</small>
+                <span class="col">
+                  {#if m.minutes}<b class="num val">{hrs(m.minutes)}</b>{/if}
+                  <i style="height:{(m.minutes / maxMonth) * 100}%" class:none={!m.minutes}></i>
+                </span>
+                <small>{monthName(m.month).slice(0, 3)}</small>
               </div>
             {/each}
           </div>
@@ -391,7 +399,6 @@
     padding: 40px;
     color: var(--ink-dim);
   }
-  .hero,
   .cards,
   .block,
   .ladder {
@@ -401,15 +408,15 @@
   }
   .hero {
     position: relative;
-    padding-top: 22px;
   }
+  /* Edge to edge, whatever the window's width. */
   .banner {
     position: relative;
-    height: 230px;
-    border-radius: 14px;
+    width: 100%;
+    height: clamp(170px, 19vw, 340px);
     overflow: hidden;
     background: #14171c;
-    border: 1px solid var(--rule);
+    border-bottom: 1px solid var(--rule);
   }
   .banner img,
   .banner .dusk {
@@ -811,7 +818,7 @@
     display: grid;
     grid-template-columns: repeat(12, 1fr);
     gap: 6px;
-    height: 180px;
+    height: 200px;
     align-items: end;
   }
   .month {
@@ -825,7 +832,27 @@
     width: 100%;
     height: 100%;
     display: flex;
-    align-items: flex-end;
+    flex-direction: column;
+    justify-content: flex-end;
+    align-items: stretch;
+    gap: 3px;
+  }
+  .val {
+    text-align: center;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--ink);
+    line-height: 1;
+  }
+  .split-h {
+    display: flex;
+    justify-content: space-between;
+  }
+  .split-h span {
+    color: var(--amber);
+    font-size: 14px;
+    letter-spacing: 0;
+    text-transform: none;
   }
   .col i {
     width: 100%;

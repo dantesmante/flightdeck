@@ -118,14 +118,17 @@
         Saved to your flights{f.status !== "complete" ? ` as ${f.status}` : ""}.
       </p>
     </header>
-    {#if completed.score}
-      <PilotScoreCard score={completed.score} standing={completed.standing} />
+    {#if finalLanding}
+      <LandingCard landing={finalLanding} />
     {/if}
     {#if completed.track.length > 1}
       <AltSpeedGraph pts={fromTrack(completed.track)} height={150} />
     {/if}
-    {#if finalLanding}
-      <LandingCard landing={finalLanding} />
+    {#if completed.score}
+      <PilotScoreCard score={completed.score} standing={completed.standing} />
+    {/if}
+    {#if completed.plan}
+      <PlanCard plan={completed.plan} />
     {/if}
     <div class="actions">
       <button class="primary" onclick={ondismiss}>Done</button>
