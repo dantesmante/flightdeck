@@ -266,6 +266,139 @@ export interface Pilot {
   signature_svg: string | null;
 }
 
+export interface ScorePart {
+  score: number;
+  weight: number;
+}
+
+export interface RunwayHit {
+  airport: string;
+  runway: string;
+  heading_deg: number;
+  width_ft: number;
+  offset_ft: number;
+  along_ft: number;
+}
+
+export interface LandingScore {
+  score: number;
+  rate: ScorePart;
+  g: ScorePart;
+  centerline: ScorePart | null;
+  bounce: ScorePart;
+  vs_fpm: number;
+  g_peak: number;
+  bounces: number;
+  runway: RunwayHit | null;
+  crosswind_kt: number;
+  discarded: number;
+}
+
+export interface SafetyScore {
+  score: number;
+  g: ScorePart;
+  bank: ScorePart | null;
+  pitch: ScorePart | null;
+  aerobatic: boolean;
+  g_max: number;
+  g_min: number;
+  bank_max: number;
+  pitch_max: number;
+  pitch_min: number;
+}
+
+export interface FlightScore {
+  flight_id: number;
+  start_ms: number;
+  dep_icao: string;
+  arr_icao: string;
+  icao_type: string;
+  performance: number | null;
+  landing: LandingScore | null;
+  safety: SafetyScore | null;
+  unrated: string | null;
+  airborne_min: number;
+  xp_base: number;
+  xp_bonus: number;
+  xp: number;
+  rating_before: number | null;
+  rating_after: number | null;
+  expected: number | null;
+  k: number | null;
+}
+
+export interface Insignia {
+  stripes: number;
+  thin: boolean;
+  wings: "bronze" | "silver" | "gold" | null;
+  oak_leaf: boolean;
+}
+
+export interface Rank {
+  level: number;
+  title: string;
+  min_xp: number;
+  insignia: Insignia;
+}
+
+export interface RatingProfile {
+  rating: number;
+  rating_peak: number;
+  expected: number;
+  rated_flights: number;
+  xp: number;
+  rank: Rank;
+  next_rank: Rank | null;
+  avg_performance: number | null;
+  avg_landing: number | null;
+  avg_safety: number | null;
+  history: { t_ms: number; rating: number }[];
+  flights: FlightScore[];
+}
+
+export interface StatFlight {
+  id: number;
+  dep_icao: string | null;
+  arr_icao: string | null;
+  start_ms: number;
+  value: number;
+}
+
+export interface PilotStats {
+  first_flight_ms: number | null;
+  longest: StatFlight | null;
+  farthest: StatFlight | null;
+  softest: StatFlight | null;
+  avg_landing_fpm: number | null;
+  night_minutes: number;
+  aircraft_types: number;
+  top_types: { name: string; count: number; minutes: number }[];
+  top_airports: { name: string; count: number; minutes: number }[];
+  months: { month: string; minutes: number; flights: number }[];
+}
+
+export interface PilotProfile {
+  pilot: Pilot;
+  banner: string | null;
+  totals: Totals;
+  stats: PilotStats;
+  rating: RatingProfile;
+}
+
+/** Every rank, lowest first (the same table as the backend's). */
+export const RANKS: Rank[] = [
+  { level: 1, title: "Student Pilot", min_xp: 0, insignia: { stripes: 0, thin: false, wings: null, oak_leaf: false } },
+  { level: 2, title: "Solo Pilot", min_xp: 500, insignia: { stripes: 1, thin: true, wings: null, oak_leaf: false } },
+  { level: 3, title: "Private Pilot", min_xp: 1500, insignia: { stripes: 1, thin: false, wings: "bronze", oak_leaf: false } },
+  { level: 4, title: "Line Pilot", min_xp: 3500, insignia: { stripes: 2, thin: true, wings: null, oak_leaf: false } },
+  { level: 5, title: "Cadet Pilot", min_xp: 5000, insignia: { stripes: 2, thin: true, wings: "silver", oak_leaf: false } },
+  { level: 6, title: "Second Officer", min_xp: 7500, insignia: { stripes: 2, thin: false, wings: null, oak_leaf: false } },
+  { level: 7, title: "First Officer", min_xp: 10000, insignia: { stripes: 3, thin: false, wings: null, oak_leaf: false } },
+  { level: 8, title: "Senior First Officer", min_xp: 12000, insignia: { stripes: 3, thin: false, wings: "gold", oak_leaf: false } },
+  { level: 9, title: "Captain", min_xp: 15000, insignia: { stripes: 4, thin: false, wings: null, oak_leaf: false } },
+  { level: 10, title: "Fleet Captain", min_xp: 30000, insignia: { stripes: 4, thin: false, wings: null, oak_leaf: true } },
+];
+
 export interface LogRow {
   flight_id: number;
   date_ms: number;
@@ -495,6 +628,9 @@ export const api = {
   setSetting: (key: string, value: string) => call<void>("set_setting", { key, value }),
   pilot: () => call<Pilot>("get_pilot"),
   setPilot: (pilot: Pilot) => call<void>("set_pilot", { pilot }),
+  pilotProfile: () => call<PilotProfile>("get_pilot_profile"),
+  setBanner: (dataUrl: string | null) => call<void>("set_banner", { dataUrl }),
+  setPilotPhoto: (dataUrl: string | null) => call<void>("set_pilot_photo", { dataUrl }),
   logbook: () => call<LogRow[]>("get_logbook"),
   updateLogEntry: (flightId: number, patch: LogPatch) => call<boolean>("update_log_entry", { flightId, patch }),
   updateFlight: (flightId: number, edit: FlightEdit) => call<boolean>("update_flight", { flightId, edit }),

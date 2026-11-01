@@ -6,6 +6,7 @@ pub mod codec;
 pub mod journal;
 pub mod night;
 pub mod passport;
+pub mod pilot;
 pub mod types;
 
 use std::path::Path;
@@ -23,7 +24,8 @@ const MIGRATE_V5: &str = include_str!("migrate_v5.sql");
 const MIGRATE_V6: &str = include_str!("migrate_v6.sql");
 const MIGRATE_V7: &str = include_str!("migrate_v7.sql");
 const MIGRATE_V8: &str = include_str!("migrate_v8.sql");
-const SCHEMA_VERSION: i64 = 8;
+const MIGRATE_V9: &str = include_str!("migrate_v9.sql");
+const SCHEMA_VERSION: i64 = 9;
 
 /// The hangar aircraft with this registration (as the pilot sees it), if any.
 pub(crate) fn aircraft_by_reg(conn: &Connection, reg: &str) -> Result<Option<i64>> {
@@ -282,6 +284,9 @@ impl Store {
         }
         if version < 8 {
             conn.execute_batch(&format!("BEGIN; {MIGRATE_V8} PRAGMA user_version = 8; COMMIT;"))?;
+        }
+        if version < 9 {
+            conn.execute_batch(&format!("BEGIN; {MIGRATE_V9} PRAGMA user_version = 9; COMMIT;"))?;
         }
         merge_duplicate_aircraft(&conn)?;
         reclassify_aircraft(&conn)?;

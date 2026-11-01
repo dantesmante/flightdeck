@@ -8,6 +8,7 @@ members = [
     "crates/refdata",
     "crates/conn-simconnect",
     "crates/watcher",
+    "crates/rating",
     "tools/recorder",
     "src-tauri",
 ]
@@ -27,6 +28,7 @@ refdata = { path = "crates/refdata" }
 conn-simconnect = { path = "crates/conn-simconnect" }
 conn-demo = { path = "crates/conn-demo" }
 watcher = { path = "crates/watcher" }
+rating = { path = "crates/rating" }
 
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }

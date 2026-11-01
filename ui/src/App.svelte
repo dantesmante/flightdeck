@@ -8,6 +8,7 @@
   import LogbookView from "./lib/logbook/LogbookView.svelte";
   import Map from "./lib/Map.svelte";
   import PassportView from "./lib/passport/PassportView.svelte";
+  import PilotView from "./lib/pilot/PilotView.svelte";
   import { loadPrefs } from "./lib/prefs.svelte";
   import SettingsView from "./lib/SettingsView.svelte";
   import UpdateBanner from "./lib/UpdateBanner.svelte";
@@ -17,7 +18,7 @@
   import { fromTrack, type Pt } from "./lib/track";
   import { checkForUpdates } from "./lib/updates.svelte";
 
-  type View = "live" | "flights" | "logbook" | "passport" | "hangar" | "settings";
+  type View = "live" | "flights" | "logbook" | "passport" | "hangar" | "pilot" | "settings";
   let view = $state<View>("live");
   let status = $state<Status | null>(null);
   let liveTrack = $state<Pt[]>([]);
@@ -196,6 +197,10 @@
       </button>
     {/each}
     <span class="grow"></span>
+    <button class:on={view === "pilot"} onclick={() => go("pilot")} aria-current={view === "pilot" ? "page" : undefined}>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 8.5c0-1.5 2.7-3.5 6-3.5s6 2 6 3.5H6zM7.2 8.5v1a4.8 4.8 0 009.6 0v-1M12 6.4v1.2M4.5 20.5c.6-3.6 3.6-5.5 7.5-5.5s6.9 1.9 7.5 5.5" /></svg>
+      Pilot
+    </button>
     <button class:on={view === "settings"} onclick={() => go("settings")} aria-current={view === "settings" ? "page" : undefined}>
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15a3 3 0 100-6 3 3 0 000 6zM19.4 13.5l1.6 1.2-2 3.4-1.9-.7a7 7 0 01-2 1.2L14.8 21h-4l-.3-2a7 7 0 01-2-1.2l-1.9.7-2-3.4 1.6-1.2a7 7 0 010-2.6L4.6 9.9l2-3.4 1.9.7a7 7 0 012-1.2l.3-2h4l.3 2a7 7 0 012 1.2l1.9-.7 2 3.4-1.6 1.2a7 7 0 010 2.6z" /></svg>
       Settings
@@ -219,6 +224,8 @@
         {#key refreshKey}<LogbookView onflight={showFlight} />{/key}
       {:else if view === "passport"}
         {#key refreshKey}<PassportView onsettings={() => go("settings")} />{/key}
+      {:else if view === "pilot"}
+        {#key refreshKey}<PilotView onflight={showFlight} onsettings={() => go("settings")} />{/key}
       {:else if view === "hangar"}
         {#key refreshKey}<HangarView onsettings={() => go("settings")} onflight={showFlight} />{/key}
       {:else}

@@ -413,14 +413,14 @@ const VIEW: &[&str] = &[
     "get_status", "list_flights", "get_totals", "get_flight", "current_briefing", "demo_routes", "get_settings",
     "get_pilot", "get_logbook", "find_duplicates", "aircraft_with_registration", "get_passport", "get_hangar",
     "get_routes", "spotter_photo", "aircraft_flights", "get_aircraft_photo", "app_version", "simbrief_latest",
-    "search_airports",
+    "search_airports", "get_pilot_profile",
 ];
 /// Commands that change something: only when editing is allowed.
 const EDIT: &[&str] = &[
     "delete_flight", "start_demo", "stop_demo", "end_flight", "cancel_flight", "start_flight", "set_plan", "set_setting",
     "set_pilot", "update_log_entry", "update_flight", "add_manual_entry", "update_aircraft", "add_aircraft",
     "delete_aircraft", "delete_flights", "set_aircraft_favorite", "set_aircraft_photo", "import_volanta",
-    "import_elevatex", "add_sample_flights", "remove_sample_flights",
+    "import_elevatex", "add_sample_flights", "remove_sample_flights", "set_banner", "set_pilot_photo",
 ];
 
 fn fail(code: StatusCode, msg: &str) -> Response {

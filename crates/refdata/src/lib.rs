@@ -11,6 +11,31 @@ use telemetry::geo;
 static AIRPORTS: &[u8] = include_bytes!("../data/airports.tsv.zst");
 static COUNTRIES: &[u8] = include_bytes!("../data/countries.tsv.zst");
 static REGIONS: &[u8] = include_bytes!("../data/regions.tsv.zst");
+static RUNWAYS: &[u8] = include_bytes!("../data/runways.tsv.zst");
+
+/// One runway, both ends.
+#[derive(Debug, Clone)]
+struct Runway {
+    airport: String,
+    width_ft: f64,
+    ends: [(String, f64, f64); 2],
+}
+
+/// Where a touchdown was on a runway.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RunwayHit {
+    pub airport: String,
+    /// The runway landed on, e.g. "34R".
+    pub runway: String,
+    /// True heading of the runway in the direction of landing.
+    pub heading_deg: f64,
+    /// 0 when the runway's width is not known.
+    pub width_ft: f64,
+    /// Distance from the centerline, positive = right of it.
+    pub offset_ft: f64,
+    /// Distance past the runway's threshold.
+    pub along_ft: f64,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -65,6 +90,8 @@ pub struct RefData {
     by_ident: HashMap<String, u32>,
     countries: HashMap<String, String>,
     regions: HashMap<String, String>,
+    runways: Vec<Runway>,
+    runway_grid: HashMap<(i16, i16), Vec<u32>>,
 }
 
 fn cell(lat: f64, lon: f64) -> (i16, i16) {
@@ -114,7 +141,32 @@ impl RefData {
             grid.entry(cell(a.lat, a.lon)).or_default().push(i as u32);
             by_ident.entry(a.ident.to_ascii_uppercase()).or_insert(i as u32);
         }
-        RefData { airports, grid, by_ident, countries: name_table(COUNTRIES), regions: name_table(REGIONS) }
+        let mut runways = Vec::with_capacity(16_000);
+        let mut runway_grid: HashMap<(i16, i16), Vec<u32>> = HashMap::new();
+        for line in unpack(RUNWAYS).lines().skip(1) {
+            let f: Vec<&str> = line.split('\t').collect();
+            if f.len() < 8 {
+                continue;
+            }
+            let (Ok(a), Ok(b), Ok(c), Ok(d)) = (f[3].parse(), f[4].parse(), f[6].parse(), f[7].parse()) else {
+                continue;
+            };
+            runway_grid.entry(cell(a, b)).or_default().push(runways.len() as u32);
+            runways.push(Runway {
+                airport: f[0].to_string(),
+                width_ft: f[1].parse().unwrap_or(0.0),
+                ends: [(f[2].to_string(), a, b), (f[5].to_string(), c, d)],
+            });
+        }
+        RefData {
+            airports,
+            grid,
+            by_ident,
+            countries: name_table(COUNTRIES),
+            regions: name_table(REGIONS),
+            runways,
+            runway_grid,
+        }
     }
 
     pub fn len(&self) -> usize {
@@ -180,6 +232,62 @@ impl RefData {
             .map(|&i| &self.airports[i as usize])
     }
 
+    /// The runway a touchdown at this position and true heading was made
+    /// on, and how far from its centerline. None when no known runway lines
+    /// up with the heading within a few hundred feet (grass strips, water,
+    /// runways without surveyed ends).
+    pub fn runway_at(&self, lat: f64, lon: f64, hdg_deg: f64) -> Option<RunwayHit> {
+        const FT_PER_DEG: f64 = 60.0 * 6076.12;
+        let k = lat.to_radians().cos();
+        // Flat-earth feet around the touchdown: plenty over a runway's length.
+        let xy = |la: f64, lo: f64| {
+            let dlon = ((lo - lon + 540.0) % 360.0) - 180.0;
+            (dlon * k * FT_PER_DEG, (la - lat) * FT_PER_DEG)
+        };
+        let (cy, cx) = cell(lat, lon);
+        let mut best: Option<RunwayHit> = None;
+        for y in cy - 1..=cy + 1 {
+            for x in cx - 1..=cx + 1 {
+                let key = (y, ((x as i32 + 180).rem_euclid(360) - 180) as i16);
+                for &i in self.runway_grid.get(&key).into_iter().flatten() {
+                    let r = &self.runways[i as usize];
+                    let (a, b) = (xy(r.ends[0].1, r.ends[0].2), xy(r.ends[1].1, r.ends[1].2));
+                    let len = ((b.0 - a.0).powi(2) + (b.1 - a.1).powi(2)).sqrt();
+                    if len < 100.0 {
+                        continue;
+                    }
+                    let brg = (b.0 - a.0).atan2(b.1 - a.1).to_degrees().rem_euclid(360.0);
+                    // Landing towards the far end, or the other way.
+                    let forward = geo::heading_diff(brg, hdg_deg).abs() <= 90.0;
+                    let (from, to, ident) = if forward { (a, b, &r.ends[0].0) } else { (b, a, &r.ends[1].0) };
+                    let rwy_hdg = if forward { brg } else { (brg + 180.0) % 360.0 };
+                    if geo::heading_diff(rwy_hdg, hdg_deg).abs() > 30.0 {
+                        continue;
+                    }
+                    let u = ((to.0 - from.0) / len, (to.1 - from.1) / len);
+                    let p = (-from.0, -from.1);
+                    let along = p.0 * u.0 + p.1 * u.1;
+                    // Right of the direction of travel is positive.
+                    let offset = p.0 * u.1 - p.1 * u.0;
+                    if along < -1500.0 || along > len + 500.0 || offset.abs() > 400.0 {
+                        continue;
+                    }
+                    if best.as_ref().is_none_or(|h| offset.abs() < h.offset_ft.abs()) {
+                        best = Some(RunwayHit {
+                            airport: r.airport.clone(),
+                            runway: ident.clone(),
+                            heading_deg: rwy_hdg,
+                            width_ft: r.width_ft,
+                            offset_ft: offset,
+                            along_ft: along,
+                        });
+                    }
+                }
+            }
+        }
+        best
+    }
+
     /// The airport the aircraft is most likely at. Within 5 nm, larger
     /// airports are preferred; heliports only count when `allow_heliports`.
     /// Falls back to the plain nearest airport within 10 nm.
@@ -243,6 +351,28 @@ mod tests {
         assert_eq!(heathrow[0].ident, "EGLL");
         assert!(d.search("  ", 5).is_empty());
         assert!(d.search("zz", 5).iter().all(|a| a.ident.starts_with("ZZ")));
+    }
+
+    #[test]
+    fn finds_the_runway_and_the_centerline_offset() {
+        let d = data();
+        // KSEA 16L/34R ends, from OurAirports.
+        let r = d.runways.iter().find(|r| r.airport == "KSEA" && r.ends[0].0 == "16L").expect("KSEA 16L");
+        let (a, b) = ((r.ends[0].1, r.ends[0].2), (r.ends[1].1, r.ends[1].2));
+        // A point a third of the way down 16L, on the centerline.
+        let p = (a.0 + (b.0 - a.0) / 3.0, a.1 + (b.1 - a.1) / 3.0);
+        let hdg = geo::bearing_deg(a.0, a.1, b.0, b.1);
+        let hit = d.runway_at(p.0, p.1, hdg).unwrap();
+        assert_eq!((hit.airport.as_str(), hit.runway.as_str()), ("KSEA", "16L"));
+        assert!(hit.offset_ft.abs() < 3.0, "{hit:?}");
+        // The other way it is 34R; 30 ft east of the centerline is then
+        // to the pilot's right.
+        let east = (p.0, p.1 + 30.0 / (60.0 * 6076.12 * p.0.to_radians().cos()));
+        let hit = d.runway_at(east.0, east.1, (hdg + 180.0) % 360.0).unwrap();
+        assert_eq!(hit.runway, "34R");
+        assert!((hit.offset_ft - 30.0).abs() < 3.0, "{hit:?}");
+        // Crossing the runway is not landing on it.
+        assert!(d.runway_at(p.0, p.1, (hdg + 90.0) % 360.0).is_none_or(|h| h.runway != "16L"));
     }
 
     #[test]

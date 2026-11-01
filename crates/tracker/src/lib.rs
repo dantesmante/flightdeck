@@ -8,6 +8,7 @@
 //! TaxiIn → Arrived. Every transition must hold for a short debounce window so
 //! a bounce or a gust never splits a flight in two.
 
+mod handling;
 mod landing;
 
 use std::collections::VecDeque;
@@ -15,6 +16,7 @@ use std::collections::VecDeque;
 use serde::{Deserialize, Serialize};
 use telemetry::{geo, AircraftInfo, SimKind, Telemetry, TrackPoint};
 
+pub use handling::Handling;
 pub use landing::{grade_for, LandingReport};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -60,8 +62,9 @@ pub struct Config {
     pub airborne_ms: i64,
     /// Off the ground for less than this after a touchdown = a bounce.
     pub bounce_window_ms: i64,
-    /// Shorter lifts than this are wheel-contact flicker, not bounces.
+    /// Shorter or lower lifts than these are wheel-contact flicker, not bounces.
     pub bounce_min_ms: i64,
+    pub bounce_min_ft: f64,
     /// A jump of more than `teleport_min_nm` faster than this = teleport.
     pub teleport_nm_per_s: f64,
     pub teleport_min_nm: f64,
@@ -88,6 +91,7 @@ impl Default for Config {
             airborne_ms: 2000,
             bounce_window_ms: 10_000,
             bounce_min_ms: 500,
+            bounce_min_ft: 1.0,
             teleport_nm_per_s: 5.0,
             teleport_min_nm: 5.0,
             track_interval_ms: 1000,
@@ -241,6 +245,11 @@ pub struct Tracker {
     track: Vec<TrackPoint>,
     events: Vec<FlightEvent>,
     finished: bool,
+    handling: Handling,
+    /// Height above ground on the runway, and the highest point of a lift
+    /// off it: a bounce must really leave the ground.
+    lift_ref_agl: f64,
+    lift_peak_agl: f64,
 }
 
 #[derive(Default)]
@@ -291,6 +300,9 @@ impl Tracker {
             track: Vec::new(),
             events: Vec::new(),
             finished: false,
+            handling: Handling::default(),
+            lift_ref_agl: 0.0,
+            lift_peak_agl: 0.0,
         }
     }
 
@@ -367,6 +379,7 @@ impl Tracker {
                 self.pause_start = Some(s.t_ms);
                 self.event(s.t_ms, "paused", serde_json::Value::Null);
             }
+            self.handling.gap();
             return out;
         }
         if let Some(p) = self.pause_start.take() {
@@ -414,6 +427,11 @@ impl Tracker {
         }
 
         self.step_phase(s, &mut out);
+        if self.phase == Some(Phase::Airborne) && !s.on_ground {
+            self.handling.add(s);
+        } else {
+            self.handling.gap();
+        }
         self.keep_track_point(s, &mut out);
         self.last = Some(*s);
 
@@ -470,6 +488,7 @@ impl Tracker {
                     self.refining = Some(self.landings.len() - 1);
                     self.landing = Some(t);
                     self.off_ground_since = None;
+                    self.lift_ref_agl = s.alt_agl_ft;
                     self.recent.clear();
                     self.set_phase(Phase::LandingRollout, t, out);
                 } else {
@@ -483,6 +502,10 @@ impl Tracker {
             Phase::LandingRollout => {
                 self.refine_touchdown(s, out);
                 if !s.on_ground {
+                    if self.off_ground_since.is_none() {
+                        self.lift_peak_agl = s.alt_agl_ft;
+                    }
+                    self.lift_peak_agl = self.lift_peak_agl.max(s.alt_agl_ft);
                     let since = *self.off_ground_since.get_or_insert(t);
                     if t - since > c.bounce_window_ms {
                         // Took off again: touch-and-go.
@@ -496,12 +519,15 @@ impl Tracker {
                     }
                 } else {
                     if let Some(since) = self.off_ground_since.take() {
-                        if t - since >= c.bounce_min_ms {
+                        if t - since >= c.bounce_min_ms && self.lift_peak_agl - self.lift_ref_agl >= c.bounce_min_ft {
                             if let Some(l) = self.landings.last_mut() {
                                 l.bounces += 1;
                             }
                             self.event(t, "bounce", serde_json::Value::Null);
                         }
+                    }
+                    if self.off_ground_since.is_none() {
+                        self.lift_ref_agl = s.alt_agl_ft;
                     }
                     if let Some(t0) = self.holds.slow.check(s.gs_kt < c.taxi_in_gs_kt, t, c.debounce_ms) {
                         self.flush_touchdown(out);
@@ -599,6 +625,9 @@ impl Tracker {
             return None;
         }
         let last = self.last?;
+        if let Ok(h) = serde_json::to_value(&self.handling) {
+            self.event(last.t_ms, "handling", h);
+        }
         let (arr_lat, arr_lon) = self
             .landings
             .iter()

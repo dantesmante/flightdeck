@@ -544,3 +544,30 @@ fn duplicate_flights_are_found_and_deleted() {
     assert_eq!(db.delete_flights(&[b]).unwrap(), 1);
     assert!(db.duplicate_flights().unwrap().is_empty());
 }
+
+#[test]
+fn pilot_profile_inputs() {
+    let mut db = Store::open_in_memory().unwrap();
+    // Recorded flights now carry their handling and touchdowns.
+    let f = fly(1);
+    assert!(f.events.iter().any(|e| e.kind == "handling"));
+    let id = db.save_flight(&f, &SaveContext { arr: place("KSEA", "US"), ..Default::default() }).unwrap();
+    let rows = db.rating_flights().unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].id, id);
+    assert!(rows[0].handling.as_ref().is_some_and(|h| h.airborne_s > 60.0));
+    assert_eq!(rows[0].landings.len(), f.landings.len());
+
+    let now = f.start_ms + 86_400_000;
+    let stats = db.pilot_stats(now).unwrap();
+    assert_eq!(stats.months.len(), 12);
+    assert_eq!(stats.months.iter().map(|m| m.flights).sum::<i64>(), 1);
+    assert_eq!(stats.longest.as_ref().map(|s| s.id), Some(id));
+    assert_eq!(stats.top_airports[0].name, "KSEA");
+
+    assert_eq!(db.banner().unwrap(), None);
+    db.set_banner(Some("data:image/jpeg;base64,AAAA")).unwrap();
+    assert_eq!(db.banner().unwrap().as_deref(), Some("data:image/jpeg;base64,AAAA"));
+    db.set_pilot_photo(Some("data:image/jpeg;base64,BBBB")).unwrap();
+    assert_eq!(db.pilot().unwrap().photo_url.as_deref(), Some("data:image/jpeg;base64,BBBB"));
+}

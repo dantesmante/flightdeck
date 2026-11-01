@@ -134,6 +134,26 @@ MIT licensed.
   with its flights or moving them to another aircraft. Click a card to open
   the aircraft with its statistics and every flight, searchable, drawn on
   a map.
+- **Pilot profile** (Pilot, above Settings): a cover picture and your
+  photo (click either to change it), your Pilot Rating with its history,
+  your rank on a shoulder board with XP to the next one, average scores
+  and career statistics: hours per month, records, most flown aircraft
+  and favorite airports.
+- **Pilot rating**: every flight FlightDeck records from gate to gate is
+  scored out of 100, half **Landing quality** (touchdown rate 35%,
+  touchdown G 20%, distance from the runway centerline 25%, with a bonus
+  for crosswind, and bounces 20%) and half **Flight safety** (time spent
+  at high or negative G 50%, beyond 45° of bank 25% and beyond 30° of
+  pitch 25%; aerobatic and fighter aircraft are not marked down for bank
+  and pitch). A go-around or touch-and-go a minute or more before the
+  final landing is not counted. The score moves your rating (everyone
+  starts at 1,000) up or down against what your rating expects, faster
+  over your first flights. Every completed flight earns XP: its score
+  (50 for imported, hand-entered and older flights) plus up to 20 for
+  time in the air. XP sets your rank, from Student Pilot to Fleet
+  Captain. Open any flight's score to see how it was made up. Runway
+  centerlines come from OurAirports; runways it has no survey for are
+  left out of the landing score.
 - **Fly this aircraft**: with the Parked aircraft layer on, click a parked
   aircraft and press Fly this aircraft. The next flight is logged to that
   aircraft whatever the sim shows.

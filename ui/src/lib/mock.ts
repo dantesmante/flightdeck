@@ -1,7 +1,7 @@
 // Browser-only stand-in for the Rust backend: one flight in progress and a
 // short history, so the UI can be developed with `npm run ui`.
 
-import type { FlightPlan, FlightRow, FullStatus, Totals } from "./api";
+import { RANKS, type FlightPlan, type FlightRow, type FlightScore, type FullStatus, type PilotProfile, type Totals } from "./api";
 
 const now = Date.now();
 const track: [number, number, number, number, number][] = Array.from({ length: 40 }, (_, i) => [
@@ -154,7 +154,100 @@ const AIRPORTS = [
   { icao: "EGKK", name: "London Gatwick Airport", country: "United Kingdom", lat: 51.1481, lon: -0.1903 },
 ];
 
+/** A pilot with a few months of history, for the profile page. */
+let mockBanner: string | null = null;
+let mockPhoto: string | null = null;
+function mockProfile(): PilotProfile {
+  const routes: [string, string, string, number][] = [
+    ["KSEA", "KPDX", "A20N", 48], ["KPDX", "KSFO", "A20N", 95], ["KSFO", "KLAX", "B738", 72], ["KLAX", "KLAS", "B738", 55],
+    ["KLAS", "KDEN", "B738", 98], ["KDEN", "KORD", "A20N", 142], ["KPAO", "KSQL", "C172", 22], ["EGLL", "LFPG", "A320", 64],
+    ["LFPG", "LIRF", "A320", 118], ["LIRF", "LGAV", "A320", 125], ["EDDF", "LOWW", "A20N", 70], ["LOWW", "LKPR", "A20N", 45],
+  ];
+  const n = 26;
+  let rating = 1000, peak = 1000, rated = 0, xp = 0, sl = 0, ss = 0, sp = 0;
+  const history = [{ t_ms: now - 150 * 864e5, rating }];
+  const out: FlightScore[] = [];
+  const expected = (r: number) => ([[2000, 95], [1750, 90], [1500, 85], [1250, 80], [1000, 75], [750, 70], [500, 60]] as const).find(([m]) => r >= m)?.[1] ?? 50;
+  const bonus = (m: number) => ([[480, 20], [360, 18], [240, 15], [120, 12], [60, 8], [30, 5], [15, 2]] as const).find(([x]) => m >= x)?.[1] ?? 0;
+  for (let i = 0; i < n; i++) {
+    const [dep, arr, type, min] = routes[i % routes.length];
+    const start = now - (150 - i * 5.6) * 864e5;
+    const unrated = i < 8 ? (i < 5 ? "Imported" : "Recorded before pilot rating") : i === 17 ? "Ended before landing" : null;
+    const s: FlightScore = {
+      flight_id: 100 + i, start_ms: start, dep_icao: dep, arr_icao: arr, icao_type: type, performance: null, landing: null, safety: null,
+      unrated, airborne_min: min, xp_base: 0, xp_bonus: 0, xp: 0, rating_before: null, rating_after: null, expected: null, k: null,
+    };
+    if (!unrated) {
+      const wobble = Math.sin(i * 1.7) * 9 + Math.cos(i * 0.6) * 5;
+      const vs = -Math.round(110 + Math.abs(Math.sin(i * 2.3)) * 260);
+      const off = Math.abs(Math.sin(i * 3.1)) * 22;
+      const bounces = i % 7 === 3 ? 1 : 0;
+      const rate = Math.max(0, Math.min(100, 100 - (Math.abs(vs) - 60) / 4)), g = 92 - (i % 4) * 4, cl = Math.max(0, 100 - off * 2.4), bo = bounces ? 60 : 100;
+      const landing = rate * 0.35 + g * 0.2 + cl * 0.25 + bo * 0.2;
+      const safety = Math.min(100, 93 + wobble * 0.6);
+      const p = landing / 2 + safety / 2;
+      const e = expected(rating), k = rated < 5 ? 48 : rated < 20 ? 40 : rated < 50 ? 32 : 24;
+      const after = rating + (k * (p - e)) / 100;
+      Object.assign(s, {
+        performance: p, rating_before: rating, rating_after: after, expected: e, k, xp_base: Math.round(p),
+        landing: { score: landing, rate: { score: rate, weight: 0.35 }, g: { score: g, weight: 0.2 }, centerline: { score: cl, weight: 0.25 }, bounce: { score: bo, weight: 0.2 }, vs_fpm: vs, g_peak: 1.08 + (i % 4) * 0.07, bounces, runway: { airport: arr, runway: ["16L", "28R", "25L", "09", "34R"][i % 5], heading_deg: 160, width_ft: 150, offset_ft: (i % 2 ? 1 : -1) * off, along_ft: 1200 }, crosswind_kt: (i * 3) % 14, discarded: i === 12 ? 1 : 0 },
+        safety: { score: safety, g: { score: Math.min(100, safety + 2), weight: 0.5 }, bank: { score: Math.min(100, safety - 1), weight: 0.25 }, pitch: { score: 100, weight: 0.25 }, aerobatic: false, g_max: 1.35, g_min: 0.72, bank_max: 31 + (i % 5) * 4, pitch_max: 14, pitch_min: -6 },
+      });
+      rating = after;
+      peak = Math.max(peak, rating);
+      rated++;
+      sl += landing; ss += safety; sp += p;
+      history.push({ t_ms: start, rating });
+    } else if (unrated !== "Ended before landing") s.xp_base = 50;
+    if (s.xp_base) s.xp_bonus = bonus(min);
+    s.xp = s.xp_base + s.xp_bonus;
+    xp += s.xp;
+    out.push(s);
+  }
+  // A few earlier years of flying, so the rank is not the very first one.
+  xp += 1680;
+  const ri = RANKS.reduce((at, r, i) => (xp >= r.min_xp ? i : at), 0);
+  const months = Array.from({ length: 12 }, (_, i) => {
+    const d = new Date(now);
+    d.setUTCMonth(d.getUTCMonth() - 11 + i);
+    const busy = i >= 7 ? [380, 520, 290, 610, 450][i - 7] : i === 3 ? 90 : 0;
+    return { month: `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`, minutes: busy, flights: Math.round(busy / 80) };
+  });
+  return {
+    pilot: { name: "Alex Pilot", pilot_id: "FD-0001", home_icao: "KSEA", nationality: "United States", photo_url: mockPhoto, signature_svg: null },
+    banner: mockBanner,
+    totals: { flights: 64, minutes: 6810, distance_nm: 31840, landings: 71, airports: 38, countries: 9 },
+    stats: {
+      first_flight_ms: now - 700 * 864e5,
+      longest: { id: 105, dep_icao: "KDEN", arr_icao: "KORD", start_ms: now - 120 * 864e5, value: 168 },
+      farthest: { id: 109, dep_icao: "LIRF", arr_icao: "LGAV", start_ms: now - 80 * 864e5, value: 571 },
+      softest: { id: 118, dep_icao: "LOWW", arr_icao: "LKPR", start_ms: now - 20 * 864e5, value: -38 },
+      avg_landing_fpm: -164,
+      night_minutes: 820,
+      aircraft_types: 7,
+      top_types: [{ name: "A20N", count: 24, minutes: 2410 }, { name: "B738", count: 15, minutes: 1620 }, { name: "A320", count: 11, minutes: 1250 }, { name: "C172", count: 9, minutes: 380 }],
+      top_airports: [{ name: "KSEA", count: 18, minutes: 0 }, { name: "KPDX", count: 12, minutes: 0 }, { name: "EDDF", count: 9, minutes: 0 }, { name: "KSFO", count: 8, minutes: 0 }],
+      months,
+    },
+    rating: {
+      rating, rating_peak: peak, expected: expected(rating), rated_flights: rated, xp, rank: RANKS[ri], next_rank: RANKS[ri + 1] ?? null,
+      avg_performance: sp / rated, avg_landing: sl / rated, avg_safety: ss / rated, history, flights: out.reverse(),
+    },
+  };
+}
+
 export async function mockCall<T>(cmd: string, _args?: Record<string, unknown>): Promise<T> {
+  if (cmd === "set_banner") mockBanner = (_args?.dataUrl as string | null) ?? null;
+  if (cmd === "set_pilot_photo") mockPhoto = (_args?.dataUrl as string | null) ?? null;
+  if (cmd === "get_pilot_profile") {
+    const p = mockProfile();
+    if (scene === "rookie") {
+      Object.assign(p.rating, { rating: 1000, rating_peak: 1000, rated_flights: 0, xp: 0, rank: RANKS[0], next_rank: RANKS[1], avg_performance: null, avg_landing: null, avg_safety: null, history: [{ t_ms: now, rating: 1000 }], flights: [] });
+      p.totals = { flights: 0, minutes: 0, distance_nm: 0, landings: 0, airports: 0, countries: 0 };
+      p.stats = { ...p.stats, longest: null, farthest: null, softest: null, avg_landing_fpm: null, top_types: [], top_airports: [], months: p.stats.months.map((m) => ({ ...m, minutes: 0, flights: 0 })) };
+    }
+    return p as T;
+  }
   if (cmd === "search_airports") {
     const q = String(_args?.query ?? "").trim().toUpperCase();
     return (q ? AIRPORTS.filter((a) => a.icao.startsWith(q) || (q.length >= 3 && a.name.toUpperCase().includes(q))) : []) as T;

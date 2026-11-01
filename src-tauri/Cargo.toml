@@ -24,6 +24,7 @@ refdata.workspace = true
 conn-simconnect.workspace = true
 conn-demo.workspace = true
 watcher.workspace = true
+rating.workspace = true
 tauri-plugin-opener = "2"
 axum = { version = "0.8", default-features = false, features = ["http1", "json", "query", "tokio", "ws"] }
 tokio = { version = "1", features = ["net", "sync", "macros"] }

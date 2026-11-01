@@ -456,6 +456,56 @@ fn set_pilot(state: tauri::State<AppState>, pilot: Pilot) -> CmdResult<()> {
     state.db.lock().unwrap().set_pilot(&pilot).map_err(err)
 }
 
+/// Everything on the pilot profile page.
+#[derive(serde::Serialize)]
+struct PilotProfile {
+    pilot: Pilot,
+    banner: Option<String>,
+    totals: Totals,
+    stats: store::pilot::PilotStats,
+    rating: rating::Profile,
+}
+
+#[tauri::command]
+fn get_pilot_profile(state: tauri::State<AppState>) -> CmdResult<PilotProfile> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0);
+    let (pilot, banner, totals, stats, flights) = {
+        let db = state.db.lock().unwrap();
+        (
+            db.pilot().map_err(err)?,
+            db.banner().map_err(err)?,
+            db.totals().map_err(err)?,
+            db.pilot_stats(now).map_err(err)?,
+            db.rating_flights().map_err(err)?,
+        )
+    };
+    Ok(PilotProfile { pilot, banner, totals, stats, rating: rating::profile(&flights, &state.refdata) })
+}
+
+/// Pictures arrive as data URLs; keep them to a sane size.
+fn check_picture(data_url: &Option<String>) -> CmdResult<()> {
+    match data_url {
+        Some(d) if !d.starts_with("data:image/") => Err("That is not a picture.".into()),
+        Some(d) if d.len() > 8 * 1024 * 1024 => Err("That picture is too large.".into()),
+        _ => Ok(()),
+    }
+}
+
+#[tauri::command]
+fn set_banner(state: tauri::State<AppState>, data_url: Option<String>) -> CmdResult<()> {
+    check_picture(&data_url)?;
+    state.db.lock().unwrap().set_banner(data_url.as_deref()).map_err(err)
+}
+
+#[tauri::command]
+fn set_pilot_photo(state: tauri::State<AppState>, data_url: Option<String>) -> CmdResult<()> {
+    check_picture(&data_url)?;
+    state.db.lock().unwrap().set_pilot_photo(data_url.as_deref()).map_err(err)
+}
+
 #[tauri::command]
 fn get_logbook(state: tauri::State<AppState>) -> CmdResult<Vec<LogRow>> {
     state.db.lock().unwrap().logbook().map_err(err)
@@ -884,6 +934,9 @@ pub(crate) async fn dispatch(app: &tauri::AppHandle, cmd: &str, a: serde_json::V
         "set_setting" => ok(to_value(set_setting(st(), arg(&a, "key")?, arg(&a, "value")?)?)),
         "get_pilot" => ok(to_value(get_pilot(st())?)),
         "set_pilot" => ok(to_value(set_pilot(st(), arg(&a, "pilot")?)?)),
+        "get_pilot_profile" => ok(to_value(get_pilot_profile(st())?)),
+        "set_banner" => ok(to_value(set_banner(st(), arg(&a, "dataUrl")?)?)),
+        "set_pilot_photo" => ok(to_value(set_pilot_photo(st(), arg(&a, "dataUrl")?)?)),
         "get_logbook" => ok(to_value(get_logbook(st())?)),
         "update_log_entry" => ok(to_value(update_log_entry(st(), arg(&a, "flightId")?, arg(&a, "patch")?)?)),
         "update_flight" => ok(to_value(update_flight(st(), arg(&a, "flightId")?, arg(&a, "edit")?)?)),
@@ -978,6 +1031,9 @@ pub fn run() {
             get_settings,
             set_setting,
             get_pilot,
+            get_pilot_profile,
+            set_banner,
+            set_pilot_photo,
             set_pilot,
             get_logbook,
             update_log_entry,

@@ -1,0 +1,13 @@
+[package]
+name = "rating"
+description = "Pilot rating: scores each flight's landing and handling, XP and ranks"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+telemetry.workspace = true
+tracker.workspace = true
+store.workspace = true
+refdata.workspace = true
+serde.workspace = true

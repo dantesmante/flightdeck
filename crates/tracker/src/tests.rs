@@ -186,7 +186,11 @@ fn short_hop_off_the_runway_is_a_bounce() {
     f.taxi_and_takeoff();
     f.approach_and_land(-300.0);
     f.run(1.0, 10.0, |_| {});
-    f.run(2.0, 10.0, |s| s.on_ground = false);
+    f.run(1.0, 10.0, |s| {
+        s.on_ground = false;
+        s.vs_fpm = 300.0;
+    });
+    f.run(1.0, 10.0, |s| s.vs_fpm = -300.0);
     f.run(1.0, 10.0, |s| s.on_ground = true);
     f.rollout_taxi_park();
     let s = f.completed().unwrap();
@@ -360,4 +364,34 @@ fn an_aircraft_hanging_still_in_the_air_is_not_a_flight() {
     let mut f = Script::starting(false);
     f.run(60.0, 10.0, |s| s.gs_kt = 0.0);
     assert!(f.tr.end("sim closed").is_none());
+}
+
+#[test]
+fn a_lift_without_height_is_not_a_bounce() {
+    // The sim flickers off the ground for two seconds without rising.
+    let mut f = Script::new();
+    f.taxi_and_takeoff();
+    f.approach_and_land(-300.0);
+    f.run(1.0, 10.0, |s| s.vs_fpm = 0.0);
+    f.run(2.0, 10.0, |s| s.on_ground = false);
+    f.run(1.0, 10.0, |s| s.on_ground = true);
+    f.rollout_taxi_park();
+    assert_eq!(f.completed().unwrap().landings[0].bounces, 0);
+}
+
+#[test]
+fn handling_is_saved_with_the_flight() {
+    let mut f = Script::new();
+    f.taxi_and_takeoff();
+    // A minute in a 60 degree turn.
+    f.run(60.0, 10.0, |s| s.bank_deg = 60.0);
+    f.run(10.0, 10.0, |s| s.bank_deg = 0.0);
+    f.approach_and_land(-150.0);
+    f.rollout_taxi_park();
+    let s = f.completed().unwrap();
+    let e = s.events.iter().find(|e| e.kind == "handling").expect("handling event");
+    let h: Handling = serde_json::from_value(e.data.clone()).unwrap();
+    assert!((h.bank_s[3] - 60.0).abs() < 0.5, "{:?}", h.bank_s);
+    assert!(h.airborne_s > 70.0);
+    assert_eq!(h.bank_max, 60.0);
 }

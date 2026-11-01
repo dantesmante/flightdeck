@@ -1,11 +1,11 @@
 //! Rebuild the embedded reference data from OurAirports CSV files.
 //!
-//! Download airports.csv, countries.csv and regions.csv from
+//! Download airports.csv, runways.csv, countries.csv and regions.csv from
 //! https://github.com/davidmegginson/ourairports-data into one folder, then:
 //!
 //!   cargo run -p refdata --features build-tool --bin build-refdata -- <csv-folder>
 //!
-//! It writes crates/refdata/data/{airports,countries,regions}.tsv.zst.
+//! It writes crates/refdata/data/{airports,runways,countries,regions}.tsv.zst.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -34,6 +34,8 @@ fn main() {
     let col: HashMap<&str, usize> = headers.iter().enumerate().map(|(i, h)| (h, i)).collect();
     let mut body = String::from("ident\ttype\tname\tlat\tlon\televation_ft\tcountry\tregion\n");
     let mut n = 0;
+    // OurAirports id -> the ident FlightDeck uses, for the runways.
+    let mut idents: HashMap<String, String> = HashMap::new();
     for rec in rdr.records() {
         let r = rec.unwrap();
         let get = |k: &str| r.get(col[k]).unwrap_or("");
@@ -57,6 +59,7 @@ fn main() {
         let (Ok(lat), Ok(lon)) = (get("latitude_deg").parse::<f64>(), get("longitude_deg").parse::<f64>()) else {
             continue;
         };
+        idents.insert(get("id").to_string(), clean(ident));
         body.push_str(&format!(
             "{}\t{}\t{}\t{:.5}\t{:.5}\t{}\t{}\t{}\n",
             clean(ident),
@@ -72,6 +75,45 @@ fn main() {
     }
     println!("{n} airports");
     write(&out, "airports.tsv.zst", &body);
+
+    // Runways with both ends surveyed: enough to measure how far a
+    // touchdown was from the centerline.
+    let mut rdr = read(&src, "runways.csv");
+    let headers = rdr.headers().unwrap().clone();
+    let col: HashMap<&str, usize> = headers.iter().enumerate().map(|(i, h)| (h, i)).collect();
+    let mut body = String::from("airport\twidth_ft\tle\tle_lat\tle_lon\the\the_lat\the_lon\n");
+    let mut n = 0;
+    for rec in rdr.records() {
+        let r = rec.unwrap();
+        let get = |k: &str| r.get(col[k]).unwrap_or("");
+        if get("closed") == "1" {
+            continue;
+        }
+        let Some(airport) = idents.get(get("airport_ref")) else { continue };
+        let f = |k: &str| get(k).parse::<f64>().ok();
+        let (Some(a), Some(b), Some(c), Some(d)) =
+            (f("le_latitude_deg"), f("le_longitude_deg"), f("he_latitude_deg"), f("he_longitude_deg"))
+        else {
+            continue;
+        };
+        if (a - c).abs() < 1e-6 && (b - d).abs() < 1e-6 {
+            continue;
+        }
+        body.push_str(&format!(
+            "{}\t{}\t{}\t{:.6}\t{:.6}\t{}\t{:.6}\t{:.6}\n",
+            airport,
+            f("width_ft").map(|w| w.round() as i64).unwrap_or(0),
+            clean(get("le_ident")),
+            a,
+            b,
+            clean(get("he_ident")),
+            c,
+            d,
+        ));
+        n += 1;
+    }
+    println!("{n} runways");
+    write(&out, "runways.tsv.zst", &body);
 
     for (file, code_col, out_name) in [("countries.csv", "code", "countries.tsv.zst"), ("regions.csv", "code", "regions.tsv.zst")] {
         let mut rdr = read(&src, file);
