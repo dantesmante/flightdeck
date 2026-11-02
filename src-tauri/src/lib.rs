@@ -494,8 +494,8 @@ struct PilotProfile {
 /// flights from the positions in their original file, the others from
 /// their saved track.
 fn ensure_estimates(db: &Store) -> CmdResult<()> {
-    // Version 2: nose-up and nose-down pitch kept apart.
-    db.reset_estimates(2).map_err(err)?;
+    // Version 3: bank and pitch kept in 5-degree steps.
+    db.reset_estimates(3).map_err(err)?;
     for n in db.flights_needing_estimates().map_err(err)? {
         let file = if n.source.is_empty() { None } else { db.get_imported(n.id).map_err(err)?.map(|i| i.file) };
         let from_file = match (n.source.as_str(), &file) {

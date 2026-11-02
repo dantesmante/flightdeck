@@ -143,12 +143,14 @@ MIT licensed.
 - **Pilot rating**: every flight FlightDeck records from gate to gate is
   scored out of 100, half **Landing quality** (touchdown rate, touchdown
   G and bounces, weighted 35 : 20 : 20, then 1% more per knot of crosswind
-  at touchdown, up to 25%, never past 100) and half **Flight safety** (time
-  spent at high or negative G 50%, beyond 45° of bank 25%, and beyond 25°
-  nose up or 15° nose down 25%; aerobatic and fighter aircraft are not
-  marked down for bank and pitch). G comes from the sim's own G FORCE
-  value. A go-around or touch-and-go a minute or more before the final
-  landing is not counted. The score moves your rating (everyone starts at
+  at touchdown, up to 25%, never past 100) and half **Flight stability**
+  (time spent at high or negative G 50%, bank 25% and pitch 25%; without
+  G, bank and pitch share it). Bank past 30°, nose up past 20° and nose
+  down past 10° lose points, and the further past, the more each second
+  costs: a minute 5° past costs about 5 points, a minute 15° past about
+  40. Aerobatic and fighter aircraft are not marked down for bank and
+  pitch. G comes from the sim's own G FORCE value. A go-around or
+  touch-and-go a minute or more before the final landing is not counted. The score moves your rating (everyone starts at
   1,000) up or down against what your rating expects, faster over your
   first flights. Every completed flight earns XP: its score (50 for
   hand-entered flights and those without enough data) plus up to 20 for
@@ -163,12 +165,11 @@ MIT licensed.
   rate of turn, pitch from the climb and descent angle). A flight without
   a landing report gets its touchdown rate from the positions in the
   last seconds before touchdown. Parts that were never recorded (touchdown
-  G, bounces, G in flight) are left out and the others count for more. To
-  be rated a flight needs a touchdown rate and at least two minutes of
-  positions in the air, mostly no more than 30 seconds apart; otherwise it
-  shows "Not enough data" and still earns XP. Worked-out flights move your
-  rating less: three quarters as much with logged attitude, half as much
-  from the track alone.
+  G, bounces, G in flight) are left out and the others count for more,
+  and the flight counts in full towards your rating. To be rated a flight
+  needs a touchdown rate and at least two minutes of positions in the
+  air, mostly no more than 30 seconds apart; otherwise it shows "Not
+  enough data" and still earns XP.
 - **Pilot score on every flight**: the Flights tab shows a flight's score
   when you land and the flight ends, and on every saved flight you open,
   with its landing and safety scores, the change to your rating, XP

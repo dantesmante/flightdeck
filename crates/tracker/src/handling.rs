@@ -18,6 +18,19 @@ pub const PITCH_UP_EDGES: [f64; 3] = [25.0, 35.0, 45.0];
 /// Nose-down pitch band edges, degrees: 4 bands. Beyond 15 is excessive.
 pub const PITCH_DOWN_EDGES: [f64; 3] = [15.0, 25.0, 35.0];
 
+/// Bank and pitch are also kept in 5-degree steps, so their limits can be
+/// changed and every flight scored again. Bins: 0-5, 5-10, ... and one for
+/// everything past the last.
+pub const FINE_STEP_DEG: f64 = 5.0;
+/// Bank bins up to 90 degrees, then one beyond.
+pub const FINE_BANK_BINS: usize = 19;
+/// Pitch bins (nose up, nose down) up to 60 degrees, then one beyond.
+pub const FINE_PITCH_BINS: usize = 13;
+
+fn fine(v: f64, bins: usize) -> usize {
+    ((v.max(0.0) / FINE_STEP_DEG) as usize).min(bins - 1)
+}
+
 /// G is smoothed over about a second, so a single bump of turbulence
 /// weighs far less than a sustained pull.
 const G_SMOOTH_S: f64 = 1.0;
@@ -82,6 +95,14 @@ pub struct Handling {
     pub pitch_up_s: Vec<f64>,
     #[serde(default)]
     pub pitch_down_s: Vec<f64>,
+    /// Seconds in each 5-degree step of bank, nose up and nose down; empty
+    /// on flights recorded before they were kept.
+    #[serde(default)]
+    pub bank_5: Vec<f64>,
+    #[serde(default)]
+    pub pitch_up_5: Vec<f64>,
+    #[serde(default)]
+    pub pitch_down_5: Vec<f64>,
     /// Extremes of the smoothed G and of bank and pitch.
     pub g_max: f64,
     pub g_min: f64,
@@ -104,6 +125,9 @@ impl Default for Handling {
             pitch_s: vec![0.0; PITCH_EDGES.len() + 1],
             pitch_up_s: vec![0.0; PITCH_UP_EDGES.len() + 1],
             pitch_down_s: vec![0.0; PITCH_DOWN_EDGES.len() + 1],
+            bank_5: vec![0.0; FINE_BANK_BINS],
+            pitch_up_5: vec![0.0; FINE_PITCH_BINS],
+            pitch_down_5: vec![0.0; FINE_PITCH_BINS],
             g_max: 1.0,
             g_min: 1.0,
             bank_max: 0.0,
@@ -152,7 +176,7 @@ impl Handling {
         }
         self.airborne_s += dt;
         self.g_s[band(&G_EDGES, g)] += dt;
-        self.bank_s[band(&BANK_EDGES, s.bank_deg.abs())] += dt;
+        self.add_bank(s.bank_deg.abs(), dt);
         self.add_pitch(s.pitch_deg, dt);
         self.g_max = self.g_max.max(g);
         self.g_min = self.g_min.min(g);
@@ -161,15 +185,24 @@ impl Handling {
         self.pitch_min = self.pitch_min.min(s.pitch_deg);
     }
 
+    fn add_bank(&mut self, bank: f64, dt: f64) {
+        self.bank_s[band(&BANK_EDGES, bank)] += dt;
+        self.bank_5[fine(bank, FINE_BANK_BINS)] += dt;
+    }
+
     /// Nose up is positive.
     fn add_pitch(&mut self, pitch: f64, dt: f64) {
         self.pitch_s[band(&PITCH_EDGES, pitch.abs())] += dt;
         if pitch >= 0.0 {
             self.pitch_up_s[band(&PITCH_UP_EDGES, pitch)] += dt;
             self.pitch_down_s[0] += dt;
+            self.pitch_up_5[fine(pitch, FINE_PITCH_BINS)] += dt;
+            self.pitch_down_5[0] += dt;
         } else {
             self.pitch_down_s[band(&PITCH_DOWN_EDGES, -pitch)] += dt;
             self.pitch_up_s[0] += dt;
+            self.pitch_down_5[fine(-pitch, FINE_PITCH_BINS)] += dt;
+            self.pitch_up_5[0] += dt;
         }
     }
 
@@ -188,6 +221,9 @@ impl Handling {
             pitch_s: vec![],
             pitch_up_s: vec![],
             pitch_down_s: vec![],
+            bank_5: vec![],
+            pitch_up_5: vec![],
+            pitch_down_5: vec![],
             ..Default::default()
         }
     }
@@ -243,7 +279,7 @@ impl Handling {
                 }
             };
             h.airborne_s += dt;
-            h.bank_s[band(&BANK_EDGES, bank)] += dt;
+            h.add_bank(bank, dt);
             h.add_pitch(pitch, dt);
             h.bank_max = h.bank_max.max(bank);
             h.pitch_max = h.pitch_max.max(pitch);
@@ -353,6 +389,8 @@ mod tests {
         assert!((h.pitch_up_s[0] - 10.0).abs() < 1e-6, "{:?}", h.pitch_up_s);
         assert!((h.pitch_down_s[1] - 5.0).abs() < 1e-6, "{:?}", h.pitch_down_s);
         assert_eq!((h.pitch_max, h.pitch_min), (20.0, -20.0));
+        // 20 degrees: the 20-25 step either way.
+        assert!((h.pitch_up_5[4] - 5.0).abs() < 1e-6 && (h.pitch_down_5[4] - 5.0).abs() < 1e-6);
     }
 
     #[test]

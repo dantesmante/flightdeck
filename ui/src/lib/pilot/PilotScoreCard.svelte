@@ -1,6 +1,6 @@
 <script lang="ts">
   // One flight's pilot score, for the side panel: the score, landing and
-  // safety, what it did to the rating, XP towards the next rank, and how
+  // stability, what it did to the rating, XP towards the next rank, and how
   // it was made up.
   import type { FlightScore, Standing } from "../api";
   import { hoursMinutes, int } from "../format";
@@ -39,9 +39,6 @@
 <section class="card" aria-label="Pilot score">
   <header>
     <h3>Pilot score</h3>
-    {#if rated && score.confidence < 1}
-      <span class="tag" title="Some of this flight's figures were worked out from its positions">Partly estimated</span>
-    {/if}
   </header>
   <div class="top">
     <ScoreRing value={score.performance} label={verdict} size={92} />
@@ -49,7 +46,7 @@
       {#if rated}
         <div class="pair">
           <span><em>Landing</em><b class="num {tone(score.landing?.score)}">{Math.round(score.landing!.score)}</b></span>
-          <span><em>Safety</em><b class="num {tone(score.safety?.score)}">{Math.round(score.safety!.score)}</b></span>
+          <span><em>Stability</em><b class="num {tone(score.safety?.score)}">{Math.round(score.safety!.score)}</b></span>
         </div>
         <p class="rating">
           Rating <b class="num">{int(score.rating_after)}</b>
@@ -109,13 +106,6 @@
     letter-spacing: 0.1em;
     text-transform: uppercase;
     color: var(--ink-dim);
-  }
-  .tag {
-    font-size: 11px;
-    padding: 2px 8px;
-    border-radius: 999px;
-    border: 1px dashed rgba(240, 178, 58, 0.5);
-    color: var(--amber);
   }
   .top {
     display: flex;

@@ -54,15 +54,15 @@ pub const G_AEROBATIC: &[(f64, f64)] = &[
     (1.0, 0.05),
     (6.0, 0.5),
 ];
-/// Bank bands: 0..30, 30..45, 45..60, 60..75, 75..90, beyond 90 degrees.
-pub const BANK: &[(f64, f64)] = &[(0.0, 0.0), (0.0, 0.0), (1.0, 0.02), (2.5, 0.1), (5.0, 0.3), (8.0, 0.6)];
-/// Nose up: 0..25 (normal), 25..35, 35..45, beyond 45 degrees.
-pub const PITCH_UP: &[(f64, f64)] = &[(0.0, 0.0), (1.0, 0.05), (3.0, 0.2), (6.0, 0.5)];
-/// Nose down: 0..15 (normal), 15..25, 25..35, beyond 35 degrees.
-pub const PITCH_DOWN: &[(f64, f64)] = &[(0.0, 0.0), (1.0, 0.05), (3.0, 0.2), (6.0, 0.5)];
-/// Flights recorded before nose up and down were kept apart, either way:
-/// 0..20, 20..30, 30..40, 40..50, beyond 50 degrees.
-pub const PITCH_EITHER: &[(f64, f64)] = &[(0.0, 0.0), (0.0, 0.0), (1.0, 0.05), (3.0, 0.2), (6.0, 0.5)];
+/// Bank and pitch limits, degrees. Time beyond them loses points.
+pub const BANK_LIMIT_DEG: f64 = 30.0;
+pub const PITCH_UP_LIMIT_DEG: f64 = 20.0;
+pub const PITCH_DOWN_LIMIT_DEG: f64 = 10.0;
+/// Points lost per second past a limit, per degree of excess squared:
+/// a minute 5 degrees past costs 4.5, a minute 15 degrees past 40.5.
+pub const PER_SECOND_PER_DEG2: f64 = 0.003;
+/// Plus, per percent of the flight spent past it, per degree of excess.
+pub const PER_PERCENT_PER_DEG: f64 = 0.05;
 
 /// Rating from which each expected performance applies.
 pub const EXPECTED: &[(f64, f64)] = &[

@@ -30,7 +30,7 @@
           {#if rated}
             <span class="split">
               <span><em>Landing</em><b class="num {tone(f.landing?.score)}">{Math.round(f.landing!.score)}</b></span>
-              <span><em>Safety</em><b class="num {tone(f.safety?.score)}">{Math.round(f.safety!.score)}</b></span>
+              <span><em>Stability</em><b class="num {tone(f.safety?.score)}">{Math.round(f.safety!.score)}</b></span>
             </span>
             <span class="num delta" class:up={delta(f) >= 0} class:down={delta(f) < 0}>
               {delta(f) >= 0 ? "▲" : "▼"}

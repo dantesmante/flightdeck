@@ -277,10 +277,10 @@
         <div class="rings">
           <ScoreRing value={r!.avg_performance} label="Overall" size={104} />
           <ScoreRing value={r!.avg_landing} label="Landing" size={84} />
-          <ScoreRing value={r!.avg_safety} label="Safety" size={84} />
+          <ScoreRing value={r!.avg_safety} label="Stability" size={84} />
         </div>
         <p class="hint">
-          Landing quality and flight safety count half each. Longer flights earn bonus XP but never change your rating.
+          Landing quality and flight stability count half each. Longer flights earn bonus XP but never change your rating.
         </p>
       </article>
     </section>

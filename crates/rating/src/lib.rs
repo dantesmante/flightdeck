@@ -2,7 +2,7 @@
 //!
 //! Every eligible flight gets a performance score out of 100: half Landing
 //! Quality (touchdown rate, touchdown G, bounces), half Flight
-//! Safety (time spent at high G, steep bank and steep pitch). The score
+//! Stability (time spent at high G, steep bank and steep pitch). The score
 //! moves the Pilot Rating up or down against what the current rating
 //! expects, iRating style. Pilot XP only ever grows: each flight earns its
 //! score plus a bonus for time in the air, and XP sets the rank.
@@ -81,18 +81,12 @@ pub struct FlightScore {
     pub dep_icao: String,
     pub arr_icao: String,
     pub icao_type: String,
-    /// Landing and safety together, 0 to 100. None when not scored.
+    /// Landing and stability together, 0 to 100. None when not scored.
     pub performance: Option<f64>,
     pub landing: Option<LandingScore>,
     pub safety: Option<SafetyScore>,
     /// Why a flight was not rated, in a few words.
     pub unrated: Option<String>,
-    /// How much of the flight was measured rather than worked out: 1 for a
-    /// flight FlightDeck recorded, less for older and imported flights. It
-    /// scales how far the flight moves the rating.
-    pub confidence: f64,
-    /// What was worked out rather than measured, in plain words.
-    pub estimated: Vec<String>,
     pub airborne_min: f64,
     pub xp_base: f64,
     pub xp_bonus: f64,
@@ -210,33 +204,70 @@ fn penalty(seconds: &[f64], total_s: f64, table: &[(f64, f64)]) -> f64 {
     seconds.iter().zip(table).map(|(s, (per_pct, per_s))| per_pct * 100.0 * s / total_s + per_s * s).sum()
 }
 
+/// Points lost for time past a limit. `bins` are (middle of the bin in
+/// degrees, seconds in it). The further past the limit, the more each
+/// second costs: it grows with the square of the excess, so a brief
+/// slightly steep moment costs little and a sustained extreme one a lot.
+fn over_limit(bins: impl Iterator<Item = (f64, f64)>, limit: f64, total_s: f64) -> f64 {
+    bins.filter(|(mid, _)| *mid > limit)
+        .map(|(mid, secs)| {
+            let excess = mid - limit;
+            scales::PER_SECOND_PER_DEG2 * excess * excess * secs + scales::PER_PERCENT_PER_DEG * excess * 100.0 * secs / total_s
+        })
+        .sum()
+}
+
+/// 5-degree bins as (middle, seconds).
+fn fine_bins(secs: &[f64]) -> impl Iterator<Item = (f64, f64)> + '_ {
+    secs.iter().enumerate().map(|(i, s)| (i as f64 * 5.0 + 2.5, *s))
+}
+
+/// Coarse bins of older recordings as (middle, seconds).
+fn coarse_bins<'a>(secs: &'a [f64], mids: &'a [f64]) -> impl Iterator<Item = (f64, f64)> + 'a {
+    mids.iter().copied().zip(secs.iter().copied())
+}
+
 pub fn score_safety(h: &Handling, aerobatic: bool) -> Option<SafetyScore> {
     if !h.is_known() || h.airborne_s < 60.0 {
         return None;
     }
-    let part = |secs: &[f64], table: &[(f64, f64)], weight: f64| Part {
-        score: (100.0 - penalty(secs, h.airborne_s, table)).clamp(0.0, 100.0),
-        weight,
-    };
-    let mut g = (!h.g_s.is_empty()).then(|| part(&h.g_s, if aerobatic { scales::G_AEROBATIC } else { scales::G_NORMAL }, 0.50));
-    let mut bank = (!aerobatic).then(|| part(&h.bank_s, scales::BANK, 0.25));
-    let mut pitch = (!aerobatic).then(|| {
-        if h.pitch_up_s.is_empty() {
-            // Recorded before nose up and nose down were kept apart.
-            part(&h.pitch_s, scales::PITCH_EITHER, 0.25)
+    let total = h.airborne_s;
+    let score = |lost: f64, weight: f64| Part { score: (100.0 - lost).clamp(0.0, 100.0), weight };
+    let mut g = (!h.g_s.is_empty()).then(|| {
+        score(penalty(&h.g_s, total, if aerobatic { scales::G_AEROBATIC } else { scales::G_NORMAL }), 0.50)
+    });
+    let mut bank = (!aerobatic).then(|| {
+        let lost = if !h.bank_5.is_empty() {
+            over_limit(fine_bins(&h.bank_5), scales::BANK_LIMIT_DEG, total)
         } else {
-            let lost = penalty(&h.pitch_up_s, h.airborne_s, scales::PITCH_UP)
-                + penalty(&h.pitch_down_s, h.airborne_s, scales::PITCH_DOWN);
-            Part { score: (100.0 - lost).clamp(0.0, 100.0), weight: 0.25 }
-        }
+            // Recorded before the 5-degree steps: bands 0-30, 30-45, 45-60,
+            // 60-75, 75-90, beyond.
+            over_limit(coarse_bins(&h.bank_s, &[15.0, 37.5, 52.5, 67.5, 82.5, 95.0]), scales::BANK_LIMIT_DEG, total)
+        };
+        score(lost, 0.25)
+    });
+    let mut pitch = (!aerobatic).then(|| {
+        let lost = if !h.pitch_up_5.is_empty() {
+            over_limit(fine_bins(&h.pitch_up_5), scales::PITCH_UP_LIMIT_DEG, total)
+                + over_limit(fine_bins(&h.pitch_down_5), scales::PITCH_DOWN_LIMIT_DEG, total)
+        } else if !h.pitch_up_s.is_empty() {
+            // Up: 0-25, 25-35, 35-45, beyond; down: 0-15, 15-25, 25-35, beyond.
+            over_limit(coarse_bins(&h.pitch_up_s, &[12.5, 30.0, 40.0, 50.0]), scales::PITCH_UP_LIMIT_DEG, total)
+                + over_limit(coarse_bins(&h.pitch_down_s, &[7.5, 20.0, 30.0, 40.0]), scales::PITCH_DOWN_LIMIT_DEG, total)
+        } else {
+            // Either way: 0-20, 20-30, 30-40, 40-50, beyond.
+            over_limit(coarse_bins(&h.pitch_s, &[10.0, 25.0, 35.0, 45.0, 55.0]), scales::PITCH_UP_LIMIT_DEG, total)
+        };
+        score(lost, 0.25)
     });
     if g.is_none() && bank.is_none() {
         // An aerobatic aircraft without G: nothing left to judge.
         return None;
     }
-    let score = combine(&mut [g.as_mut(), bank.as_mut(), pitch.as_mut()]);
+    // Without G, bank and pitch are the whole of flight stability.
+    let total_score = combine(&mut [g.as_mut(), bank.as_mut(), pitch.as_mut()]);
     Some(SafetyScore {
-        score,
+        score: total_score,
         g,
         bank,
         pitch,
@@ -287,42 +318,6 @@ fn unrated_reason(f: &RatingFlight) -> Option<&'static str> {
         _ if f.status == "partial" => "Ended before landing",
         _ => return None,
     })
-}
-
-/// How far to trust each kind of data, 0 to 1.
-fn trust(source: &str) -> f64 {
-    match source {
-        handling_source::RECORDED | "sim" | "derived" | "volanta" | "elevatex" => 1.0,
-        handling_source::POSITIONS => 0.75,
-        _ => 0.5,
-    }
-}
-
-/// What was worked out rather than measured, for the pilot to read.
-fn estimates(l: &LandingScore, s: &SafetyScore) -> Vec<String> {
-    let mut out = vec![];
-    if l.source == "track" {
-        out.push("Touchdown rate worked out from the positions".to_string());
-    }
-    let mut missing = vec![];
-    if l.g.is_none() {
-        missing.push("touchdown G");
-    }
-    if l.bounce.is_none() {
-        missing.push("bounces");
-    }
-    if s.g.is_none() && !s.aerobatic {
-        missing.push("G-force in flight");
-    }
-    match s.source.as_str() {
-        handling_source::POSITIONS => out.push("Bank and pitch from the positions the flight was logged with".into()),
-        handling_source::TRACK => out.push("Bank worked out from the rate of turn, pitch from the climb and descent".into()),
-        _ => {}
-    }
-    if !missing.is_empty() {
-        out.push(format!("Not recorded, so left out: {}", missing.join(", ")));
-    }
-    out
 }
 
 /// Time in the air for the length bonus: from wheels up to touchdown only,
@@ -377,8 +372,6 @@ pub fn profile(flights: &[RatingFlight]) -> Profile {
             landing: None,
             safety: None,
             unrated: reason.clone(),
-            confidence: 0.0,
-            estimated: vec![],
             airborne_min,
             xp_base: 0.0,
             xp_bonus: 0.0,
@@ -392,11 +385,8 @@ pub fn profile(flights: &[RatingFlight]) -> Profile {
         if let (None, Some(l), Some(sf)) = (&reason, landing, safety) {
             let p = l.score * 0.5 + sf.score * 0.5;
             let e = expected_for(rating);
-            let confidence = trust(&l.source).min(trust(&sf.source));
-            // Worked-out flights move the rating less.
-            let k = k_for(rated) * confidence;
-            s.confidence = confidence;
-            s.estimated = estimates(&l, &sf);
+            // Every rated flight counts in full, whatever it was rated on.
+            let k = k_for(rated);
             let after = rating + k * (p - e) / 100.0;
             sum_p += p;
             sum_l += l.score;

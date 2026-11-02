@@ -1,7 +1,7 @@
 <script lang="ts">
   // How one flight's score was made up: each part of landing quality and
-  // flight safety, what was worked out rather than measured, and what it
-  // did to the rating and XP. Narrow containers stack it.
+  // flight stability, and what it did to the rating and XP. Narrow
+  // containers stack it.
   import type { FlightScore, ScorePart } from "../api";
   import { hoursMinutes, int } from "../format";
 
@@ -48,25 +48,17 @@
         {/if}
       </section>
       <section>
-        <h4>Flight safety <b class="num {tone(s.score)}">{Math.round(s.score)}</b></h4>
+        <h4>Flight stability <b class="num {tone(s.score)}">{Math.round(s.score)}</b></h4>
         {@render bar("G-force", s.g ? `${s.g_min.toFixed(1)} to ${s.g_max.toFixed(1)} G` : "–", s.g)}
-        {@render bar("Bank angle", s.bank ? `up to ${int(s.bank_max)}°` : "aerobatic aircraft", s.bank, "not scored")}
+        {@render bar("Bank angle", s.bank ? `up to ${int(s.bank_max)}° (limit 30°)` : "aerobatic aircraft", s.bank, "not scored")}
         {@render bar(
           "Pitch",
-          s.pitch ? `${int(s.pitch_max)}° up, ${int(Math.abs(s.pitch_min))}° down` : "aerobatic aircraft",
+          s.pitch ? `${int(s.pitch_max)}° up, ${int(Math.abs(s.pitch_min))}° down (limits 20° / 10°)` : "aerobatic aircraft",
           s.pitch,
           "not scored",
         )}
       </section>
     </div>
-    {#if f.estimated.length}
-      <div class="estimated">
-        <strong>Partly worked out{f.confidence < 1 ? `, counts ${Math.round(f.confidence * 100)}% toward your rating` : ""}</strong>
-        <ul>
-          {#each f.estimated as e (e)}<li>{e}.</li>{/each}
-        </ul>
-      </div>
-    {/if}
     <div class="sums">
       <span>
         <span>Rating <b class="num">{f.rating_before!.toFixed(1)}</b> → <b class="num">{f.rating_after!.toFixed(1)}</b></span>
@@ -164,23 +156,6 @@
     margin: 6px 0 0;
     font-size: 12px;
     color: var(--ink-dim);
-  }
-  .estimated {
-    margin-top: 10px;
-    padding: 8px 12px;
-    border-radius: 8px;
-    background: rgba(240, 178, 58, 0.07);
-    border: 1px dashed rgba(240, 178, 58, 0.35);
-    font-size: 12px;
-    color: var(--ink-dim);
-  }
-  .estimated strong {
-    color: var(--amber);
-    font-weight: 600;
-  }
-  .estimated ul {
-    margin: 4px 0 0;
-    padding-left: 16px;
   }
   .sums {
     display: flex;

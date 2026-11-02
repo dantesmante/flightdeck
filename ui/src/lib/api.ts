@@ -319,8 +319,6 @@ export interface FlightScore {
   landing: LandingScore | null;
   safety: SafetyScore | null;
   unrated: string | null;
-  confidence: number;
-  estimated: string[];
   airborne_min: number;
   xp_base: number;
   xp_bonus: number;
