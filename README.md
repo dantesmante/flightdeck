@@ -142,8 +142,8 @@ MIT licensed.
   airports.
 - **Pilot rating**: every flight FlightDeck records from gate to gate is
   scored out of 100, half **Landing quality** (touchdown rate, touchdown
-  G and bounces, weighted 35 : 20 : 20, then 1% more per knot of crosswind
-  at touchdown, up to 25%, never past 100) and half **Flight stability**
+  G and bounces, weighted 50 : 25 : 25, each 1% higher per knot of
+  crosswind at touchdown, up to 25%, never past 100) and half **Flight stability**
   (time spent at high or negative G 50%, bank 25% and pitch 25%; without
   G, bank and pitch share it). Bank past 30°, nose up past 20° and nose
   down past 10° lose points, and the further past, the more each second

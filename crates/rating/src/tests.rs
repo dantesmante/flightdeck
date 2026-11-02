@@ -107,26 +107,27 @@ fn ranks_follow_xp() {
 fn a_good_landing() {
     let l = score_landing(&[landing(0, -120.0, 1.15)]).unwrap();
     assert!(l.score > 95.0, "{}", l.score);
-    // Touchdown rate, G and bounces share the score: 35 : 20 : 20.
-    assert!((l.rate.weight - 0.35 / 0.75).abs() < 1e-9);
-    assert!((l.g.as_ref().unwrap().weight - 0.20 / 0.75).abs() < 1e-9);
+    // Touchdown rate, G and bounces share the score: 50 : 25 : 25.
+    assert_eq!(l.rate.weight, 0.5);
+    assert_eq!(l.g.as_ref().unwrap().weight, 0.25);
 }
 
 #[test]
-fn crosswind_lifts_the_whole_landing_score() {
+fn crosswind_lifts_each_part_of_the_landing() {
     let mut l = landing(0, -330.0, 1.35);
     let calm = score_landing(&[l.clone()]).unwrap();
     l.crosswind_kt = -12.0;
     let windy = score_landing(&[l.clone()]).unwrap();
     assert!((windy.crosswind_bonus - 0.12).abs() < 1e-9);
-    assert!((windy.score - calm.score * 1.12).abs() < 1e-9, "{} {}", windy.score, calm.score);
-    assert_eq!(windy.rate, calm.rate);
-    // Capped at 25 kt, and never past 100.
+    assert!((windy.rate.score - calm.rate.score * 1.12).abs() < 1e-9);
+    assert!((windy.g.as_ref().unwrap().score - calm.g.as_ref().unwrap().score * 1.12).abs() < 1e-9);
+    // No bounces already scores 100: it stays at 100.
+    assert_eq!(windy.bounce.as_ref().unwrap().score, 100.0);
+    assert!((windy.base_score - calm.score).abs() < 1e-9);
+    assert!(windy.score > calm.score);
+    // Capped at 25 kt.
     l.crosswind_kt = 40.0;
-    assert!((score_landing(&[l.clone()]).unwrap().crosswind_bonus - 0.25).abs() < 1e-9);
-    let mut great = landing(0, -80.0, 1.05);
-    great.crosswind_kt = 20.0;
-    assert_eq!(score_landing(&[great]).unwrap().score, 100.0);
+    assert!((score_landing(&[l]).unwrap().crosswind_bonus - 0.25).abs() < 1e-9);
 }
 
 #[test]

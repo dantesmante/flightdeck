@@ -8,6 +8,8 @@
   let { score: f }: { score: FlightScore } = $props();
 
   const tone = (v: number | null | undefined) => (v == null ? "dim" : v >= 85 ? "good" : v >= 65 ? "warn" : "bad");
+  /** Whole points, but a small deduction still shows: 99.6, not 100. */
+  const shown = (v: number) => (v < 100 && v >= 99.5 ? v.toFixed(1) : String(Math.round(v)));
   const pct = (p: ScorePart | null) => (p ? `${Math.round(p.weight * 100)}%` : "");
 </script>
 
@@ -16,7 +18,7 @@
     <span class="plabel">{label}</span>
     <span class="detail">{part ? detail : `${detail === "–" ? "" : `${detail}, `}${note}`}</span>
     <span class="meter" aria-hidden="true"><i class={tone(part?.score)} style="width:{part ? part.score : 0}%"></i></span>
-    <span class="num pscore">{part ? Math.round(part.score) : "–"}</span>
+    <span class="num pscore">{part ? shown(part.score) : "–"}</span>
     <span class="weight">{part ? pct(part) : ""}</span>
   </div>
 {/snippet}
@@ -33,13 +35,13 @@
         {@render bar("Bounces", l.bounce ? (l.bounces ? String(l.bounces) : "None") : "–", l.bounce)}
         <div class="part xw" class:off={!l.crosswind_bonus}>
           <span class="plabel">Crosswind bonus</span>
-          <span class="detail">{l.crosswind_kt >= 0.5 ? `${int(l.crosswind_kt)} kt across` : "No crosswind"}</span>
+          <span class="detail">{l.crosswind_kt >= 0.5 ? `${int(l.crosswind_kt)} kt across, on each part above` : "No crosswind"}</span>
           <span class="meter" aria-hidden="true"><i class="good" style="width:{(l.crosswind_bonus / 0.25) * 100}%"></i></span>
           <span class="num pscore">+{Math.round(l.crosswind_bonus * 100)}%</span>
           <span class="weight"></span>
         </div>
         {#if l.crosswind_bonus > 0 && l.base_score < 100}
-          <p class="notes">{Math.round(l.base_score)} before the crosswind bonus{l.score >= 100 ? ", capped at 100" : ""}.</p>
+          <p class="notes">{Math.round(l.base_score)} before the crosswind bonus; each part is capped at 100.</p>
         {/if}
         {#if l.discarded}
           <p class="notes">

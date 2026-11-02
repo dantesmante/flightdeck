@@ -173,17 +173,28 @@ const NO_BOUNCES: &[&str] = &["volanta", "track"];
 
 pub fn score_landing(landings: &[LandingReport]) -> Option<LandingScore> {
     let (l, discarded) = the_landing(landings)?;
-    let mut rate = Part { score: curve(l.vs_fpm.abs(), scales::RATE), weight: 0.35 };
-    let mut g = (l.g_peak > 0.0).then(|| Part { score: curve(l.g_peak, scales::TOUCHDOWN_G), weight: 0.20 });
-    let mut bounce = (!NO_BOUNCES.contains(&l.vs_source.as_str()) || l.bounces > 0)
-        .then(|| Part { score: curve(l.bounces as f64, scales::BOUNCES), weight: 0.20 });
-    let base_score = combine(&mut [Some(&mut rate), g.as_mut(), bounce.as_mut()]);
-    // Landing well in a crosswind is harder: up to a quarter more, one
-    // percent per knot, never past 100.
+    // Landing well in a crosswind is harder: each part earns one percent
+    // more per knot across, up to a quarter more, never past 100.
     let crosswind_kt = l.crosswind_kt.abs();
     let crosswind_bonus = crosswind_kt.min(scales::CROSSWIND_MAX_KT) / 100.0;
+    let part = |raw: f64, weight: f64| Part { score: (raw * (1.0 + crosswind_bonus)).min(100.0), weight };
+    let rate_raw = curve(l.vs_fpm.abs(), scales::RATE);
+    let g_raw = (l.g_peak > 0.0).then(|| curve(l.g_peak, scales::TOUCHDOWN_G));
+    let bounce_raw = (!NO_BOUNCES.contains(&l.vs_source.as_str()) || l.bounces > 0).then(|| curve(l.bounces as f64, scales::BOUNCES));
+    let (w_rate, w_g, w_bounce) = scales::LANDING_WEIGHTS;
+    let mut rate = part(rate_raw, w_rate);
+    let mut g = g_raw.map(|v| part(v, w_g));
+    let mut bounce = bounce_raw.map(|v| part(v, w_bounce));
+    let score = combine(&mut [Some(&mut rate), g.as_mut(), bounce.as_mut()]);
+    // The same parts without the bonus, for the breakdown.
+    let mut plain = [
+        Some(Part { score: rate_raw, weight: w_rate }),
+        g_raw.map(|v| Part { score: v, weight: w_g }),
+        bounce_raw.map(|v| Part { score: v, weight: w_bounce }),
+    ];
+    let base_score = combine(&mut plain.iter_mut().map(Option::as_mut).collect::<Vec<_>>());
     Some(LandingScore {
-        score: (base_score * (1.0 + crosswind_bonus)).min(100.0),
+        score,
         base_score,
         crosswind_kt,
         crosswind_bonus,
