@@ -194,7 +194,7 @@ function mockProfile(): PilotProfile {
         confidence,
         estimated: imported ? ["Bank and pitch from the positions the flight was logged with", "Not recorded, so left out: bounces, G-force in flight"] : [],
         performance: p, rating_before: rating, rating_after: after, expected: e, k, xp_base: Math.round(p),
-        landing: { score: landing, rate: { score: rate, weight: imported ? 0.35 / 0.55 : 0.35 / 0.75 }, g: { score: g, weight: imported ? 0.2 / 0.55 : 0.2 / 0.75 }, bounce: imported ? null : { score: bo, weight: 0.2 / 0.75 }, source: imported ? "volanta" : "sim", vs_fpm: vs, g_peak: 1.08 + (i % 4) * 0.07, bounces, discarded: i === 12 ? 1 : 0 },
+        landing: { score: Math.min(100, landing * (1 + ((i * 3) % 14) / 100)), rate: { score: rate, weight: imported ? 0.35 / 0.55 : 0.35 / 0.75 }, g: { score: g, weight: imported ? 0.2 / 0.55 : 0.2 / 0.75 }, bounce: imported ? null : { score: bo, weight: 0.2 / 0.75 }, source: imported ? "volanta" : "sim", crosswind_kt: (i * 3) % 14, crosswind_bonus: ((i * 3) % 14) / 100, base_score: landing, vs_fpm: vs, g_peak: 1.08 + (i % 4) * 0.07, bounces, discarded: i === 12 ? 1 : 0 },
         safety: { score: safety, g: imported ? null : { score: Math.min(100, safety + 2), weight: 0.5 }, bank: { score: Math.min(100, safety - 1), weight: imported ? 0.5 : 0.25 }, pitch: { score: 100, weight: imported ? 0.5 : 0.25 }, aerobatic: false, source: imported ? "positions" : "recorded", g_max: 1.35, g_min: 0.72, bank_max: 31 + (i % 5) * 4, pitch_max: 14, pitch_min: -6 },
       });
       rating = after;

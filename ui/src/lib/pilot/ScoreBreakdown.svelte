@@ -31,6 +31,16 @@
         {@render bar("Touchdown rate", `${int(l.vs_fpm)} fpm${l.source === "track" ? " (est.)" : ""}`, l.rate)}
         {@render bar("Touchdown G", l.g ? `${l.g_peak.toFixed(2)} G` : "–", l.g)}
         {@render bar("Bounces", l.bounce ? (l.bounces ? String(l.bounces) : "None") : "–", l.bounce)}
+        <div class="part xw" class:off={!l.crosswind_bonus}>
+          <span class="plabel">Crosswind bonus</span>
+          <span class="detail">{l.crosswind_kt >= 0.5 ? `${int(l.crosswind_kt)} kt across` : "No crosswind"}</span>
+          <span class="meter" aria-hidden="true"><i class="good" style="width:{(l.crosswind_bonus / 0.25) * 100}%"></i></span>
+          <span class="num pscore">+{Math.round(l.crosswind_bonus * 100)}%</span>
+          <span class="weight"></span>
+        </div>
+        {#if l.crosswind_bonus > 0 && l.base_score < 100}
+          <p class="notes">{Math.round(l.base_score)} before the crosswind bonus{l.score >= 100 ? ", capped at 100" : ""}.</p>
+        {/if}
         {#if l.discarded}
           <p class="notes">
             {#if l.discarded}{l.discarded === 1 ? "An earlier landing (go-around or touch-and-go) was" : `${l.discarded} earlier landings were`} not counted.{/if}

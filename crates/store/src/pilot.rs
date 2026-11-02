@@ -251,7 +251,12 @@ impl Store {
         // Hours per month over the last year, in UTC.
         let by_month: HashMap<String, (i64, i64)> = {
             let mut st = c.prepare(
-                "SELECT strftime('%Y-%m', f.start_ms / 1000, 'unixepoch'), COALESCE(SUM(l.total_min), 0), COUNT(*)
+                // Every flight counts, recorded or imported; one whose
+                // logbook line has no time uses its block (or start to end) time.
+                "SELECT strftime('%Y-%m', f.start_ms / 1000, 'unixepoch'),
+                        COALESCE(SUM(CASE WHEN COALESCE(l.total_min, 0) > 0 THEN l.total_min
+                                          ELSE MAX(0, (COALESCE(f.block_in, f.end_ms) - COALESCE(f.block_out, f.start_ms)) / 60000) END), 0),
+                        COUNT(*)
                  FROM flight f LEFT JOIN log_entry l ON l.flight_id = f.id
                  WHERE f.start_ms >= ?1 GROUP BY 1",
             )?;

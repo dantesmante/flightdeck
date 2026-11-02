@@ -104,6 +104,23 @@ fn a_good_landing() {
 }
 
 #[test]
+fn crosswind_lifts_the_whole_landing_score() {
+    let mut l = landing(0, -330.0, 1.35);
+    let calm = score_landing(&[l.clone()]).unwrap();
+    l.crosswind_kt = -12.0;
+    let windy = score_landing(&[l.clone()]).unwrap();
+    assert!((windy.crosswind_bonus - 0.12).abs() < 1e-9);
+    assert!((windy.score - calm.score * 1.12).abs() < 1e-9, "{} {}", windy.score, calm.score);
+    assert_eq!(windy.rate, calm.rate);
+    // Capped at 25 kt, and never past 100.
+    l.crosswind_kt = 40.0;
+    assert!((score_landing(&[l.clone()]).unwrap().crosswind_bonus - 0.25).abs() < 1e-9);
+    let mut great = landing(0, -80.0, 1.05);
+    great.crosswind_kt = 20.0;
+    assert_eq!(score_landing(&[great]).unwrap().score, 100.0);
+}
+
+#[test]
 fn a_hard_landing_scores_low() {
     let l = score_landing(&[landing(0, -650.0, 1.9)]).unwrap();
     // Only the lack of bounces holds it up.

@@ -198,7 +198,10 @@ pub fn parse(text: &str, refdata: &refdata::RefData) -> Result<ImportedFlight, S
         distance_nm: f(&v, "FlownDistance").filter(|d| *d > 0.0).or_else(|| f(&v, "GcDistance")).unwrap_or(0.0),
         max_alt_ft: track.iter().map(|p| f64::from(p.alt_ft)).fold(0.0, f64::max),
         fuel_used_kg: f(&v, "FuelBurnedKg").unwrap_or(0.0),
-        paused_ms: (f(&v, "TimePaused").unwrap_or(0.0) * 1000.0).round() as i64,
+        // A pause as long as the whole flight is a misread figure, not a pause.
+        paused_ms: Some((f(&v, "TimePaused").unwrap_or(0.0) * 1000.0).round() as i64)
+            .filter(|p| *p < end_ms - start_ms)
+            .unwrap_or(0),
         max_sim_rate: 1.0,
         landings,
         track,

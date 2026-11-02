@@ -137,11 +137,13 @@ MIT licensed.
 - **Pilot profile** (Pilot, above Settings): a cover picture and your
   photo (click either to change it), your Pilot Rating with its history,
   your rank on a shoulder board with XP to the next one, average scores
-  and career statistics: hours per month, records, most flown aircraft
-  and favorite airports.
+  and career statistics: hours per month over the last year (recorded
+  and imported flights alike), records, most flown aircraft and favorite
+  airports.
 - **Pilot rating**: every flight FlightDeck records from gate to gate is
   scored out of 100, half **Landing quality** (touchdown rate, touchdown
-  G and bounces, weighted 35 : 20 : 20) and half **Flight safety** (time
+  G and bounces, weighted 35 : 20 : 20, then 1% more per knot of crosswind
+  at touchdown, up to 25%, never past 100) and half **Flight safety** (time
   spent at high or negative G 50%, beyond 45° of bank 25%, and beyond 25°
   nose up or 15° nose down 25%; aerobatic and fighter aircraft are not
   marked down for bank and pitch). G comes from the sim's own G FORCE

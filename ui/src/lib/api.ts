@@ -289,6 +289,9 @@ export interface LandingScore {
   vs_fpm: number;
   g_peak: number;
   bounces: number;
+  crosswind_kt: number;
+  crosswind_bonus: number;
+  base_score: number;
   discarded: number;
 }
 

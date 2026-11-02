@@ -205,6 +205,11 @@ pub fn parse(text: &str, refdata: &refdata::RefData) -> Result<ImportedFlight, S
         (Some(a), Some(b), Some(real_s)) => ((b - a) - (real_s * 1000.0).round() as i64).max(0),
         _ => 0,
     };
+    // A pause as long as the whole flight is a misread figure, not a pause.
+    let paused_ms = match (block_out, block_in) {
+        (Some(a), Some(b)) if paused_ms >= (b - a) => 0,
+        _ => paused_ms,
+    };
 
     // Takeoff: the first airborne position after being on the ground;
     // landing: back on the ground after the last airborne position.
@@ -493,6 +498,38 @@ pub fn file_name(json: &Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn imported_flights_count_in_the_monthly_hours() {
+        let t0 = 1_790_000_000_000i64;
+        let positions: Vec<Value> = (0..120)
+            .map(|i| {
+                json!({
+                    "time": format_time(t0 + i * 30_000, true),
+                    "latitude": 47.45 - i as f64 * 0.01, "longitude": -122.3, "groundSpeed": 250.0,
+                    "verticalSpeed": 0.0, "headingTrue": 180.0, "onGround": !(5..=115).contains(&i)
+                })
+            })
+            .collect();
+        let text = json!({
+            "id": "abc", "positions": positions,
+            "offBlocksTime": format_time(t0, true), "onBlocksTime": format_time(t0 + 3_600_000, true),
+            "realBlockTime": 3600.0
+        })
+        .to_string();
+        let refdata = refdata::RefData::load();
+        let p = parse(&text, &refdata).unwrap();
+        let mut db = store::Store::open_in_memory().unwrap();
+        db.save_flight(&p.summary, &p.ctx).unwrap();
+        let stats = db.pilot_stats(t0 + 10 * 86_400_000).unwrap();
+        assert_eq!(stats.months.iter().map(|m| m.minutes).sum::<i64>(), 60, "{:?}", stats.months);
+        // A flight whose logbook line has no time still counts its block time.
+        let mut q = parse(&text.replace("\"id\":\"abc\"", "\"id\":\"def\""), &refdata).unwrap();
+        q.summary.paused_ms = 10 * 3_600_000;
+        db.save_flight(&q.summary, &q.ctx).unwrap();
+        let stats = db.pilot_stats(t0 + 10 * 86_400_000).unwrap();
+        assert_eq!(stats.months.iter().map(|m| m.minutes).sum::<i64>(), 120);
+    }
 
     #[test]
     fn positions_carry_attitude_for_the_rating() {

@@ -46,6 +46,12 @@ pub struct LandingScore {
     pub vs_fpm: f64,
     pub g_peak: f64,
     pub bounces: u32,
+    /// Crosswind across the aircraft at touchdown, and the share it added
+    /// to the landing score (0.12 = +12%).
+    pub crosswind_kt: f64,
+    pub crosswind_bonus: f64,
+    /// The landing score before the crosswind bonus.
+    pub base_score: f64,
     /// Earlier landings left out: go-arounds and touch-and-goes.
     pub discarded: u32,
 }
@@ -177,9 +183,16 @@ pub fn score_landing(landings: &[LandingReport]) -> Option<LandingScore> {
     let mut g = (l.g_peak > 0.0).then(|| Part { score: curve(l.g_peak, scales::TOUCHDOWN_G), weight: 0.20 });
     let mut bounce = (!NO_BOUNCES.contains(&l.vs_source.as_str()) || l.bounces > 0)
         .then(|| Part { score: curve(l.bounces as f64, scales::BOUNCES), weight: 0.20 });
-    let score = combine(&mut [Some(&mut rate), g.as_mut(), bounce.as_mut()]);
+    let base_score = combine(&mut [Some(&mut rate), g.as_mut(), bounce.as_mut()]);
+    // Landing well in a crosswind is harder: up to a quarter more, one
+    // percent per knot, never past 100.
+    let crosswind_kt = l.crosswind_kt.abs();
+    let crosswind_bonus = crosswind_kt.min(scales::CROSSWIND_MAX_KT) / 100.0;
     Some(LandingScore {
-        score,
+        score: (base_score * (1.0 + crosswind_bonus)).min(100.0),
+        base_score,
+        crosswind_kt,
+        crosswind_bonus,
         rate,
         g,
         bounce,

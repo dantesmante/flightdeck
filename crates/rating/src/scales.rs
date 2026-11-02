@@ -16,6 +16,10 @@ pub const RATE: &[(f64, f64)] = &[
 /// Peak G in the touchdown window to score.
 pub const TOUCHDOWN_G: &[(f64, f64)] = &[(1.2, 100.0), (1.4, 85.0), (1.7, 55.0), (2.0, 25.0), (2.5, 0.0)];
 
+/// Crosswind at touchdown beyond this earns no more bonus. Each knot up to
+/// it adds 1% to the landing score.
+pub const CROSSWIND_MAX_KT: f64 = 25.0;
+
 pub const BOUNCES: &[(f64, f64)] = &[(0.0, 100.0), (1.0, 60.0), (2.0, 25.0), (3.0, 0.0)];
 
 // Flight safety: for each band, (points per percent of the time in the
