@@ -121,6 +121,9 @@ pub fn samples(text: &str) -> Vec<tracker::Sample> {
                 bank_deg: any(p, &["Bank", "Roll", "bank", "roll"]),
                 pitch_deg: any(p, &["Pitch", "pitch"]),
                 g_load: any(p, &["GForce", "Gforce", "gForce", "gforce"]),
+                alt_ft: any(p, &["Altitude", "altitude"]),
+                agl_ft: any(p, &["AltitudeAgl", "AltitudeAGL", "altitudeAgl", "RadioAltitude"]),
+                ias_kt: any(p, &["IndicatedAirspeed", "Ias", "IAS", "AirSpeed", "Airspeed", "indicatedAirspeed"]),
             })
         })
         .collect();

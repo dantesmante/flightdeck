@@ -1,25 +1,22 @@
 <script lang="ts">
   // How one flight's score was made up: each part of landing quality and
-  // flight stability, and what it did to the rating and XP. Narrow
-  // containers stack it.
+  // flight stability with what was measured. How the parts are weighed is
+  // in the scoring guide.
+  // Narrow containers stack it.
   import type { FlightScore, ScorePart } from "../api";
-  import { hoursMinutes, int } from "../format";
+  import { int } from "../format";
 
   let { score: f }: { score: FlightScore } = $props();
 
   const tone = (v: number | null | undefined) => (v == null ? "dim" : v >= 85 ? "good" : v >= 65 ? "warn" : "bad");
-  /** Whole points, but a small deduction still shows: 99.6, not 100. */
-  const shown = (v: number) => (v < 100 && v >= 99.5 ? v.toFixed(1) : String(Math.round(v)));
-  const pct = (p: ScorePart | null) => (p ? `${Math.round(p.weight * 100)}%` : "");
 </script>
 
 {#snippet bar(label: string, detail: string, part: ScorePart | null, note = "not recorded")}
   <div class="part" class:off={!part}>
     <span class="plabel">{label}</span>
-    <span class="detail">{part ? detail : `${detail === "–" ? "" : `${detail}, `}${note}`}</span>
+    <span class="detail">{part ? detail : `${detail === "" ? "" : `${detail}, `}${note}`}</span>
     <span class="meter" aria-hidden="true"><i class={tone(part?.score)} style="width:{part ? part.score : 0}%"></i></span>
-    <span class="num pscore">{part ? shown(part.score) : "–"}</span>
-    <span class="weight">{part ? pct(part) : ""}</span>
+    <span class="num pscore">{part ? Math.round(part.score) : "–"}</span>
   </div>
 {/snippet}
 
@@ -30,58 +27,42 @@
     <div class="cols">
       <section>
         <h4>Landing quality <b class="num {tone(l.score)}">{Math.round(l.score)}</b></h4>
-        {@render bar("Touchdown rate", `${int(l.vs_fpm)} fpm${l.source === "track" ? " (est.)" : ""}`, l.rate)}
-        {@render bar("Touchdown G", l.g ? `${l.g_peak.toFixed(2)} G` : "–", l.g)}
-        {@render bar("Bounces", l.bounce ? (l.bounces ? String(l.bounces) : "None") : "–", l.bounce)}
-        <div class="part xw" class:off={!l.crosswind_bonus}>
+        {@render bar("Touchdown rate", `${int(l.vs_fpm)} fpm${l.source === "track" ? " (from positions)" : ""}`, l.rate)}
+        {@render bar("Touchdown G", l.g ? `${l.g_peak.toFixed(1)} G` : "", l.g)}
+        {@render bar("Bounces", l.bounce ? (l.bounces ? String(l.bounces) : "None") : "", l.bounce)}
+        <div class="part" class:off={!l.crosswind_bonus}>
           <span class="plabel">Crosswind bonus</span>
-          <span class="detail">{l.crosswind_kt >= 0.5 ? `${int(l.crosswind_kt)} kt across, on each part above` : "No crosswind"}</span>
+          <span class="detail">{l.crosswind_kt >= 0.5 ? `${int(l.crosswind_kt)} kt across` : "No crosswind"}</span>
           <span class="meter" aria-hidden="true"><i class="good" style="width:{(l.crosswind_bonus / 0.25) * 100}%"></i></span>
           <span class="num pscore">+{Math.round(l.crosswind_bonus * 100)}%</span>
-          <span class="weight"></span>
         </div>
-        {#if l.crosswind_bonus > 0 && l.base_score < 100}
-          <p class="notes">{Math.round(l.base_score)} before the crosswind bonus; each part is capped at 100.</p>
-        {/if}
         {#if l.discarded}
           <p class="notes">
-            {#if l.discarded}{l.discarded === 1 ? "An earlier landing (go-around or touch-and-go) was" : `${l.discarded} earlier landings were`} not counted.{/if}
+            {l.discarded === 1 ? "An earlier landing (go-around or touch-and-go) was" : `${l.discarded} earlier landings were`} not counted.
           </p>
         {/if}
       </section>
       <section>
         <h4>Flight stability <b class="num {tone(s.score)}">{Math.round(s.score)}</b></h4>
-        {@render bar("G-force", s.g ? `${s.g_min.toFixed(1)} to ${s.g_max.toFixed(1)} G` : "–", s.g)}
-        {@render bar("Bank angle", s.bank ? `up to ${int(s.bank_max)}° (limit 30°)` : "aerobatic aircraft", s.bank, "not scored")}
+        {@render bar("G-force", s.g ? `${s.g_min.toFixed(1)} to ${s.g_max.toFixed(1)} G` : "", s.g)}
+        {@render bar("Bank angle", s.bank ? `up to ${int(s.bank_max)}°` : "aerobatic aircraft", s.bank, "not scored")}
+        {@render bar("Pitch", s.pitch ? `${int(s.pitch_max)}° up, ${int(Math.abs(s.pitch_min))}° down` : "aerobatic aircraft", s.pitch, "not scored")}
         {@render bar(
-          "Pitch",
-          s.pitch ? `${int(s.pitch_max)}° up, ${int(Math.abs(s.pitch_min))}° down (limits 20° / 10°)` : "aerobatic aircraft",
-          s.pitch,
-          "not scored",
+          "Smoothness",
+          s.smoothness ? `rolls up to ${int(s.roll_rate_max)}°/s` : s.aerobatic ? "aerobatic aircraft" : "",
+          s.smoothness,
+          s.aerobatic ? "not scored" : "not recorded",
         )}
+        {@render bar(
+          "Stable approach",
+          s.approach ? `sink up to ${int(s.approach_sink_max)} fpm, bank ${int(s.approach_bank_max)}°` : "",
+          s.approach,
+        )}
+        {@render bar("Speed limit", s.speed ? `${int(s.speed_max_low)} kt top below 10,000 ft` : "", s.speed)}
       </section>
     </div>
-    <div class="sums">
-      <span>
-        <span>Rating <b class="num">{f.rating_before!.toFixed(1)}</b> → <b class="num">{f.rating_after!.toFixed(1)}</b></span>
-        <small>Expected {f.expected}, scored {Math.round(f.performance!)}, factor {f.k}</small>
-      </span>
-      <span>
-        <span><b class="num">+{int(f.xp)} XP</b></span>
-        <small>{int(f.xp_base)} for the flight + {f.xp_bonus} for {hoursMinutes(f.airborne_min)} in the air</small>
-      </span>
-    </div>
   {:else}
-    <div class="sums">
-      <span>
-        <span>Not rated: {f.unrated?.toLowerCase()}.</span>
-        <small>
-          {f.xp
-            ? `${int(f.xp_base)} XP for completing it + ${f.xp_bonus} for ${hoursMinutes(f.airborne_min)} in the air.`
-            : "Flights that end before landing earn no XP."}
-        </small>
-      </span>
-    </div>
+    <p class="notes">Not rated: {f.unrated?.toLowerCase()}.</p>
   {/if}
 </div>
 
@@ -108,8 +89,8 @@
   }
   .part {
     display: grid;
-    grid-template-columns: 104px 1fr 72px 28px 36px;
-    grid-template-areas: "label detail meter score weight";
+    grid-template-columns: 112px 1fr 72px 36px;
+    grid-template-areas: "label detail meter score";
     align-items: center;
     gap: 8px;
     font-size: 13px;
@@ -147,33 +128,10 @@
     text-align: right;
     font-size: 14px;
   }
-  .weight {
-    grid-area: weight;
-    color: var(--ink-faint);
-    font-size: 11px;
-    text-align: right;
-    white-space: nowrap;
-  }
   .notes {
     margin: 6px 0 0;
     font-size: 12px;
     color: var(--ink-dim);
-  }
-  .sums {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 10px 28px;
-    border-top: 1px solid var(--rule);
-    padding-top: 10px;
-    margin-top: 10px;
-    font-size: 13px;
-  }
-  .sums > span {
-    display: grid;
-  }
-  .sums small {
-    color: var(--ink-dim);
-    font-size: 12px;
   }
   .good {
     color: var(--good);
@@ -192,10 +150,10 @@
       grid-template-columns: 1fr;
     }
     .part {
-      grid-template-columns: 1fr 56px 24px 30px;
+      grid-template-columns: 1fr 64px 40px;
       grid-template-areas:
-        "label meter score weight"
-        "detail detail detail detail";
+        "label meter score"
+        "detail detail detail";
       row-gap: 0;
       padding: 4px 0;
     }

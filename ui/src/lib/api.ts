@@ -300,6 +300,16 @@ export interface SafetyScore {
   g: ScorePart | null;
   bank: ScorePart | null;
   pitch: ScorePart | null;
+  smoothness: ScorePart | null;
+  approach: ScorePart | null;
+  speed: ScorePart | null;
+  roll_rate_max: number;
+  pitch_rate_max: number;
+  g_rate_max: number;
+  approach_sink_max: number;
+  approach_bank_max: number;
+  approach_speed_dev: number;
+  speed_max_low: number;
   aerobatic: boolean;
   source: string;
   g_max: number;

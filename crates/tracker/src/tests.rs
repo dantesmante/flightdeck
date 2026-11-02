@@ -413,3 +413,29 @@ fn a_landing_can_be_estimated_from_positions() {
     let far: Vec<Sample> = vec![Sample { t_ms: 0, ..Default::default() }, Sample { t_ms: 20_000, on_ground: true, ..Default::default() }];
     assert!(estimate_landing(&far).is_none());
 }
+
+#[test]
+fn the_approach_speed_and_smoothness_are_recorded() {
+    let mut f = Script::new();
+    f.taxi_and_takeoff();
+    // Low and fast: 280 kt at 3,430 ft for a minute.
+    f.run(60.0, 10.0, |s| {
+        s.ias_kt = 280.0;
+        s.vs_fpm = 0.0;
+    });
+    // A quick roll into a bank: 20 degrees in two seconds.
+    f.run(2.0, 10.0, |s| s.bank_deg = (s.bank_deg + 1.0).min(20.0));
+    f.run(5.0, 10.0, |s| s.bank_deg = 0.0);
+    f.approach_and_land(-150.0);
+    f.rollout_taxi_park();
+    let s = f.completed().unwrap();
+    let e = s.events.iter().find(|e| e.kind == "handling").unwrap();
+    let h: Handling = serde_json::from_value(e.data.clone()).unwrap();
+    // 30 kt over the limit for about a minute.
+    assert!(h.speed_over_s[6] > 55.0, "{:?}", h.speed_over_s);
+    assert_eq!(h.speed_max_low, 280.0);
+    assert!(h.roll_rate_max > 5.0, "{}", h.roll_rate_max);
+    let a = h.approach.expect("approach");
+    assert!(a.points.len() > 20, "{}", a.points.len());
+    assert!(a.points.iter().all(|p| p.agl_ft <= 1000.0 && p.t_s <= 0.0));
+}

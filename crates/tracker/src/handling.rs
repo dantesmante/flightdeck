@@ -31,6 +31,76 @@ fn fine(v: f64, bins: usize) -> usize {
     ((v.max(0.0) / FINE_STEP_DEG) as usize).min(bins - 1)
 }
 
+/// Smoothness: how fast bank, pitch and G change, measured once a second
+/// from one-second averages. Bins: roll rate 1 deg/s, pitch rate 0.5 deg/s,
+/// G change 0.05 G/s; 31 each, the last open-ended.
+pub const RATE_BINS: usize = 31;
+pub const ROLL_RATE_STEP: f64 = 1.0;
+pub const PITCH_RATE_STEP: f64 = 0.5;
+pub const G_RATE_STEP: f64 = 0.05;
+
+/// The speed limit: 250 knots indicated below 10,000 feet. Time over it is
+/// kept in 5-knot steps of excess; 21 bins, the last open-ended.
+pub const SPEED_LIMIT_KT: f64 = 250.0;
+pub const SPEED_LIMIT_BELOW_FT: f64 = 10_000.0;
+pub const SPEED_STEP_KT: f64 = 5.0;
+pub const SPEED_BINS: usize = 21;
+
+/// The approach: the last stretch below this height before touchdown, at
+/// most this long.
+pub const APPROACH_FROM_FT: f64 = 1000.0;
+pub const APPROACH_MAX_S: f64 = 180.0;
+
+fn bin(v: f64, step: f64, bins: usize) -> usize {
+    ((v.max(0.0) / step) as usize).min(bins - 1)
+}
+
+/// One second of the approach.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct ApproachPoint {
+    /// Seconds before touchdown (negative).
+    pub t_s: f32,
+    pub agl_ft: f32,
+    pub vs_fpm: f32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bank_deg: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ias_kt: Option<f32>,
+}
+
+/// The final approach of a flight: about one point a second from the last
+/// descent through 1,000 ft above the ground to touchdown.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct Approach {
+    pub points: Vec<ApproachPoint>,
+}
+
+impl Approach {
+    /// From points with absolute times, oldest first, ending at the touchdown
+    /// at `td_ms`: the last stretch below 1,000 ft, at most three minutes.
+    pub fn from_points(points: &[(i64, ApproachPoint)], td_ms: i64) -> Option<Approach> {
+        let start = points.iter().rposition(|(_, p)| p.agl_ft as f64 > APPROACH_FROM_FT).map_or(0, |i| i + 1);
+        let out: Vec<ApproachPoint> = points[start..]
+            .iter()
+            .filter(|(t, _)| td_ms - t <= (APPROACH_MAX_S * 1000.0) as i64 && *t <= td_ms)
+            .map(|(t, p)| ApproachPoint { t_s: ((t - td_ms) as f64 / 1000.0) as f32, ..*p })
+            .collect();
+        (!out.is_empty()).then_some(Approach { points: out })
+    }
+}
+
+/// Running one-second averages for the smoothness rates.
+#[derive(Debug, Clone, Default, PartialEq)]
+struct Second {
+    start: i64,
+    n: u32,
+    bank: f64,
+    pitch: f64,
+    g: f64,
+    /// The previous second's averages: (mid time, bank, pitch, G).
+    prev: Option<(i64, f64, f64, f64)>,
+}
+
 /// G is smoothed over about a second, so a single bump of turbulence
 /// weighs far less than a sustained pull.
 const G_SMOOTH_S: f64 = 1.0;
@@ -68,6 +138,11 @@ pub struct Sample {
     pub bank_deg: Option<f64>,
     pub pitch_deg: Option<f64>,
     pub g_load: Option<f64>,
+    /// Altitude above sea level and above the ground, and indicated
+    /// airspeed, when the source logged them.
+    pub alt_ft: Option<f64>,
+    pub agl_ft: Option<f64>,
+    pub ias_kt: Option<f64>,
 }
 
 /// Positions further apart than this say too little about what happened
@@ -103,6 +178,30 @@ pub struct Handling {
     pub pitch_up_5: Vec<f64>,
     #[serde(default)]
     pub pitch_down_5: Vec<f64>,
+    /// Seconds at each roll rate, pitch rate and rate of G change (see
+    /// RATE_BINS); empty when not recorded.
+    #[serde(default)]
+    pub roll_rate_s: Vec<f64>,
+    #[serde(default)]
+    pub pitch_rate_s: Vec<f64>,
+    #[serde(default)]
+    pub g_rate_s: Vec<f64>,
+    #[serde(default)]
+    pub roll_rate_max: f64,
+    #[serde(default)]
+    pub pitch_rate_max: f64,
+    #[serde(default)]
+    pub g_rate_max: f64,
+    /// Seconds over 250 kt below 10,000 ft, by 5-knot step of excess; empty
+    /// when the airspeed was not recorded.
+    #[serde(default)]
+    pub speed_over_s: Vec<f64>,
+    /// Fastest indicated airspeed below 10,000 ft.
+    #[serde(default)]
+    pub speed_max_low: f64,
+    /// The final approach, when known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approach: Option<Approach>,
     /// Extremes of the smoothed G and of bank and pitch.
     pub g_max: f64,
     pub g_min: f64,
@@ -113,6 +212,8 @@ pub struct Handling {
     g_smooth: Option<f64>,
     #[serde(skip)]
     last_t: Option<i64>,
+    #[serde(skip)]
+    second: Second,
 }
 
 impl Default for Handling {
@@ -128,6 +229,15 @@ impl Default for Handling {
             bank_5: vec![0.0; FINE_BANK_BINS],
             pitch_up_5: vec![0.0; FINE_PITCH_BINS],
             pitch_down_5: vec![0.0; FINE_PITCH_BINS],
+            roll_rate_s: vec![0.0; RATE_BINS],
+            pitch_rate_s: vec![0.0; RATE_BINS],
+            g_rate_s: vec![0.0; RATE_BINS],
+            roll_rate_max: 0.0,
+            pitch_rate_max: 0.0,
+            g_rate_max: 0.0,
+            speed_over_s: vec![0.0; SPEED_BINS],
+            speed_max_low: 0.0,
+            approach: None,
             g_max: 1.0,
             g_min: 1.0,
             bank_max: 0.0,
@@ -135,6 +245,7 @@ impl Default for Handling {
             pitch_min: 0.0,
             g_smooth: None,
             last_t: None,
+            second: Second::default(),
         }
     }
 }
@@ -154,6 +265,7 @@ impl Sample {
             gs_kt: p.gs_kt as f64,
             vs_fpm: p.vs_fpm as f64,
             hdg_deg: p.hdg_deg as f64,
+            alt_ft: Some(p.alt_ft as f64),
             ..Default::default()
         }
     }
@@ -183,6 +295,49 @@ impl Handling {
         self.bank_max = self.bank_max.max(s.bank_deg.abs());
         self.pitch_max = self.pitch_max.max(s.pitch_deg);
         self.pitch_min = self.pitch_min.min(s.pitch_deg);
+        if s.alt_msl_ft < SPEED_LIMIT_BELOW_FT {
+            self.add_speed(s.ias_kt, dt);
+        }
+        self.add_second(s.t_ms, s.bank_deg, s.pitch_deg, s.g_load);
+    }
+
+    fn add_speed(&mut self, ias: f64, dt: f64) {
+        self.speed_max_low = self.speed_max_low.max(ias);
+        if ias > SPEED_LIMIT_KT {
+            self.speed_over_s[bin(ias - SPEED_LIMIT_KT, SPEED_STEP_KT, SPEED_BINS)] += dt;
+        }
+    }
+
+    /// Fold a sample into the current second; when it is complete, count
+    /// how fast bank, pitch and G changed since the second before.
+    fn add_second(&mut self, t: i64, bank: f64, pitch: f64, g: f64) {
+        let sec = &mut self.second;
+        if sec.n == 0 {
+            sec.start = t;
+        }
+        sec.n += 1;
+        sec.bank += bank;
+        sec.pitch += pitch;
+        sec.g += g;
+        if t - sec.start < 1000 {
+            return;
+        }
+        let n = sec.n as f64;
+        let now = ((sec.start + t) / 2, sec.bank / n, sec.pitch / n, sec.g / n);
+        let prev = sec.prev.replace(now);
+        *sec = Second { prev: sec.prev, ..Default::default() };
+        let Some((t0, b0, p0, g0)) = prev else { return };
+        let dt = (now.0 - t0) as f64 / 1000.0;
+        if !(0.5..=2.5).contains(&dt) {
+            return;
+        }
+        let (roll, pitch_rate, g_rate) = ((now.1 - b0).abs() / dt, (now.2 - p0).abs() / dt, (now.3 - g0).abs() / dt);
+        self.roll_rate_s[bin(roll, ROLL_RATE_STEP, RATE_BINS)] += dt;
+        self.pitch_rate_s[bin(pitch_rate, PITCH_RATE_STEP, RATE_BINS)] += dt;
+        self.g_rate_s[bin(g_rate, G_RATE_STEP, RATE_BINS)] += dt;
+        self.roll_rate_max = self.roll_rate_max.max(roll);
+        self.pitch_rate_max = self.pitch_rate_max.max(pitch_rate);
+        self.g_rate_max = self.g_rate_max.max(g_rate);
     }
 
     fn add_bank(&mut self, bank: f64, dt: f64) {
@@ -210,6 +365,7 @@ impl Handling {
     /// starts a new stretch.
     pub fn gap(&mut self) {
         self.last_t = None;
+        self.second = Second::default();
     }
 
     /// No handling figures could be worked out for a flight.
@@ -224,12 +380,50 @@ impl Handling {
             bank_5: vec![],
             pitch_up_5: vec![],
             pitch_down_5: vec![],
+            roll_rate_s: vec![],
+            pitch_rate_s: vec![],
+            g_rate_s: vec![],
+            speed_over_s: vec![],
             ..Default::default()
         }
     }
 
     pub fn is_known(&self) -> bool {
         self.source != source::NONE && self.airborne_s > 0.0
+    }
+
+    /// The final approach from positions: the last stretch below 1,000 ft
+    /// above the ground before the last touchdown. Height above the ground
+    /// is the logged one, or the altitude less `ground_ft` (the arrival
+    /// airport's elevation). `None` without heights, or when the positions
+    /// are too far apart to follow it (mostly more than 5 s apart, or under
+    /// 20 s of it).
+    pub fn estimate_approach(samples: &[Sample], ground_ft: Option<f64>) -> Option<Approach> {
+        let td = samples.windows(2).rposition(|w| !w[0].on_ground && w[1].on_ground)? + 1;
+        let td_ms = samples[td].t_ms;
+        let pts: Vec<(i64, ApproachPoint)> = samples[..td]
+            .iter()
+            .filter(|s| !s.on_ground)
+            .filter_map(|s| {
+                let agl = s.agl_ft.or_else(|| Some(s.alt_ft? - ground_ft?))?;
+                Some((
+                    s.t_ms,
+                    ApproachPoint {
+                        t_s: 0.0,
+                        agl_ft: agl.max(0.0) as f32,
+                        vs_fpm: s.vs_fpm as f32,
+                        bank_deg: s.bank_deg.map(|b| b as f32),
+                        ias_kt: s.ias_kt.map(|v| v as f32),
+                    },
+                ))
+            })
+            .collect();
+        let a = Approach::from_points(&pts, td_ms)?;
+        let first = a.points.first()?.t_s;
+        let mut gaps: Vec<f32> = a.points.windows(2).map(|w| w[1].t_s - w[0].t_s).collect();
+        gaps.push(-a.points.last()?.t_s);
+        gaps.sort_by(f32::total_cmp);
+        (-first >= 20.0 && gaps[gaps.len() / 2] <= 5.0).then_some(a)
     }
 
     /// Work out the handling of a flight from its positions (imported, or
@@ -254,9 +448,15 @@ impl Handling {
         let max_gap = if simplified { 900.0 } else { MAX_GAP_S };
         let with_attitude = samples.iter().filter(|s| !s.on_ground).any(|s| s.bank_deg.is_some() && s.pitch_deg.is_some());
         let with_g = samples.iter().filter(|s| !s.on_ground).any(|s| s.g_load.is_some_and(|g| g != 0.0));
+        let with_ias = samples.iter().filter(|s| !s.on_ground).any(|s| s.ias_kt.is_some() && s.alt_ft.is_some());
         let mut h = Handling {
             source: if with_attitude { source::POSITIONS } else { source::TRACK }.into(),
             g_s: if with_g { vec![0.0; G_EDGES.len() + 1] } else { vec![] },
+            // Positions are too far apart to judge smoothness.
+            roll_rate_s: vec![],
+            pitch_rate_s: vec![],
+            g_rate_s: vec![],
+            speed_over_s: if with_ias { vec![0.0; SPEED_BINS] } else { vec![] },
             ..Default::default()
         };
         let mut gaps = Vec::new();
@@ -279,6 +479,13 @@ impl Handling {
                 }
             };
             h.airborne_s += dt;
+            if with_ias {
+                if let (Some(alt), Some(i0), Some(i1)) = (a.alt_ft, a.ias_kt, b.ias_kt) {
+                    if alt < SPEED_LIMIT_BELOW_FT {
+                        h.add_speed((i0 + i1) / 2.0, dt);
+                    }
+                }
+            }
             h.add_bank(bank, dt);
             h.add_pitch(pitch, dt);
             h.bank_max = h.bank_max.max(bank);
@@ -391,6 +598,24 @@ mod tests {
         assert_eq!((h.pitch_max, h.pitch_min), (20.0, -20.0));
         // 20 degrees: the 20-25 step either way.
         assert!((h.pitch_up_5[4] - 5.0).abs() < 1e-6 && (h.pitch_down_5[4] - 5.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn an_approach_from_positions() {
+        // Descending at 900 fpm from 1,800 ft to touchdown, a position every
+        // 4 s; heights from the altitude and a 400 ft airport.
+        let mut s: Vec<Sample> = (0..30)
+            .map(|i| Sample { t_ms: i * 4000, alt_ft: Some(2200.0 - i as f64 * 60.0), vs_fpm: -900.0, ..Default::default() })
+            .collect();
+        s.push(Sample { t_ms: 120_000, on_ground: true, alt_ft: Some(400.0), ..Default::default() });
+        let a = Handling::estimate_approach(&s, Some(400.0)).unwrap();
+        assert!(a.points.iter().all(|p| p.agl_ft <= 1000.0));
+        assert!(a.points.len() >= 15, "{}", a.points.len());
+        // No airport elevation and no logged heights: nothing to go on.
+        assert!(Handling::estimate_approach(&s, None).is_none());
+        // Positions 20 s apart are too far apart.
+        let sparse: Vec<Sample> = s.iter().step_by(5).copied().chain([s[30]]).collect();
+        assert!(Handling::estimate_approach(&sparse, Some(400.0)).is_none());
     }
 
     #[test]

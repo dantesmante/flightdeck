@@ -8,7 +8,7 @@
 //! TaxiIn → Arrived. Every transition must hold for a short debounce window so
 //! a bounce or a gust never splits a flight in two.
 
-mod handling;
+pub mod handling;
 mod landing;
 
 use std::collections::VecDeque;
@@ -16,7 +16,7 @@ use std::collections::VecDeque;
 use serde::{Deserialize, Serialize};
 use telemetry::{geo, AircraftInfo, SimKind, Telemetry, TrackPoint};
 
-pub use handling::{source as handling_source, Handling, Sample};
+pub use handling::{source as handling_source, Approach, ApproachPoint, Handling, Sample};
 pub use landing::{estimate_landing, grade_for, LandingReport};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -250,6 +250,9 @@ pub struct Tracker {
     /// off it: a bounce must really leave the ground.
     lift_ref_agl: f64,
     lift_peak_agl: f64,
+    /// About one point a second of the last few minutes in the air, for
+    /// the approach.
+    approach_buf: VecDeque<(i64, ApproachPoint)>,
 }
 
 #[derive(Default)]
@@ -303,6 +306,7 @@ impl Tracker {
             handling: Handling::default(),
             lift_ref_agl: 0.0,
             lift_peak_agl: 0.0,
+            approach_buf: VecDeque::new(),
         }
     }
 
@@ -429,6 +433,21 @@ impl Tracker {
         self.step_phase(s, &mut out);
         if self.phase == Some(Phase::Airborne) && !s.on_ground {
             self.handling.add(s);
+            if self.approach_buf.back().is_none_or(|(t, _)| s.t_ms - t >= 1000) {
+                self.approach_buf.push_back((
+                    s.t_ms,
+                    ApproachPoint {
+                        t_s: 0.0,
+                        agl_ft: s.alt_agl_ft as f32,
+                        vs_fpm: s.vs_fpm as f32,
+                        bank_deg: Some(s.bank_deg as f32),
+                        ias_kt: Some(s.ias_kt as f32),
+                    },
+                ));
+                while self.approach_buf.front().is_some_and(|(t, _)| s.t_ms - t > 200_000) {
+                    self.approach_buf.pop_front();
+                }
+            }
         } else {
             self.handling.gap();
         }
@@ -485,6 +504,11 @@ impl Tracker {
                     let report = LandingReport::at_touchdown(s, self.recent.make_contiguous());
                     self.event(t, "touchdown", serde_json::json!({ "vs_fpm": report.vs_fpm }));
                     self.landings.push(report);
+                    // The approach that ended here; a later landing replaces it.
+                    if let Some(a) = Approach::from_points(self.approach_buf.make_contiguous(), t) {
+                        self.handling.approach = Some(a);
+                    }
+                    self.approach_buf.clear();
                     self.refining = Some(self.landings.len() - 1);
                     self.landing = Some(t);
                     self.off_ground_since = None;

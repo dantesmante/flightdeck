@@ -162,6 +162,9 @@ pub fn samples(text: &str) -> Vec<tracker::Sample> {
                 bank_deg: f(p, "bank").or_else(|| f(p, "roll")),
                 pitch_deg: f(p, "pitch"),
                 g_load: f(p, "gForce"),
+                alt_ft: f(p, "altitude"),
+                agl_ft: f(p, "altitudeAgl"),
+                ias_kt: f(p, "indicatedAirspeed").or_else(|| f(p, "airspeed")),
             })
         })
         .collect();

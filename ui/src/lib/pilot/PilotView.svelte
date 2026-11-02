@@ -9,6 +9,7 @@
   import Epaulette from "./Epaulette.svelte";
   import FlightScores from "./FlightScores.svelte";
   import ScoreRing from "./ScoreRing.svelte";
+  import ScoringGuide from "./ScoringGuide.svelte";
 
   let { onflight, onsettings }: { onflight: (id: number) => void; onsettings: () => void } = $props();
 
@@ -18,6 +19,7 @@
   let bannerInput = $state<HTMLInputElement | null>(null);
   let photoInput = $state<HTMLInputElement | null>(null);
   let showRanks = $state(false);
+  let guide = $state(false);
 
   async function load() {
     try {
@@ -79,7 +81,7 @@
   );
   const lastDelta = $derived.by(() => {
     const f = r?.flights.find((x) => x.rating_after != null);
-    return f ? f.rating_after! - f.rating_before! : null;
+    return f ? Math.round(f.rating_after!) - Math.round(f.rating_before!) : null;
   });
   const progress = $derived.by(() => {
     if (!r) return 0;
@@ -211,7 +213,13 @@
           {#if s.first_flight_ms}<span>Flying since {day(s.first_flight_ms).replace(/^\d+ /, "")}</span>{/if}
           {#if !p.name}<button class="link" onclick={onsettings}>Add your details in Settings</button>{/if}
         </p>
-        <p class="rank-line"><span class="lvl num">{r!.rank.level}</span>{r!.rank.title}</p>
+        <div class="badges">
+          <p class="rank-line"><span class="lvl num">{r!.rank.level}</span>{r!.rank.title}</p>
+          <button class="guide-btn" onclick={() => (guide = true)}>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h7a2 2 0 012 2v13a2 2 0 00-2-2H4zM20 5h-7a2 2 0 00-2 2v13a2 2 0 012-2h7z" /></svg>
+            Scoring guide
+          </button>
+        </div>
       </div>
       {#if error}<p class="error" role="alert">{error}</p>{/if}
     </header>
@@ -224,7 +232,7 @@
           {#if lastDelta != null}
             <span class="num change" class:up={lastDelta >= 0} class:down={lastDelta < 0}>
               {lastDelta >= 0 ? "▲" : "▼"}
-              {Math.abs(lastDelta).toFixed(1)}
+              {Math.abs(lastDelta)}
               <small>last flight</small>
             </span>
           {/if}
@@ -243,11 +251,10 @@
             <circle cx={spark.end[0]} cy={spark.end[1]} r="3.5" class="dot" />
           </svg>
         {:else}
-          <p class="hint">Everyone starts at 1,000. Each rated flight moves it up or down against what your rating expects.</p>
+          <p class="hint">Everyone starts at 1,000. Each rated flight moves it up or down.</p>
         {/if}
         <dl class="facts">
           <div><dt>Peak</dt><dd class="num">{int(r!.rating_peak)}</dd></div>
-          <div><dt>Next flight expects</dt><dd class="num">{r!.expected}</dd></div>
           <div><dt>Rated flights</dt><dd class="num">{r!.rated_flights}</dd></div>
         </dl>
       </article>
@@ -280,7 +287,8 @@
           <ScoreRing value={r!.avg_safety} label="Stability" size={84} />
         </div>
         <p class="hint">
-          Landing quality and flight stability count half each. Longer flights earn bonus XP but never change your rating.
+          Landing quality and flight stability count half each.
+          <button class="link" onclick={() => (guide = true)}>How scoring works</button>
         </p>
       </article>
     </section>
@@ -388,6 +396,10 @@
     </section>
   {/if}
 </div>
+
+{#if guide}
+  <ScoringGuide onclose={() => (guide = false)} />
+{/if}
 
 <style>
   .page {
@@ -562,8 +574,39 @@
     color: var(--ink);
     font-weight: 500;
   }
+  .badges {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 12px;
+  }
+  .guide-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 5px 14px;
+    border-radius: 999px;
+    border: 1px solid var(--rule);
+    background: var(--panel-2);
+    color: var(--ink);
+    font-size: 13px;
+  }
+  .guide-btn:hover {
+    border-color: var(--amber);
+    color: var(--amber);
+  }
+  .guide-btn svg {
+    width: 16px;
+    height: 16px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.7;
+    stroke-linejoin: round;
+  }
   .rank-line {
-    margin: 12px 0 0;
+    margin: 0;
     display: inline-flex;
     align-items: center;
     gap: 8px;

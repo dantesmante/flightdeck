@@ -32,6 +32,11 @@ fn smooth_handling(minutes: f64) -> Handling {
     h.bank_5[0] = h.airborne_s;
     h.pitch_up_5[0] = h.airborne_s;
     h.pitch_down_5[0] = h.airborne_s;
+    // G, bank and pitch only; the other parts have their own tests.
+    h.roll_rate_s.clear();
+    h.pitch_rate_s.clear();
+    h.g_rate_s.clear();
+    h.speed_over_s.clear();
     h
 }
 
@@ -119,8 +124,9 @@ fn crosswind_lifts_each_part_of_the_landing() {
     l.crosswind_kt = -12.0;
     let windy = score_landing(&[l.clone()]).unwrap();
     assert!((windy.crosswind_bonus - 0.12).abs() < 1e-9);
-    assert!((windy.rate.score - calm.rate.score * 1.12).abs() < 1e-9);
-    assert!((windy.g.as_ref().unwrap().score - calm.g.as_ref().unwrap().score * 1.12).abs() < 1e-9);
+    // -330 fpm scores 65 before the bonus; 12% more is 73.
+    assert_eq!((calm.rate.score, windy.rate.score), (65.0, 73.0));
+    assert!(windy.g.as_ref().unwrap().score > calm.g.as_ref().unwrap().score);
     // No bounces already scores 100: it stays at 100.
     assert_eq!(windy.bounce.as_ref().unwrap().score, 100.0);
     assert!((windy.base_score - calm.score).abs() < 1e-9);
@@ -163,7 +169,7 @@ fn pitch_limits_are_20_up_and_10_down() {
     let mut up = smooth_handling(60.0);
     steep(&mut up.pitch_up_5, 22.0, 120.0);
     let up = score_safety(&up, false).unwrap().pitch.unwrap().score;
-    assert!(up < 100.0 && up > 95.0, "{up}");
+    assert!(up < 100.0 && up > 85.0, "{up}");
     let mut down = smooth_handling(60.0);
     steep(&mut down.pitch_down_5, 12.0, 120.0);
     assert_eq!(score_safety(&down, false).unwrap().pitch.unwrap().score, up);
@@ -185,9 +191,9 @@ fn bank_past_30_loses_points_and_more_the_steeper() {
     };
     // A minute at each: 32, 37, 47, 62 degrees.
     let (a, b, c, d) = (at(32.0), at(37.0), at(47.0), at(62.0));
-    assert!(a < 100.0 && a > 97.0, "{a}");
-    assert!(b < a && c < b && d < c, "{a} {b} {c} {d}");
-    assert!(c < 60.0 && d == 0.0, "{c} {d}");
+    assert!(a < 100.0 && a > 90.0, "{a}");
+    // A minute 7 degrees past costs about a quarter; 17 or more, everything.
+    assert!(b < a && b > 60.0 && c == 0.0 && d == 0.0, "{a} {b} {c} {d}");
 }
 
 #[test]
@@ -250,7 +256,7 @@ fn turbulence_costs_little() {
     // Ten scattered seconds above 1.6 G.
     h.g_s[4] -= 10.0;
     h.g_s[5] += 10.0;
-    assert!(score_safety(&h, false).unwrap().score > 99.0);
+    assert!(score_safety(&h, false).unwrap().score >= 99.0);
 }
 
 #[test]
@@ -325,4 +331,88 @@ fn imported_flights_are_rated_with_what_they_have() {
     let p = profile(&[g]);
     assert_eq!(p.flights[0].unrated.as_deref(), Some("Not enough data: no touchdown rate"));
     assert_eq!(p.flights[0].xp_base, UNSCORED_XP);
+}
+
+fn with_rates(minutes: f64) -> Handling {
+    let mut h = smooth_handling(minutes);
+    h.roll_rate_s = vec![0.0; tracker::handling::RATE_BINS];
+    h.pitch_rate_s = vec![0.0; tracker::handling::RATE_BINS];
+    h.g_rate_s = vec![0.0; tracker::handling::RATE_BINS];
+    h.roll_rate_s[2] = h.airborne_s;
+    h.pitch_rate_s[1] = h.airborne_s;
+    h.g_rate_s[1] = h.airborne_s;
+    h
+}
+
+#[test]
+fn smoothness_costs_quick_jerky_inputs() {
+    let calm = score_safety(&with_rates(60.0), false).unwrap();
+    assert_eq!(calm.smoothness.as_ref().unwrap().score, 100.0);
+    // Twenty seconds of rolling at 14 degrees a second.
+    let mut h = with_rates(60.0);
+    h.roll_rate_s[2] -= 20.0;
+    h.roll_rate_s[14] += 20.0;
+    let s = score_safety(&h, false).unwrap().smoothness.unwrap().score;
+    assert!(s < 60.0 && s > 30.0, "{s}");
+    // Aerobatic aircraft are not judged on it.
+    assert!(score_safety(&h, true).unwrap().smoothness.is_none());
+}
+
+fn approach(points: &[(f32, f32, f32, f32, f32)]) -> Approach {
+    Approach {
+        points: points
+            .iter()
+            .map(|&(t_s, agl_ft, vs_fpm, bank, ias)| tracker::ApproachPoint {
+                t_s,
+                agl_ft,
+                vs_fpm,
+                bank_deg: Some(bank),
+                ias_kt: Some(ias),
+            })
+            .collect(),
+    }
+}
+
+#[test]
+fn a_stable_approach_scores_100_and_an_unstable_one_loses() {
+    // A minute and a half from 1,000 ft at 700 fpm, wings level, 130 kt.
+    let stable: Vec<_> = (0..90).map(|i| (i as f32 - 90.0, 1000.0 - i as f32 * 11.0, -700.0, 2.0, 130.0)).collect();
+    let mut h = smooth_handling(60.0);
+    h.approach = Some(approach(&stable));
+    assert_eq!(score_safety(&h, false).unwrap().approach.unwrap().score, 100.0);
+    // Diving at 1,500 fpm for 20 s, turning 25 degrees low down, 20 kt fast.
+    let mut rough = stable.clone();
+    for p in rough.iter_mut().take(20) {
+        p.2 = -1500.0;
+    }
+    for p in rough.iter_mut().skip(60).take(10) {
+        p.3 = 25.0;
+        p.4 = 150.0;
+    }
+    h.approach = Some(approach(&rough));
+    let s = score_safety(&h, false).unwrap();
+    assert!(s.approach.as_ref().unwrap().score < 40.0, "{s:?}");
+    assert_eq!((s.approach_sink_max, s.approach_bank_max, s.approach_speed_dev), (1500.0, 25.0, 20.0));
+}
+
+#[test]
+fn the_speed_limit_costs_per_second_over() {
+    let mut h = smooth_handling(60.0);
+    h.speed_over_s = vec![0.0; tracker::handling::SPEED_BINS];
+    assert_eq!(score_safety(&h, false).unwrap().speed.unwrap().score, 100.0);
+    // Ten seconds 10-15 kt over: 0.008 x 12.5^2 x 10 = 12.5 points.
+    h.speed_over_s[2] = 10.0;
+    assert_eq!(score_safety(&h, false).unwrap().speed.unwrap().score, 88.0);
+}
+
+#[test]
+fn every_score_is_a_whole_number() {
+    let mut h = smooth_handling(60.0);
+    steep(&mut h.bank_5, 32.0, 7.0);
+    let s = score_safety(&h, false).unwrap();
+    // A tiny deduction still shows as 99.
+    assert_eq!(s.bank.as_ref().unwrap().score, 99.0);
+    assert_eq!(s.score.fract(), 0.0);
+    let p = profile(&[flight(1, -233.0, Some(h))]);
+    assert_eq!(p.flights[0].performance.unwrap().fract(), 0.0);
 }

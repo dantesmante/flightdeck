@@ -15,7 +15,7 @@ mod scales;
 
 use serde::{Deserialize, Serialize};
 use store::pilot::RatingFlight;
-use tracker::{handling_source, Handling, LandingReport};
+use tracker::{handling_source, Approach, Handling, LandingReport};
 
 pub use scales::{rank_for, Insignia, Rank, RANKS};
 
@@ -64,6 +64,23 @@ pub struct SafetyScore {
     /// None for aerobatic and fighter aircraft, flown hard on purpose.
     pub bank: Option<Part>,
     pub pitch: Option<Part>,
+    /// None when not recorded (imported and older flights) and for
+    /// aerobatic aircraft.
+    pub smoothness: Option<Part>,
+    /// None when the approach is not known.
+    pub approach: Option<Part>,
+    /// None when the airspeed was not recorded.
+    pub speed: Option<Part>,
+    pub roll_rate_max: f64,
+    pub pitch_rate_max: f64,
+    pub g_rate_max: f64,
+    /// On the approach: fastest descent, most bank from 500 ft, and the
+    /// widest airspeed swing from 500 ft to the flare.
+    pub approach_sink_max: f64,
+    pub approach_bank_max: f64,
+    pub approach_speed_dev: f64,
+    /// Fastest indicated airspeed below 10,000 ft.
+    pub speed_max_low: f64,
     pub aerobatic: bool,
     /// See tracker::handling::source.
     pub source: String,
@@ -148,7 +165,17 @@ fn combine(parts: &mut [Option<&mut Part>]) -> f64 {
         p.weight /= total;
         score += p.score * p.weight;
     }
-    score
+    whole(score)
+}
+
+/// Scores are whole numbers. Anything short of perfect is at most 99, so
+/// a small deduction always shows.
+pub fn whole(v: f64) -> f64 {
+    if v >= 100.0 {
+        100.0
+    } else {
+        v.round().clamp(0.0, 99.0)
+    }
 }
 
 /// The landing that counts. Earlier landings a minute or more before it
@@ -177,7 +204,7 @@ pub fn score_landing(landings: &[LandingReport]) -> Option<LandingScore> {
     // more per knot across, up to a quarter more, never past 100.
     let crosswind_kt = l.crosswind_kt.abs();
     let crosswind_bonus = crosswind_kt.min(scales::CROSSWIND_MAX_KT) / 100.0;
-    let part = |raw: f64, weight: f64| Part { score: (raw * (1.0 + crosswind_bonus)).min(100.0), weight };
+    let part = |raw: f64, weight: f64| Part { score: whole(raw * (1.0 + crosswind_bonus)), weight };
     let rate_raw = curve(l.vs_fpm.abs(), scales::RATE);
     let g_raw = (l.g_peak > 0.0).then(|| curve(l.g_peak, scales::TOUCHDOWN_G));
     let bounce_raw = (!NO_BOUNCES.contains(&l.vs_source.as_str()) || l.bounces > 0).then(|| curve(l.bounces as f64, scales::BOUNCES));
@@ -188,9 +215,9 @@ pub fn score_landing(landings: &[LandingReport]) -> Option<LandingScore> {
     let score = combine(&mut [Some(&mut rate), g.as_mut(), bounce.as_mut()]);
     // The same parts without the bonus, for the breakdown.
     let mut plain = [
-        Some(Part { score: rate_raw, weight: w_rate }),
-        g_raw.map(|v| Part { score: v, weight: w_g }),
-        bounce_raw.map(|v| Part { score: v, weight: w_bounce }),
+        Some(Part { score: whole(rate_raw), weight: w_rate }),
+        g_raw.map(|v| Part { score: whole(v), weight: w_g }),
+        bounce_raw.map(|v| Part { score: whole(v), weight: w_bounce }),
     ];
     let base_score = combine(&mut plain.iter_mut().map(Option::as_mut).collect::<Vec<_>>());
     Some(LandingScore {
@@ -238,14 +265,83 @@ fn coarse_bins<'a>(secs: &'a [f64], mids: &'a [f64]) -> impl Iterator<Item = (f6
     mids.iter().copied().zip(secs.iter().copied())
 }
 
+/// Points lost for time past a rate limit: bins of `step`, (middle,
+/// seconds), cost per second per unit of excess squared.
+fn over_rate(secs: &[f64], step: f64, limit: f64, cost: f64) -> f64 {
+    secs.iter()
+        .enumerate()
+        .map(|(i, s)| ((i as f64 + 0.5) * step, *s))
+        .filter(|(mid, _)| *mid > limit)
+        .map(|(mid, s)| cost * (mid - limit).powi(2) * s)
+        .sum()
+}
+
+/// What the approach did, and the points it lost.
+struct ApproachJudged {
+    lost: f64,
+    sink_max: f64,
+    bank_max: f64,
+    speed_dev: f64,
+}
+
+fn judge_approach(a: &Approach) -> Option<ApproachJudged> {
+    let pts = &a.points;
+    if pts.is_empty() {
+        return None;
+    }
+    // Each point stands for the time until the next one (or touchdown).
+    let dur = |i: usize| -> f64 {
+        let next = pts.get(i + 1).map_or(0.0, |p| p.t_s);
+        ((next - pts[i].t_s) as f64).clamp(0.0, 5.0)
+    };
+    let mut j = ApproachJudged { lost: 0.0, sink_max: 0.0, bank_max: 0.0, speed_dev: 0.0 };
+    // Typical approach speed: the median from 500 ft to the flare.
+    let mut speeds: Vec<f64> = pts
+        .iter()
+        .filter(|p| (p.agl_ft as f64) <= scales::APPROACH_GATE_FT && (p.agl_ft as f64) >= scales::APPROACH_FLARE_FT)
+        .filter_map(|p| p.ias_kt.map(f64::from))
+        .collect();
+    speeds.sort_by(f64::total_cmp);
+    let typical = speeds.get(speeds.len() / 2).copied();
+    for (i, p) in pts.iter().enumerate() {
+        let dt = dur(i);
+        let sink = -(p.vs_fpm as f64);
+        j.sink_max = j.sink_max.max(sink);
+        if sink > scales::APPROACH_SINK_LIMIT_FPM {
+            j.lost += scales::APPROACH_SINK_COST * ((sink - scales::APPROACH_SINK_LIMIT_FPM) / 100.0).powi(2) * dt;
+        }
+        let agl = p.agl_ft as f64;
+        if agl <= scales::APPROACH_GATE_FT {
+            if let Some(b) = p.bank_deg {
+                let b = (b as f64).abs();
+                j.bank_max = j.bank_max.max(b);
+                if b > scales::APPROACH_BANK_LIMIT_DEG {
+                    j.lost += scales::APPROACH_BANK_COST * (b - scales::APPROACH_BANK_LIMIT_DEG).powi(2) * dt;
+                }
+            }
+            if let (Some(v), Some(typ)) = (p.ias_kt, typical) {
+                if agl >= scales::APPROACH_FLARE_FT {
+                    let dev = (v as f64 - typ).abs();
+                    j.speed_dev = j.speed_dev.max(dev);
+                    if dev > scales::APPROACH_SPEED_BAND_KT {
+                        j.lost += scales::APPROACH_SPEED_COST * (dev - scales::APPROACH_SPEED_BAND_KT).powi(2) * dt;
+                    }
+                }
+            }
+        }
+    }
+    Some(j)
+}
+
 pub fn score_safety(h: &Handling, aerobatic: bool) -> Option<SafetyScore> {
     if !h.is_known() || h.airborne_s < 60.0 {
         return None;
     }
     let total = h.airborne_s;
-    let score = |lost: f64, weight: f64| Part { score: (100.0 - lost).clamp(0.0, 100.0), weight };
+    let [w_g, w_bank, w_pitch, w_smooth, w_approach, w_speed] = scales::STABILITY_WEIGHTS;
+    let score = |lost: f64, weight: f64| Part { score: whole(100.0 - lost), weight };
     let mut g = (!h.g_s.is_empty()).then(|| {
-        score(penalty(&h.g_s, total, if aerobatic { scales::G_AEROBATIC } else { scales::G_NORMAL }), 0.50)
+        score(penalty(&h.g_s, total, if aerobatic { scales::G_AEROBATIC } else { scales::G_NORMAL }), w_g)
     });
     let mut bank = (!aerobatic).then(|| {
         let lost = if !h.bank_5.is_empty() {
@@ -255,7 +351,7 @@ pub fn score_safety(h: &Handling, aerobatic: bool) -> Option<SafetyScore> {
             // 60-75, 75-90, beyond.
             over_limit(coarse_bins(&h.bank_s, &[15.0, 37.5, 52.5, 67.5, 82.5, 95.0]), scales::BANK_LIMIT_DEG, total)
         };
-        score(lost, 0.25)
+        score(lost, w_bank)
     });
     let mut pitch = (!aerobatic).then(|| {
         let lost = if !h.pitch_up_5.is_empty() {
@@ -269,19 +365,47 @@ pub fn score_safety(h: &Handling, aerobatic: bool) -> Option<SafetyScore> {
             // Either way: 0-20, 20-30, 30-40, 40-50, beyond.
             over_limit(coarse_bins(&h.pitch_s, &[10.0, 25.0, 35.0, 45.0, 55.0]), scales::PITCH_UP_LIMIT_DEG, total)
         };
-        score(lost, 0.25)
+        score(lost, w_pitch)
     });
-    if g.is_none() && bank.is_none() {
-        // An aerobatic aircraft without G: nothing left to judge.
+    let mut smoothness = (!aerobatic && !h.roll_rate_s.is_empty()).then(|| {
+        use tracker::handling::{G_RATE_STEP, PITCH_RATE_STEP, ROLL_RATE_STEP};
+        let lost = over_rate(&h.roll_rate_s, ROLL_RATE_STEP, scales::ROLL_RATE_LIMIT, scales::ROLL_RATE_COST)
+            + over_rate(&h.pitch_rate_s, PITCH_RATE_STEP, scales::PITCH_RATE_LIMIT, scales::PITCH_RATE_COST)
+            + over_rate(&h.g_rate_s, G_RATE_STEP, scales::G_RATE_LIMIT, scales::G_RATE_COST);
+        score(lost, w_smooth)
+    });
+    let judged = h.approach.as_ref().and_then(judge_approach);
+    let mut approach = judged.as_ref().map(|j| score(j.lost, w_approach));
+    let mut speed = (!h.speed_over_s.is_empty()).then(|| {
+        let lost: f64 = h
+            .speed_over_s
+            .iter()
+            .enumerate()
+            .map(|(i, s)| scales::SPEED_COST * ((i as f64 + 0.5) * tracker::handling::SPEED_STEP_KT).powi(2) * s)
+            .sum();
+        score(lost, w_speed)
+    });
+    if g.is_none() && bank.is_none() && approach.is_none() && speed.is_none() {
+        // An aerobatic aircraft with nothing else recorded: nothing to judge.
         return None;
     }
-    // Without G, bank and pitch are the whole of flight stability.
-    let total_score = combine(&mut [g.as_mut(), bank.as_mut(), pitch.as_mut()]);
+    let total_score =
+        combine(&mut [g.as_mut(), bank.as_mut(), pitch.as_mut(), smoothness.as_mut(), approach.as_mut(), speed.as_mut()]);
     Some(SafetyScore {
         score: total_score,
         g,
         bank,
         pitch,
+        smoothness,
+        approach,
+        speed,
+        roll_rate_max: h.roll_rate_max,
+        pitch_rate_max: h.pitch_rate_max,
+        g_rate_max: h.g_rate_max,
+        approach_sink_max: judged.as_ref().map_or(0.0, |j| j.sink_max),
+        approach_bank_max: judged.as_ref().map_or(0.0, |j| j.bank_max),
+        approach_speed_dev: judged.as_ref().map_or(0.0, |j| j.speed_dev),
+        speed_max_low: h.speed_max_low,
         aerobatic,
         source: h.source.clone(),
         g_max: h.g_max,
@@ -394,7 +518,7 @@ pub fn profile(flights: &[RatingFlight]) -> Profile {
         };
         let finished = f.status != "partial";
         if let (None, Some(l), Some(sf)) = (&reason, landing, safety) {
-            let p = l.score * 0.5 + sf.score * 0.5;
+            let p = whole(l.score * 0.5 + sf.score * 0.5);
             let e = expected_for(rating);
             // Every rated flight counts in full, whatever it was rated on.
             let k = k_for(rated);

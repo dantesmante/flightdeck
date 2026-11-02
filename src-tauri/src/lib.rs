@@ -493,9 +493,9 @@ struct PilotProfile {
 /// kept handling, so they can be rated. Done once per flight: imported
 /// flights from the positions in their original file, the others from
 /// their saved track.
-fn ensure_estimates(db: &Store) -> CmdResult<()> {
-    // Version 3: bank and pitch kept in 5-degree steps.
-    db.reset_estimates(3).map_err(err)?;
+fn ensure_estimates(db: &Store, refdata: &refdata::RefData) -> CmdResult<()> {
+    // Version 4: the approach and the speed limit.
+    db.reset_estimates(4).map_err(err)?;
     for n in db.flights_needing_estimates().map_err(err)? {
         let file = if n.source.is_empty() { None } else { db.get_imported(n.id).map_err(err)?.map(|i| i.file) };
         let from_file = match (n.source.as_str(), &file) {
@@ -512,6 +512,11 @@ fn ensure_estimates(db: &Store) -> CmdResult<()> {
             (track, h)
         };
         let landing = if n.has_landing { None } else { tracker::estimate_landing(&samples) };
+        let ground = n.arr_icao.as_deref().and_then(|c| refdata.airport(c)).map(|a| a.elevation_ft as f64);
+        let handling = handling.map(|mut h| {
+            h.approach = tracker::Handling::estimate_approach(&samples, ground);
+            h
+        });
         db.save_estimates(n.id, n.start_ms, &handling.unwrap_or_else(tracker::Handling::none), landing.as_ref())
             .map_err(err)?;
     }
@@ -522,7 +527,7 @@ fn ensure_estimates(db: &Store) -> CmdResult<()> {
 fn rating_profile(state: &tauri::State<AppState>) -> CmdResult<rating::Profile> {
     let flights = {
         let db = state.db.lock().unwrap();
-        ensure_estimates(&db)?;
+        ensure_estimates(&db, &state.refdata)?;
         db.rating_flights().map_err(err)?
     };
     Ok(rating::profile(&flights))

@@ -25,23 +25,23 @@ pub const CROSSWIND_MAX_KT: f64 = 25.0;
 
 pub const BOUNCES: &[(f64, f64)] = &[(0.0, 100.0), (1.0, 60.0), (2.0, 25.0), (3.0, 0.0)];
 
-// Flight safety: for each band, (points per percent of the time in the
-// air, points per second). Bands match tracker::handling.
+// Flight stability. G: for each band, (points per percent of the time in
+// the air, points per second). Bands match tracker::handling.
 
 /// G bands: < -3, -3..-1, -1..0, 0..0.5, 0.5..1.6 (normal), 1.6..2, 2..2.5,
 /// 2.5..3.5, 3.5..4.5, 4.5..6, > 6.
 pub const G_NORMAL: &[(f64, f64)] = &[
-    (8.0, 1.0),
-    (8.0, 1.0),
-    (4.0, 0.5),
-    (1.0, 0.05),
+    (8.0, 2.5),
+    (8.0, 2.5),
+    (4.0, 1.25),
+    (1.0, 0.125),
     (0.0, 0.0),
-    (0.5, 0.02),
-    (2.0, 0.1),
-    (5.0, 0.4),
-    (8.0, 1.0),
-    (8.0, 1.0),
-    (8.0, 1.0),
+    (0.5, 0.05),
+    (2.0, 0.25),
+    (5.0, 1.0),
+    (8.0, 2.5),
+    (8.0, 2.5),
+    (8.0, 2.5),
 ];
 /// Aerobatic aircraft: only beyond about +6 and -3 G.
 pub const G_AEROBATIC: &[(f64, f64)] = &[
@@ -61,11 +61,45 @@ pub const G_AEROBATIC: &[(f64, f64)] = &[
 pub const BANK_LIMIT_DEG: f64 = 30.0;
 pub const PITCH_UP_LIMIT_DEG: f64 = 20.0;
 pub const PITCH_DOWN_LIMIT_DEG: f64 = 10.0;
-/// Points lost per second past a limit, per degree of excess squared:
-/// a minute 5 degrees past costs 4.5, a minute 15 degrees past 40.5.
-pub const PER_SECOND_PER_DEG2: f64 = 0.003;
+/// Points lost per second past a limit, per degree of excess squared (in
+/// 5-degree steps, from the middle of the step): ten seconds at 35-40
+/// degrees of bank costs about 5, a minute there about 28.
+pub const PER_SECOND_PER_DEG2: f64 = 0.008;
 /// Plus, per percent of the flight spent past it, per degree of excess.
-pub const PER_PERCENT_PER_DEG: f64 = 0.05;
+pub const PER_PERCENT_PER_DEG: f64 = 0.1;
+
+/// Flight stability is made of these parts, out of 1: G, bank, pitch,
+/// smoothness, stable approach, speed limit. Parts a flight has no data
+/// for are left out and the rest share their weight.
+pub const STABILITY_WEIGHTS: [f64; 6] = [0.20, 0.15, 0.15, 0.20, 0.20, 0.10];
+
+/// Smoothness: how fast bank, pitch and G change. Beyond these rates each
+/// second costs points per unit of excess squared.
+pub const ROLL_RATE_LIMIT: f64 = 8.0; // degrees a second
+pub const PITCH_RATE_LIMIT: f64 = 3.0; // degrees a second
+pub const G_RATE_LIMIT: f64 = 0.5; // G a second
+pub const ROLL_RATE_COST: f64 = 0.08;
+pub const PITCH_RATE_COST: f64 = 0.4;
+pub const G_RATE_COST: f64 = 30.0;
+
+/// Stable approach, from the last descent through 1,000 ft above the
+/// ground to touchdown: no faster descent than this...
+pub const APPROACH_SINK_LIMIT_FPM: f64 = 1000.0;
+/// ...points per second per (100 fpm of excess) squared...
+pub const APPROACH_SINK_COST: f64 = 0.2;
+/// ...and, from 500 ft down, no more bank than this...
+pub const APPROACH_GATE_FT: f64 = 500.0;
+pub const APPROACH_BANK_LIMIT_DEG: f64 = 15.0;
+pub const APPROACH_BANK_COST: f64 = 0.05;
+/// ...and, from 500 ft down to the flare (50 ft), airspeed within this
+/// of its typical value on the approach.
+pub const APPROACH_FLARE_FT: f64 = 50.0;
+pub const APPROACH_SPEED_BAND_KT: f64 = 10.0;
+pub const APPROACH_SPEED_COST: f64 = 0.1;
+
+/// Speed limit (250 kt below 10,000 ft): points per second per knot of
+/// excess squared, in 5-knot steps. Ten seconds at 260 kt costs 13.
+pub const SPEED_COST: f64 = 0.008;
 
 /// Rating from which each expected performance applies.
 pub const EXPECTED: &[(f64, f64)] = &[

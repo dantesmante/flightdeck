@@ -41,6 +41,7 @@ pub struct NeedsEstimate {
     pub start_ms: i64,
     pub source: String,
     pub has_landing: bool,
+    pub arr_icao: Option<String>,
 }
 
 /// A flight singled out in the statistics.
@@ -142,13 +143,14 @@ impl Store {
     pub fn flights_needing_estimates(&self) -> Result<Vec<NeedsEstimate>> {
         let mut st = self.conn.prepare(
             "SELECT f.id, f.start_ms, COALESCE(f.source, ''),
-                    EXISTS (SELECT 1 FROM flight_event e WHERE e.flight_id = f.id AND e.kind = 'landing_report')
+                    EXISTS (SELECT 1 FROM flight_event e WHERE e.flight_id = f.id AND e.kind = 'landing_report'),
+                    f.arr_icao
              FROM flight f
              WHERE f.sim NOT IN ('demo', 'manual') AND COALESCE(f.source, '') <> 'manual'
                AND NOT EXISTS (SELECT 1 FROM flight_event e WHERE e.flight_id = f.id AND e.kind = 'handling')",
         )?;
         let rows = st.query_map([], |r| {
-            Ok(NeedsEstimate { id: r.get(0)?, start_ms: r.get(1)?, source: r.get(2)?, has_landing: r.get(3)? })
+            Ok(NeedsEstimate { id: r.get(0)?, start_ms: r.get(1)?, source: r.get(2)?, has_landing: r.get(3)?, arr_icao: r.get(4)? })
         })?;
         Ok(rows.collect::<std::result::Result<_, _>>()?)
     }

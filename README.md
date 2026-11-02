@@ -141,23 +141,21 @@ MIT licensed.
   and imported flights alike), records, most flown aircraft and favorite
   airports.
 - **Pilot rating**: every flight FlightDeck records from gate to gate is
-  scored out of 100, half **Landing quality** (touchdown rate, touchdown
-  G and bounces, weighted 50 : 25 : 25, each 1% higher per knot of
-  crosswind at touchdown, up to 25%, never past 100) and half **Flight stability**
-  (time spent at high or negative G 50%, bank 25% and pitch 25%; without
-  G, bank and pitch share it). Bank past 30°, nose up past 20° and nose
-  down past 10° lose points, and the further past, the more each second
-  costs: a minute 5° past costs about 5 points, a minute 15° past about
-  40. Aerobatic and fighter aircraft are not marked down for bank and
-  pitch. G comes from the sim's own G FORCE value. A go-around or
-  touch-and-go a minute or more before the final landing is not counted. The score moves your rating (everyone starts at
-  1,000) up or down against what your rating expects, faster over your
-  first flights. Every completed flight earns XP: its score (50 for
-  hand-entered flights and those without enough data) plus up to 20 for
-  time in the air, counted only from wheels up to touchdown. XP sets your
-  rank, from Student Pilot to Fleet Captain, shown on a shoulder board
-  with stripes and pilot wings. Open any flight's score to see how it was
-  made up.
+  scored out of 100 in whole numbers: half **Landing quality** (touchdown
+  rate, touchdown G and bounces, 50 : 25 : 25, each 1% higher per knot of
+  crosswind up to 25%) and half **Flight stability** (G-force 20%, bank
+  15%, pitch 15%, smoothness 20%, stable approach 20%, speed limit 10%).
+  Limits: bank 30°, nose up 20°, nose down 10°; roll 8°/s, pitch 3°/s, G
+  change 0.5 G/s; on the approach (the last descent through 1,000 ft above
+  the ground before touchdown) no more than 1,000 fpm down, 15° of bank
+  from 500 ft and airspeed within 10 kt to the flare; 250 kt below 10,000
+  ft. Every second past a limit costs points, growing with the square of
+  the excess. The score moves your rating (everyone starts at 1,000)
+  against what your rating expects. Every completed flight earns XP: its
+  score (50 if it could not be rated) plus up to 20 for time from wheels
+  up to touchdown. XP sets your rank, from Student Pilot to Fleet Captain.
+  The **Scoring guide** button on the Pilot page explains it all in
+  full, with examples; it is updated whenever the scoring changes.
 - **Scores for imported and older flights**: flights imported from
   Volanta or Elevatex, and flights recorded before the pilot rating, are
   scored from what they have. Bank and pitch come from the positions the

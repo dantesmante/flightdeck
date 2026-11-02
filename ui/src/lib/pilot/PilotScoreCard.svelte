@@ -15,7 +15,7 @@
   });
   const tone = (v: number | null | undefined) => (v == null ? "dim" : v >= 85 ? "good" : v >= 65 ? "warn" : "bad");
   const rated = $derived(score.performance != null);
-  const delta = $derived((score.rating_after ?? 0) - (score.rating_before ?? 0));
+  const delta = $derived(Math.round(score.rating_after ?? 0) - Math.round(score.rating_before ?? 0));
   const progress = $derived.by(() => {
     if (!standing) return 0;
     if (!standing.next_rank) return 1;
@@ -50,7 +50,7 @@
         </div>
         <p class="rating">
           Rating <b class="num">{int(score.rating_after)}</b>
-          <span class="num" class:up={delta >= 0} class:down={delta < 0}>{delta >= 0 ? "▲" : "▼"} {Math.abs(delta).toFixed(1)}</span>
+          <span class="num" class:up={delta >= 0} class:down={delta < 0}>{delta >= 0 ? "▲" : "▼"} {Math.abs(delta)}</span>
         </p>
       {:else}
         <p class="why">{score.unrated}</p>

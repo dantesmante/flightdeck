@@ -10,7 +10,7 @@
   let open = $state<number | null>(null);
   let shown = $state(12);
   const tone = (v: number | null | undefined) => (v == null ? "dim" : v >= 85 ? "good" : v >= 65 ? "warn" : "bad");
-  const delta = (f: FlightScore) => (f.rating_after ?? 0) - (f.rating_before ?? 0);
+  const delta = (f: FlightScore) => Math.round(f.rating_after ?? 0) - Math.round(f.rating_before ?? 0);
 
 </script>
 
@@ -34,7 +34,7 @@
             </span>
             <span class="num delta" class:up={delta(f) >= 0} class:down={delta(f) < 0}>
               {delta(f) >= 0 ? "▲" : "▼"}
-              {Math.abs(delta(f)).toFixed(1)}
+              {Math.abs(delta(f))}
             </span>
           {:else}
             <span class="why">{f.unrated}</span>
