@@ -13,8 +13,12 @@
     radarError: boolean;
     /** Offer the Parked aircraft layer (the main map only). */
     parkedLayer?: boolean;
+    /** World airports detail: 1 major, 2 + regional, 3 + small. */
+    airportDetail?: number;
+    ondetail?: (d: number) => void;
   }
-  let { three, on, onthree, ontoggle, radarTime, radarError, parkedLayer = false }: Props = $props();
+  let { three, on, onthree, ontoggle, radarTime, radarError, parkedLayer = false, airportDetail = 1, ondetail }: Props = $props();
+  const DETAIL = ["Major airports only", "Major and regional airports", "All airports and airstrips"];
 
   let open = $state(false);
 
@@ -54,6 +58,10 @@
       <path d="M12 50 Q 50 4, 104 30" fill="none" stroke="#c4c8ce" stroke-width="1" opacity="0.4" />
       {#each [[12, 50], [104, 30], [60, 44], [34, 18], [86, 54]] as [x, y] (x)}
         <circle cx={x} cy={y} r="3.4" fill="#f0b23a" stroke="#1b1c1e" stroke-width="1.4" />
+      {/each}
+    {:else if kind === "world"}
+      {#each [[18, 16, 4], [70, 40, 4], [100, 14, 3], [40, 50, 2.4], [56, 22, 2.4], [88, 54, 2.4], [24, 36, 1.8], [108, 38, 1.8], [64, 8, 1.8], [10, 56, 1.8]] as [x, y, r] (`${x},${y}`)}
+        <circle cx={x} cy={y} r={r} fill={r > 3 ? "#a9c8f0" : r > 2 ? "#8fa8c4" : "#7d8792"} stroke="#111214" stroke-width="1" />
       {/each}
     {:else if kind === "parked"}
       {#each [[22, 22], [64, 42], [92, 18]] as [x, y] (x)}
@@ -112,10 +120,29 @@
       {@render card("satellite", "Satellite", on.has("satellite"), () => ontoggle("satellite"))}
       {@render card("borders", "Strong borders", on.has("borders"), () => ontoggle("borders"))}
     </div>
+    <h4>Airports</h4>
+    <div class="grid">
+      {@render card("world", "World airports", on.has("world"), () => ontoggle("world"))}
+    </div>
+    {#if on.has("world")}
+      <div class="detail">
+        <label for="ap-detail">Detail <span>{DETAIL[airportDetail - 1]}</span></label>
+        <input
+          id="ap-detail"
+          type="range"
+          min="1"
+          max="3"
+          step="1"
+          value={airportDetail}
+          oninput={(e) => ondetail?.(Number((e.currentTarget as HTMLInputElement).value))}
+        />
+        <div class="ticks"><span>Major</span><span>Regional</span><span>All</span></div>
+      </div>
+    {/if}
     <h4>Your flights</h4>
     <div class="grid">
       {@render card("routes", "Past routes", on.has("routes"), () => ontoggle("routes"))}
-      {@render card("airports", "Airports", on.has("airports"), () => ontoggle("airports"))}
+      {@render card("airports", "Your airports", on.has("airports"), () => ontoggle("airports"))}
       {#if parkedLayer}
         {@render card("parked", "Parked aircraft", on.has("parked"), () => ontoggle("parked"))}
       {/if}
@@ -129,6 +156,29 @@
 {/if}
 
 <style>
+  .detail {
+    margin: 10px 2px 4px;
+  }
+  .detail label {
+    display: flex;
+    justify-content: space-between;
+    font-size: 13px;
+    color: var(--ink);
+  }
+  .detail label span {
+    color: var(--ink-dim);
+  }
+  .detail input {
+    width: 100%;
+    margin: 8px 0 2px;
+    accent-color: var(--amber);
+  }
+  .ticks {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    color: var(--ink-faint);
+  }
   .rail {
     position: absolute;
     top: 16px;

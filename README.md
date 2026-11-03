@@ -74,7 +74,16 @@ MIT licensed.
 - **Map layers** panel: 3D flight, a live day/night line, **satellite**
   imagery (Esri World Imagery), stronger borders, past routes, airports, **parked aircraft** (where you last left
   each aircraft, off by default), and live **rain radar** (RainViewer,
-  refreshed every 10 minutes). Your choices are remembered. State,
+  refreshed every 10 minutes). **World airports** puts the world's
+  airports on the map with a **Detail** slider: 1 major airports only, 2
+  adds regional airports, 3 adds small airports and airstrips (smaller
+  ones appear as you zoom in). Click any airport, or one of your own, for
+  its card: code, name and place, elevation, runways (length, width,
+  surface, lights), frequencies, your flights there, and the latest
+  **METAR** with flight category, wind, visibility, ceiling, temperature
+  and altimeter, plus the TAF. Weather comes from aviationweather.gov,
+  fetched only when a card opens (from the nearest reporting airport
+  within 30 nm when the airport has none). Your choices are remembered. State,
   province and other region lines show from zoom 3 (the base map draws
   them only from zoom 8).
 - **Cancel a flight**: if tracking has started but you decide not to fly,
@@ -371,6 +380,7 @@ cargo run -p refdata --features build-tool --bin build-refdata -- ourairports-da
   `tools/build_flags.py`.
 - Flight plans from SimBrief (Navigraph) via its public OFP fetch.
 - Weather radar by RainViewer (free API for personal use).
+- METARs and TAFs from aviationweather.gov (NOAA Aviation Weather Center).
 - Satellite imagery: Esri World Imagery (Esri, Maxar, Earthstar
   Geographics, and the GIS User Community), shown with its attribution.
 - Fonts: Barlow and Barlow Condensed (SIL Open Font License).

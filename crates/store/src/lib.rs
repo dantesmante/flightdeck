@@ -307,6 +307,15 @@ impl Store {
         Ok(rows.collect::<std::result::Result<_, _>>()?)
     }
 
+    /// Flights from or to an airport, newest first.
+    pub fn airport_flights(&self, ident: &str) -> Result<Vec<FlightRow>> {
+        let mut st = self
+            .conn
+            .prepare(&format!("{FLIGHT_ROW_SQL} WHERE f.dep_icao = ?1 OR f.arr_icao = ?1 ORDER BY f.start_ms DESC"))?;
+        let rows = st.query_map(params![ident], flight_row)?;
+        Ok(rows.collect::<std::result::Result<_, _>>()?)
+    }
+
     /// The flight plan saved with a flight, as JSON.
     pub fn get_plan(&self, id: i64) -> Result<Option<String>> {
         Ok(self

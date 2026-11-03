@@ -12,6 +12,75 @@ static AIRPORTS: &[u8] = include_bytes!("../data/airports.tsv.zst");
 static COUNTRIES: &[u8] = include_bytes!("../data/countries.tsv.zst");
 static REGIONS: &[u8] = include_bytes!("../data/regions.tsv.zst");
 static RUNWAYS: &[u8] = include_bytes!("../data/runways.tsv.zst");
+static RUNWAY_INFO: &[u8] = include_bytes!("../data/runway_info.tsv.zst");
+static FREQUENCIES: &[u8] = include_bytes!("../data/frequencies.tsv.zst");
+
+/// A runway as the airport card lists it.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct RunwayInfo {
+    /// Both ends, e.g. "16L/34R".
+    pub name: String,
+    pub length_ft: i64,
+    pub width_ft: i64,
+    /// "Asphalt", "Grass" and so on; empty when not known.
+    pub surface: String,
+    pub lighted: bool,
+}
+
+/// A radio frequency at an airport.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Frequency {
+    /// "TWR", "ATIS", "CTAF"...
+    pub kind: String,
+    pub description: String,
+    pub mhz: f64,
+}
+
+/// Runway details and frequencies, unpacked the first time an airport card
+/// asks for them.
+#[derive(Default)]
+struct Details {
+    runways: HashMap<String, Vec<RunwayInfo>>,
+    frequencies: HashMap<String, Vec<Frequency>>,
+}
+
+fn load_details() -> Details {
+    let mut d = Details::default();
+    for line in unpack(RUNWAY_INFO).lines().skip(1) {
+        let f: Vec<&str> = line.split('\t').collect();
+        if f.len() < 7 {
+            continue;
+        }
+        let name = match (f[1], f[2]) {
+            ("", "") => continue,
+            (a, "") | ("", a) => a.to_string(),
+            (a, b) => format!("{a}/{b}"),
+        };
+        d.runways.entry(f[0].to_string()).or_default().push(RunwayInfo {
+            name,
+            length_ft: f[3].parse().unwrap_or(0),
+            width_ft: f[4].parse().unwrap_or(0),
+            surface: f[5].to_string(),
+            lighted: f[6] == "1",
+        });
+    }
+    for list in d.runways.values_mut() {
+        list.sort_by_key(|r| std::cmp::Reverse(r.length_ft));
+    }
+    for line in unpack(FREQUENCIES).lines().skip(1) {
+        let f: Vec<&str> = line.split('\t').collect();
+        if f.len() < 4 {
+            continue;
+        }
+        let Ok(mhz) = f[3].parse() else { continue };
+        d.frequencies.entry(f[0].to_string()).or_default().push(Frequency {
+            kind: f[1].to_string(),
+            description: f[2].to_string(),
+            mhz,
+        });
+    }
+    d
+}
 
 /// One runway, both ends.
 #[derive(Debug, Clone)]
@@ -82,6 +151,12 @@ pub struct Airport {
     pub elevation_ft: i32,
     pub country: String,
     pub region: String,
+    /// The town it serves; may be empty.
+    #[serde(default)]
+    pub city: String,
+    /// IATA code; may be empty.
+    #[serde(default)]
+    pub iata: String,
 }
 
 pub struct RefData {
@@ -92,6 +167,7 @@ pub struct RefData {
     regions: HashMap<String, String>,
     runways: Vec<Runway>,
     runway_grid: HashMap<(i16, i16), Vec<u32>>,
+    details: std::sync::OnceLock<Details>,
 }
 
 fn cell(lat: f64, lon: f64) -> (i16, i16) {
@@ -133,6 +209,8 @@ impl RefData {
                 elevation_ft: f[5].parse().unwrap_or(0),
                 country: f[6].to_string(),
                 region: f[7].to_string(),
+                city: f.get(8).unwrap_or(&"").to_string(),
+                iata: f.get(9).unwrap_or(&"").to_string(),
             });
         }
         let mut grid: HashMap<(i16, i16), Vec<u32>> = HashMap::new();
@@ -166,7 +244,34 @@ impl RefData {
             regions: name_table(REGIONS),
             runways,
             runway_grid,
+            details: std::sync::OnceLock::new(),
         }
+    }
+
+    /// Every airport of these kinds.
+    pub fn airports_of<'a>(&'a self, kinds: &'a [AirportKind]) -> impl Iterator<Item = &'a Airport> + 'a {
+        self.airports.iter().filter(move |a| kinds.contains(&a.kind))
+    }
+
+    /// An airport's runways, longest first.
+    pub fn runways_of(&self, ident: &str) -> Vec<RunwayInfo> {
+        self.details.get_or_init(load_details).runways.get(ident).cloned().unwrap_or_default()
+    }
+
+    /// An airport's radio frequencies.
+    pub fn frequencies_of(&self, ident: &str) -> Vec<Frequency> {
+        self.details.get_or_init(load_details).frequencies.get(ident).cloned().unwrap_or_default()
+    }
+
+    /// Airports within `nm` of a point, nearest first, with their distance.
+    pub fn near(&self, lat: f64, lon: f64, nm: f64) -> Vec<(&Airport, f64)> {
+        let mut out: Vec<(&Airport, f64)> = self
+            .candidates(lat, lon)
+            .map(|a| (a, geo::distance_nm(lat, lon, a.lat, a.lon)))
+            .filter(|(_, d)| *d <= nm)
+            .collect();
+        out.sort_by(|a, b| a.1.total_cmp(&b.1));
+        out
     }
 
     pub fn len(&self) -> usize {

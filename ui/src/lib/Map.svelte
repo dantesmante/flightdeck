@@ -3,7 +3,8 @@
   // (OpenStreetMap data), recolored at load into a night-chart palette.
   import maplibregl, { type GeoJSONSource, type LngLatBoundsLike } from "maplibre-gl";
   import { onDestroy, onMount, untrack } from "svelte";
-  import type { FlightPlan, HangarItem, Route } from "./api";
+  import { api, type FlightPlan, type HangarItem, type MapAirport, type Route } from "./api";
+  import AirportCard from "./AirportCard.svelte";
   import { C as BASE, STYLE, addRegionLines, offlineStyle, setBorders, showSatellite, tintMap } from "./mapStyle";
   import MapLayers from "./MapLayers.svelte";
   import { latestRadar } from "./radar";
@@ -105,6 +106,49 @@
     else next.add(key);
     setPref("map_layers", [...next].join(","));
   }
+  /** The airport whose card is open. */
+  let openAirport = $state<string | null>(null);
+  const AIRPORT_LAYERS = ["wa-major", "wa-regional", "wa-small", "routes-airports"];
+  /** The airport (code) at a point on the map, if any. */
+  function airportAt(pt: maplibregl.PointLike): string | null {
+    if (!map) return null;
+    const layers = AIRPORT_LAYERS.filter((l) => map!.getLayer(l) && map!.getLayoutProperty(l, "visibility") !== "none");
+    if (!layers.length) return null;
+    const p = pt as maplibregl.Point;
+    const box: [maplibregl.PointLike, maplibregl.PointLike] = [[p.x - 5, p.y - 5], [p.x + 5, p.y + 5]];
+    for (const f of map.queryRenderedFeatures(box, { layers })) {
+      const props = f.properties as { id?: string; ident?: string };
+      const ident = props.id ?? props.ident;
+      if (ident) return ident;
+    }
+    return null;
+  }
+  /** World airports detail: 1 major, 2 + regional, 3 + small airports and strips. */
+  const airportDetail = $derived(Math.min(3, Math.max(1, Number(prefs.s.map_airport_detail ?? "1") || 1)));
+  const worldCache = new globalThis.Map<number, GeoJSON.FeatureCollection>();
+  async function worldAirports(detail: number): Promise<GeoJSON.FeatureCollection> {
+    const hit = worldCache.get(detail);
+    if (hit) return hit;
+    const list: MapAirport[] = (await api.mapAirports(detail)) ?? [];
+    const fc: GeoJSON.FeatureCollection = {
+      type: "FeatureCollection",
+      features: list.map(([id, name, r, lon, lat]) => ({ type: "Feature", properties: { id, name, r }, geometry: { type: "Point", coordinates: [lon, lat] } })),
+    };
+    worldCache.set(detail, fc);
+    return fc;
+  }
+  $effect(() => {
+    const on = layers.has("world");
+    const detail = airportDetail;
+    if (!loaded || !map || !map.getSource("world-airports")) return;
+    for (const id of ["wa-major", "wa-regional", "wa-small", "wa-labels-0", "wa-labels-1", "wa-labels-2"]) {
+      if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", on ? "visible" : "none");
+    }
+    if (!on) return;
+    worldAirports(detail).then((fc) => {
+      if (detail === untrack(() => airportDetail)) (map?.getSource("world-airports") as GeoJSONSource | undefined)?.setData(fc);
+    });
+  });
   let radarTime = $state<number | null>(null);
   let radarError = $state(false);
 
@@ -146,7 +190,7 @@
 
   function routeFeatures(list: Route[]): GeoJSON.FeatureCollection {
     const features: GeoJSON.Feature[] = [];
-    const airports = new globalThis.Map<string, [number, number]>();
+    const airports = new globalThis.Map<string, { at: [number, number]; ident: string }>();
     for (const r of list) {
       const label = `${r.dep_icao ?? "?"} to ${r.arr_icao ?? "?"}`;
       const d = new Date(r.date_ms);
@@ -167,12 +211,12 @@
           geometry: { type: "LineString", coordinates: greatCircle(r.from, r.to) },
         });
       }
-      airports.set(`${r.from[0].toFixed(3)},${r.from[1].toFixed(3)}`, r.from);
-      airports.set(`${r.to[0].toFixed(3)},${r.to[1].toFixed(3)}`, r.to);
+      airports.set(`${r.from[0].toFixed(3)},${r.from[1].toFixed(3)}`, { at: r.from, ident: r.dep_icao ?? "" });
+      airports.set(`${r.to[0].toFixed(3)},${r.to[1].toFixed(3)}`, { at: r.to, ident: r.arr_icao ?? "" });
     }
     let k = 0;
-    for (const at of airports.values()) {
-      features.push({ type: "Feature", id: -(++k), properties: { kind: "airport" }, geometry: { type: "Point", coordinates: at } });
+    for (const { at, ident } of airports.values()) {
+      features.push({ type: "Feature", id: -(++k), properties: { kind: "airport", ident }, geometry: { type: "Point", coordinates: at } });
     }
     return { type: "FeatureCollection", features };
   }
@@ -212,6 +256,54 @@
       layout: { visibility: "none" },
       paint: { "line-color": "#f0b23a", "line-opacity": 0.35, "line-width": 1.2, "line-blur": 1 },
     });
+    // The world's airports (the Airports layer, by detail level), under
+    // your routes. Smaller airports appear as you zoom in.
+    map.addSource("world-airports", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+    const WORLD: [string, number, string, number[]][] = [
+      // [layer, rank, color, [radius at zoom 3, at zoom 10]]
+      ["wa-small", 2, "#7d8792", [1.6, 3.2]],
+      ["wa-regional", 1, "#8fa8c4", [2, 4]],
+      ["wa-major", 0, "#a9c8f0", [2.8, 5.5]],
+    ];
+    const MINZOOM = [0, 4.5, 7];
+    for (const [id, rank, color, [r0, r1]] of WORLD) {
+      map.addLayer({
+        id,
+        type: "circle",
+        source: "world-airports",
+        minzoom: MINZOOM[rank],
+        filter: ["==", ["get", "r"], rank],
+        layout: { visibility: "none" },
+        paint: {
+          "circle-radius": ["interpolate", ["linear"], ["zoom"], 3, r0, 10, r1],
+          "circle-color": color,
+          "circle-stroke-color": "#111214",
+          "circle-stroke-width": 1,
+        },
+      });
+    }
+    // Codes beside the dots, once zoomed in (needs the online style's fonts).
+    if (map.getStyle().glyphs) {
+      for (const [rank, minzoom] of [[0, 5], [1, 7], [2, 9]]) {
+        map.addLayer({
+          id: `wa-labels-${rank}`,
+          type: "symbol",
+          source: "world-airports",
+          minzoom,
+          filter: ["==", ["get", "r"], rank],
+          layout: {
+            visibility: "none",
+            "text-field": ["get", "id"],
+            "text-font": ["Noto Sans Regular"],
+            "text-size": 11,
+            "text-offset": [0.8, 0],
+            "text-anchor": "left",
+            "text-optional": true,
+          },
+          paint: { "text-color": "#b9c3cf", "text-halo-color": "#111214", "text-halo-width": 1.2 },
+        });
+      }
+    }
     // Every past flight, faint, under the live track.
     map.addSource("routes", { type: "geojson", data: routeFeatures(routes) });
     const hot: maplibregl.ExpressionSpecification = [
@@ -421,15 +513,38 @@
         }
         map.getCanvas().style.cursor = "pointer";
         const p = f.properties as { label: string; sub: string };
-        hoverTip = { x: e.point.x, y: e.point.y, label: p.label, sub: p.sub };
+        // An airport under the pointer has its own tip.
+        if (airportAt(e.point)) return;
+        hoverTip = { x: e.point.x, y: e.point.y, label: p.label, sub: p.sub, hint: "Click for flight details" };
       });
       map.on("mouseleave", layer, clearHover);
       map.on("click", layer, (e) => {
         const f = e.features?.[0];
         clearHover();
+        // An airport under the pointer wins over a route passing through it.
+        if (airportAt(e.point)) return;
         if (f?.id != null) onroute?.(Number(f.id));
       });
     }
+    // Airports: a tip on hover, the airport card on click.
+    for (const layer of AIRPORT_LAYERS) {
+      map.on("mousemove", layer, (e) => {
+        const f = e.features?.[0];
+        const p = f?.properties as { id?: string; name?: string; ident?: string } | undefined;
+        const ident = p?.id ?? p?.ident;
+        if (!ident || !map) return;
+        map.getCanvas().style.cursor = "pointer";
+        hoverTip = { x: e.point.x, y: e.point.y, label: ident, sub: p?.name ?? "", hint: "Click for airport info" };
+      });
+      map.on("mouseleave", layer, clearHover);
+    }
+    map.on("click", (e) => {
+      const ident = airportAt(e.point);
+      if (ident) {
+        clearHover();
+        openAirport = ident;
+      }
+    });
     map.on("movestart", () => (hoverTip = null));
     // Stop drawing while the window is hidden.
     const vis = () => (document.hidden ? map?.stop() : map?.triggerRepaint());
@@ -649,7 +764,7 @@
   let parkedPopups: maplibregl.Popup[] = [];
   let parkedKey: string | null = null;
   /** The route under the pointer, for the hover tip. */
-  let hoverTip = $state<{ x: number; y: number; label: string; sub: string } | null>(null);
+  let hoverTip = $state<{ x: number; y: number; label: string; sub: string; hint: string } | null>(null);
   let mapW = $state(0);
   $effect(() => {
     const list = parked;
@@ -754,12 +869,34 @@
 >
   <strong>{hoverTip?.label ?? ""}</strong>
   <span>{hoverTip?.sub ?? ""}</span>
-  <em>Click for flight details</em>
+  <em>{hoverTip?.hint ?? ""}</em>
 </div>
 {#if aircraft && !follow && !history}
   <button class="follow" onclick={() => (follow = true)}>Follow aircraft</button>
 {/if}
-<MapLayers {three} on={layers} onthree={setThree} ontoggle={toggleLayer} {radarTime} {radarError} parkedLayer={parked != null} />
+<MapLayers
+  {three}
+  on={layers}
+  onthree={setThree}
+  ontoggle={toggleLayer}
+  {radarTime}
+  {radarError}
+  parkedLayer={parked != null}
+  {airportDetail}
+  ondetail={(d) => setPref("map_airport_detail", String(d))}
+/>
+{#if openAirport}
+  <AirportCard
+    ident={openAirport}
+    onclose={() => (openAirport = null)}
+    onflight={onroute
+      ? (id) => {
+          openAirport = null;
+          onroute?.(id);
+        }
+      : undefined}
+  />
+{/if}
 {#if shown.length > 1}
   <div class="alt-key" aria-label="Line color shows altitude">
     <span class="t">Altitude{#if three && stretch > 1}<em>heights ×{stretch}</em>{/if}</span>

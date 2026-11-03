@@ -280,6 +280,39 @@ export async function mockCall<T>(cmd: string, _args?: Record<string, unknown>):
       error: found ? null : "MSFS 2024's Community folder was not found. Choose it below.",
     } as T;
   }
+  if (cmd === "map_airports") {
+    const d = Number(_args?.detail ?? 1);
+    return AIRPORTS.filter((_, i) => d >= 3 || i % (d === 2 ? 2 : 4) === 0).map((a, i) => [a.icao, a.name, Math.min(2, i % 3), a.lon, a.lat]) as T;
+  }
+  if (cmd === "airport_card") {
+    const a = AIRPORTS.find((x) => x.icao === _args?.ident) ?? AIRPORTS[0];
+    return {
+      ident: a.icao, name: a.name, kind: "Major", lat: a.lat, lon: a.lon, elevation_ft: 433, city: "Seattle", iata: "SEA", country: "US",
+      country_name: "United States", region_name: "Washington",
+      runways: [
+        { name: "16L/34R", length_ft: 11901, width_ft: 150, surface: "Concrete", lighted: true },
+        { name: "16C/34C", length_ft: 9426, width_ft: 150, surface: "Concrete", lighted: true },
+        { name: "16R/34L", length_ft: 8500, width_ft: 150, surface: "Concrete", lighted: true },
+      ],
+      frequencies: [
+        { kind: "ATIS", description: "ATIS", mhz: 118.0 }, { kind: "CLD", description: "Clearance Delivery", mhz: 128.0 },
+        { kind: "GND", description: "Ground", mhz: 121.7 }, { kind: "TWR", description: "Tower", mhz: 119.9 },
+        { kind: "APP", description: "Seattle Approach", mhz: 119.2 },
+      ],
+      departures: 3, arrivals: 2, last_visit_ms: now - 864e5 * 3, best_landing_fpm: -88,
+      recent: [{ id: 1, dep_icao: a.icao, arr_icao: "KPDX", start_ms: now - 864e5 * 3, icao_type: "A20N", landing_rate_fpm: -142 }],
+    } as T;
+  }
+  if (cmd === "airport_weather") {
+    if (scene === "nowx") return null as T;
+    return {
+      station: String(_args?.ident ?? "KSEA"), station_name: "Seattle-Tacoma Intl, WA, US", distance_nm: 0,
+      metar: "KSEA 032153Z 17012G20KT 10SM FEW020 BKN045 09/06 A3001 RMK AO2 SLP165",
+      observed_ms: now - 22 * 60_000, category: "VFR", wind_dir: 170, wind_kt: 12, gust_kt: 20, visibility_sm: 10, ceiling_ft: 4500,
+      temp_c: 9, dewpoint_c: 6, altimeter_hpa: 1016.3,
+      taf: "TAF KSEA 032120Z 0321/0500 17010KT P6SM BKN045\n  FM040300 18012G22KT 5SM -RA OVC025",
+    } as T;
+  }
   if (cmd === "search_airports") {
     const q = String(_args?.query ?? "").trim().toUpperCase();
     return (q ? AIRPORTS.filter((a) => a.icao.startsWith(q) || (q.length >= 3 && a.name.toUpperCase().includes(q))) : []) as T;

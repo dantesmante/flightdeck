@@ -591,6 +591,56 @@ export interface RemoteInfo {
   error: string | null;
 }
 
+/** One airport dot: [ident, name, rank (0 major, 1 regional, 2 small), lon, lat]. */
+export type MapAirport = [string, string, number, number, number];
+
+export interface RunwayInfo {
+  name: string;
+  length_ft: number;
+  width_ft: number;
+  surface: string;
+  lighted: boolean;
+}
+
+export interface AirportCardData {
+  ident: string;
+  name: string;
+  kind: string;
+  lat: number;
+  lon: number;
+  elevation_ft: number;
+  city: string;
+  iata: string;
+  country: string;
+  country_name: string;
+  region_name: string;
+  runways: RunwayInfo[];
+  frequencies: { kind: string; description: string; mhz: number }[];
+  departures: number;
+  arrivals: number;
+  last_visit_ms: number | null;
+  best_landing_fpm: number | null;
+  recent: { id: number; dep_icao: string | null; arr_icao: string | null; start_ms: number; icao_type: string; landing_rate_fpm: number | null }[];
+}
+
+export interface AirportWeather {
+  station: string;
+  station_name: string;
+  distance_nm: number;
+  metar: string;
+  observed_ms: number | null;
+  category: "VFR" | "MVFR" | "IFR" | "LIFR" | null;
+  wind_dir: number | null;
+  wind_kt: number | null;
+  gust_kt: number | null;
+  visibility_sm: number | null;
+  ceiling_ft: number | null;
+  temp_c: number | null;
+  dewpoint_c: number | null;
+  altimeter_hpa: number | null;
+  taf: string | null;
+}
+
 /** FlightDeck's app in the MSFS 2024 EFB (Settings on the PC). */
 export interface EfbInfo {
   installed: boolean;
@@ -673,6 +723,9 @@ export const api = {
   remoteSet: (enabled: boolean | null, canEdit: boolean | null) => call<RemoteInfo>("remote_set", { enabled, canEdit }),
   remoteNewCode: () => call<RemoteInfo>("remote_new_code"),
   remoteForget: () => call<RemoteInfo>("remote_forget"),
+  mapAirports: (detail: number) => call<MapAirport[]>("map_airports", { detail }),
+  airportCard: (ident: string) => call<AirportCardData | null>("airport_card", { ident }),
+  airportWeather: (ident: string) => call<AirportWeather | null>("airport_weather", { ident }),
   efbInfo: () => call<EfbInfo>("efb_info"),
   efbInstall: (folder: string | null = null) => call<EfbInfo>("efb_install", { folder }),
   efbUninstall: () => call<EfbInfo>("efb_uninstall"),

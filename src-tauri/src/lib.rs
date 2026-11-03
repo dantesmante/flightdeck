@@ -1,5 +1,6 @@
 //! FlightDeck desktop app: Tauri commands and startup.
 
+mod airports;
 mod diag;
 mod elevatex;
 mod engine;
@@ -222,6 +223,26 @@ fn airport_at(state: tauri::State<AppState>, lat: f64, lon: f64) -> Option<Airpo
         lat: a.lat,
         lon: a.lon,
     })
+}
+
+/// Airports for the map at a detail level (1 major, 2 + regional, 3 + small).
+#[tauri::command]
+fn map_airports(state: tauri::State<AppState>, detail: u8) -> Vec<(String, String, u8, f32, f32)> {
+    airports::map_airports(&state.refdata, detail)
+}
+
+/// An airport's card: details, runways, frequencies and your visits.
+#[tauri::command]
+fn airport_card(state: tauri::State<AppState>, ident: String) -> CmdResult<Option<airports::AirportCard>> {
+    let flights = state.db.lock().unwrap().airport_flights(&ident.to_ascii_uppercase()).map_err(err)?;
+    Ok(airports::card(&state.refdata, &flights, &ident))
+}
+
+/// The latest METAR and TAF at (or near) an airport.
+#[tauri::command]
+async fn airport_weather(state: tauri::State<'_, AppState>, ident: String) -> CmdResult<Option<airports::Weather>> {
+    let rd = state.refdata.clone();
+    tauri::async_runtime::spawn_blocking(move || airports::weather(&rd, &ident)).await.map_err(err)?
 }
 
 type Parser = fn(&str, &refdata::RefData) -> Result<volanta::ImportedFlight, String>;
@@ -1025,6 +1046,9 @@ pub(crate) async fn dispatch(app: &tauri::AppHandle, cmd: &str, a: serde_json::V
         "demo_routes" => ok(to_value(demo_routes())),
         "airport_at" => ok(to_value(airport_at(st(), arg(&a, "lat")?, arg(&a, "lon")?))),
         "search_airports" => ok(to_value(search_airports(st(), arg(&a, "query")?))),
+        "map_airports" => ok(to_value(map_airports(st(), arg(&a, "detail")?))),
+        "airport_card" => ok(to_value(airport_card(st(), arg(&a, "ident")?)?)),
+        "airport_weather" => ok(to_value(airport_weather(st(), arg(&a, "ident")?).await?)),
         "get_settings" => ok(to_value(get_settings(st())?)),
         "set_setting" => ok(to_value(set_setting(st(), arg(&a, "key")?, arg(&a, "value")?)?)),
         "get_pilot" => ok(to_value(get_pilot(st())?)),
@@ -1145,6 +1169,9 @@ pub fn run() {
             check_update,
             install_update,
             app_version,
+            map_airports,
+            airport_card,
+            airport_weather,
             efb_info,
             efb_install,
             efb_uninstall

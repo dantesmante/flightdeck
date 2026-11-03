@@ -1,11 +1,13 @@
 //! Rebuild the embedded reference data from OurAirports CSV files.
 //!
-//! Download airports.csv, runways.csv, countries.csv and regions.csv from
+//! Download airports.csv, runways.csv, airport-frequencies.csv,
+//! countries.csv and regions.csv from
 //! https://github.com/davidmegginson/ourairports-data into one folder, then:
 //!
 //!   cargo run -p refdata --features build-tool --bin build-refdata -- <csv-folder>
 //!
-//! It writes crates/refdata/data/{airports,runways,countries,regions}.tsv.zst.
+//! It writes crates/refdata/data/{airports,runways,runway_info,frequencies,
+//! countries,regions}.tsv.zst.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -24,6 +26,34 @@ fn write(out: &Path, name: &str, body: &str) {
     println!("{name}: {} KB ({} KB raw)", z.len() / 1024, body.len() / 1024);
 }
 
+/// OurAirports' free-text runway surfaces, as one plain word.
+fn surface(s: &str) -> String {
+    let u = s.to_ascii_uppercase();
+    let has = |words: &[&str]| words.iter().any(|w| u.contains(w));
+    let word = if has(&["ASP", "BIT", "PAVED", "PEM", "TAR"]) {
+        "Asphalt"
+    } else if has(&["CON"]) || u == "C" {
+        "Concrete"
+    } else if has(&["TURF", "GRS", "GRASS", "SOD"]) {
+        "Grass"
+    } else if has(&["GRE", "GVL", "GRV", "GRAVEL"]) {
+        "Gravel"
+    } else if has(&["DIRT", "EARTH", "CLAY", "SAND", "LAT", "SOIL"]) {
+        "Dirt"
+    } else if has(&["WAT"]) {
+        "Water"
+    } else if has(&["MAT", "MET", "PSP"]) {
+        "Metal mats"
+    } else if has(&["WOOD"]) {
+        "Wood"
+    } else if has(&["SNOW", "ICE"]) {
+        "Snow or ice"
+    } else {
+        ""
+    };
+    word.to_string()
+}
+
 fn main() {
     let src = PathBuf::from(std::env::args().nth(1).expect("usage: build-refdata <ourairports-csv-folder>"));
     let out = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("data");
@@ -32,7 +62,7 @@ fn main() {
     let mut rdr = read(&src, "airports.csv");
     let headers = rdr.headers().unwrap().clone();
     let col: HashMap<&str, usize> = headers.iter().enumerate().map(|(i, h)| (h, i)).collect();
-    let mut body = String::from("ident\ttype\tname\tlat\tlon\televation_ft\tcountry\tregion\n");
+    let mut body = String::from("ident\ttype\tname\tlat\tlon\televation_ft\tcountry\tregion\tcity\tiata\n");
     let mut n = 0;
     // OurAirports id -> the ident FlightDeck uses, for the runways.
     let mut idents: HashMap<String, String> = HashMap::new();
@@ -61,7 +91,7 @@ fn main() {
         };
         idents.insert(get("id").to_string(), clean(ident));
         body.push_str(&format!(
-            "{}\t{}\t{}\t{:.5}\t{:.5}\t{}\t{}\t{}\n",
+            "{}\t{}\t{}\t{:.5}\t{:.5}\t{}\t{}\t{}\t{}\t{}\n",
             clean(ident),
             kind,
             clean(get("name")),
@@ -70,6 +100,8 @@ fn main() {
             get("elevation_ft").parse::<f64>().map(|e| e.round() as i64).unwrap_or(0),
             get("iso_country"),
             get("iso_region"),
+            clean(get("municipality")),
+            clean(get("iata_code")),
         ));
         n += 1;
     }
@@ -114,6 +146,52 @@ fn main() {
     }
     println!("{n} runways");
     write(&out, "runways.tsv.zst", &body);
+
+    // Every open runway, for the airport card: length, width, surface,
+    // lights (the runways above are only those with surveyed ends).
+    let mut rdr = read(&src, "runways.csv");
+    let headers = rdr.headers().unwrap().clone();
+    let col: HashMap<&str, usize> = headers.iter().enumerate().map(|(i, h)| (h, i)).collect();
+    let mut body = String::from("airport\tle\the\tlength_ft\twidth_ft\tsurface\tlighted\n");
+    let mut n = 0;
+    for rec in rdr.records() {
+        let r = rec.unwrap();
+        let get = |k: &str| r.get(col[k]).unwrap_or("");
+        if get("closed") == "1" {
+            continue;
+        }
+        let Some(airport) = idents.get(get("airport_ref")) else { continue };
+        let num = |k: &str| get(k).parse::<f64>().map(|v| v.round() as i64).unwrap_or(0);
+        body.push_str(&format!(
+            "{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
+            airport,
+            clean(get("le_ident")),
+            clean(get("he_ident")),
+            num("length_ft"),
+            num("width_ft"),
+            surface(get("surface")),
+            u8::from(get("lighted") == "1"),
+        ));
+        n += 1;
+    }
+    println!("{n} runway details");
+    write(&out, "runway_info.tsv.zst", &body);
+
+    let mut rdr = read(&src, "airport-frequencies.csv");
+    let headers = rdr.headers().unwrap().clone();
+    let col: HashMap<&str, usize> = headers.iter().enumerate().map(|(i, h)| (h, i)).collect();
+    let mut body = String::from("airport\ttype\tdescription\tmhz\n");
+    let mut n = 0;
+    for rec in rdr.records() {
+        let r = rec.unwrap();
+        let get = |k: &str| r.get(col[k]).unwrap_or("");
+        let Some(airport) = idents.get(get("airport_ref")) else { continue };
+        let Ok(mhz) = get("frequency_mhz").parse::<f64>() else { continue };
+        body.push_str(&format!("{}\t{}\t{}\t{:.3}\n", airport, clean(get("type")).to_ascii_uppercase(), clean(get("description")), mhz));
+        n += 1;
+    }
+    println!("{n} frequencies");
+    write(&out, "frequencies.tsv.zst", &body);
 
     for (file, code_col, out_name) in [("countries.csv", "code", "countries.tsv.zst"), ("regions.csv", "code", "regions.tsv.zst")] {
         let mut rdr = read(&src, file);
