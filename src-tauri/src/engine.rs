@@ -185,6 +185,37 @@ struct Engine {
     last_power: Option<Option<bool>>,
     last_camera: Option<Option<u8>>,
     last_paused: Option<bool>,
+    /// MSFS: since when (and where) the aircraft has sat on the ground in the
+    /// world, unpaused and out of the menus. A flight only starts once this
+    /// has held for a few seconds.
+    in_world: InWorld,
+}
+
+/// How long the aircraft must sit in the world before a flight can start.
+const IN_WORLD_MS: i64 = 5_000;
+
+/// Watches for an aircraft really spawned in the world: on the ground,
+/// unpaused, out of the menus, in the same place, for a few seconds. The
+/// MSFS menus (2024's included) report an aircraft anywhere, even in the
+/// air over the ocean, so nothing else is trusted to start a flight there.
+#[derive(Debug, Default)]
+struct InWorld {
+    since: Option<(i64, f64, f64)>,
+}
+
+impl InWorld {
+    fn update(&mut self, s: &Telemetry, in_menu: bool) -> bool {
+        let here = !s.paused && !in_menu && s.on_ground && (s.lat.abs() > 0.01 || s.lon.abs() > 0.01);
+        match (here, self.since) {
+            (false, _) => self.since = None,
+            (true, Some((_, lat, lon))) if telemetry::geo::distance_nm(lat, lon, s.lat, s.lon) > 0.5 => {
+                self.since = Some((s.t_ms, s.lat, s.lon));
+            }
+            (true, None) => self.since = Some((s.t_ms, s.lat, s.lon)),
+            (true, Some(_)) => {}
+        }
+        self.since.is_some_and(|(t0, _, _)| s.t_ms - t0 >= IN_WORLD_MS)
+    }
 }
 
 pub fn spawn(
@@ -228,6 +259,7 @@ pub fn spawn(
                 last_power: None,
                 last_camera: None,
                 last_paused: None,
+                in_world: InWorld::default(),
             };
             loop {
                 match rx.try_recv() {
@@ -394,6 +426,8 @@ impl Engine {
             // MSFS camera states for the menus, world map and hangar: never
             // a flight, whatever the aircraft behind them reports.
             let in_menu = msfs && s.camera_state.is_some_and(|c| matches!(c, 11..=15 | 21));
+            // MSFS: only once the aircraft is spawned on the ground in the world.
+            let in_world = !msfs || self.in_world.update(&s, in_menu);
             let signal = !s.paused && !in_menu && (s.engines_running > 0 || s.powered.unwrap_or(!msfs));
             if !signal {
                 self.need_reset = false;
@@ -401,8 +435,8 @@ impl Engine {
             // "Start a flight" skips the power check but still waits for a
             // real cockpit: not paused, and on the ground or powered (the
             // menus can report an unpowered aircraft hanging in the air).
-            let armed_ready = self.armed && !s.paused && !in_menu && (signal || s.on_ground);
-            if !(armed_ready || (signal && !self.need_reset)) {
+            let armed_ready = self.armed && !s.paused && !in_menu && (signal || s.on_ground) && in_world;
+            if !(armed_ready || (signal && in_world && !self.need_reset)) {
                 self.last_sample = Some(s);
                 return;
             }
@@ -543,6 +577,7 @@ impl Engine {
 
     fn disconnect(&mut self) {
         self.conn = None;
+        self.in_world = InWorld::default();
         self.demo = false;
         self.sim = None;
         self.sim_version = None;
@@ -600,4 +635,46 @@ impl Engine {
 
 fn now_ms() -> i64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn at(t_ms: i64, on_ground: bool) -> Telemetry {
+        Telemetry { t_ms, lat: 48.43, lon: -119.53, on_ground, ..Default::default() }
+    }
+
+    #[test]
+    fn the_menu_aircraft_hanging_over_the_ocean_never_counts() {
+        // MSFS 2024 main menu: an aircraft "in the air" over the Indian Ocean.
+        let mut w = InWorld::default();
+        for i in 0..100 {
+            let s = Telemetry { t_ms: i * 1000, lat: -5.0, lon: 88.0, alt_msl_ft: 221.0, ..Default::default() };
+            assert!(!w.update(&s, false));
+        }
+    }
+
+    #[test]
+    fn spawned_on_the_ground_counts_after_a_few_seconds() {
+        let mut w = InWorld::default();
+        assert!(!w.update(&at(0, true), false));
+        assert!(!w.update(&at(4_000, true), false));
+        assert!(w.update(&at(5_000, true), false));
+        // Paused, or back in the menus: start over.
+        assert!(!w.update(&Telemetry { paused: true, ..at(6_000, true) }, false));
+        assert!(!w.update(&at(7_000, true), true));
+        assert!(!w.update(&at(8_000, true), false));
+        assert!(w.update(&at(13_000, true), false));
+    }
+
+    #[test]
+    fn a_position_that_jumps_starts_the_wait_again() {
+        let mut w = InWorld::default();
+        w.update(&at(0, true), false);
+        let moved = Telemetry { lat: 47.45, lon: -122.31, ..at(4_000, true) };
+        assert!(!w.update(&moved, false));
+        assert!(!w.update(&Telemetry { lat: 47.45, lon: -122.31, ..at(6_000, true) }, false));
+        assert!(w.update(&Telemetry { lat: 47.45, lon: -122.31, ..at(9_000, true) }, false));
+    }
 }

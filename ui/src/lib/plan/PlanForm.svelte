@@ -28,6 +28,12 @@
   /** The SimBrief plan the form was filled from, if any. */
   let base = $state<FlightPlan | null>(null);
   let importing = $state(false);
+  /** The latest SimBrief plan, shown before it is imported. */
+  let latest = $state<FlightPlan | null>(null);
+  let looking = $state(false);
+  let sbError = $state<string | null>(null);
+  /** The origin was filled in from where the aircraft is, not typed. */
+  let originAuto = $state(false);
   let busy = $state(false);
   let error = $state<string | null>(null);
 
@@ -36,19 +42,69 @@
   onMount(async () => {
     if (aircraft) aircraftId = aircraft.id;
     if (mode === "start") {
+      lookSimbrief();
       const h = (await api.hangar().catch(() => [])) ?? [];
       fleet = h.sort((a, b) => Number(b.favorite) - Number(a.favorite) || b.last_flight_ms - a.last_flight_ms);
+      await fillOrigin();
     }
   });
 
   const chosen = $derived(fleet.find((a) => a.id === aircraftId) ?? (aircraft?.id === aircraftId ? aircraft : null));
 
+  /**
+   * The origin is where the aircraft is: where the sim has it sitting on the
+   * ground if a sim is connected, otherwise where the chosen hangar aircraft
+   * was parked after its last flight.
+   */
+  async function fillOrigin() {
+    if (origin && !originAuto) return;
+    const st = await api.status().catch(() => null);
+    const t = st?.link === "connected" && !st.live ? st.telemetry : null;
+    let spot: Spot | null = null;
+    if (t && t.on_ground && (Math.abs(t.lat) > 0.01 || Math.abs(t.lon) > 0.01)) {
+      const hit = await api.airportAt(t.lat, t.lon).catch(() => null);
+      if (hit) spot = { icao: hit.icao, name: hit.name, lat: hit.lat, lon: hit.lon };
+    }
+    const ac = chosen;
+    if (!spot && ac?.last_icao && ac.last_lat != null && ac.last_lon != null) {
+      spot = { icao: ac.last_icao, name: ac.last_name ?? "", lat: ac.last_lat, lon: ac.last_lon };
+    }
+    if (spot && (!origin || originAuto)) {
+      origin = spot;
+      originAuto = true;
+    }
+  }
+
+  // Choosing another aircraft moves an origin that came from the last one.
+  let lastAircraft = -2;
+  $effect(() => {
+    const id = aircraftId;
+    if (lastAircraft !== -2 && id !== lastAircraft && (originAuto || !origin) && mode === "start") fillOrigin();
+    lastAircraft = id;
+  });
+
+  /** Look up the latest SimBrief plan to show it before it is imported. */
+  async function lookSimbrief() {
+    if (!hasId) return;
+    looking = true;
+    sbError = null;
+    try {
+      latest = await api.simbriefLatest();
+    } catch (e) {
+      sbError = String(e);
+    } finally {
+      looking = false;
+    }
+  }
+
   async function importSimbrief() {
     importing = true;
     error = null;
     try {
-      const p = await api.simbriefLatest();
+      const p = latest ?? (await api.simbriefLatest());
+      latest = p;
       base = p;
+      originAuto = false;
       callsign = p.callsign;
       flightNo = `${p.airline}${p.flight_number}`;
       origin = { icao: p.origin.icao, name: p.origin.name, lat: p.origin.lat, lon: p.origin.lon };
@@ -77,7 +133,9 @@
   const direct = $derived(origin && dest ? gc(origin, dest) : null);
   /** Origin and destination still as SimBrief planned them. */
   const sameRoute = $derived(!!base && origin?.icao === base.origin.icao && dest?.icao === base.destination.icao);
-  const partial = $derived(!!origin !== !!dest);
+  // Half a plan cannot be flown, except an origin filled in from where the
+  // aircraft is: that is just the departure, with no plan yet.
+  const partial = $derived(!!origin !== !!dest && !(originAuto && !dest));
 
   function build(): FlightPlan | null {
     if (!origin || !dest) return null;
@@ -164,7 +222,7 @@
     {/if}
     <li>
       <span class="mark dot" aria-hidden="true"></span>
-      <AirportField label="Origin" placeholder="Add origin" value={origin} onchange={(v) => (origin = v)} />
+      <AirportField label="Origin" placeholder="Add origin" value={origin} onchange={(v) => ((origin = v), (originAuto = false))} />
     </li>
     <li>
       <span class="mark ring" aria-hidden="true"></span>
@@ -183,6 +241,8 @@
     <p class="hint">{distance(direct).value} {distance(direct).unit} direct{base && sameRoute && base.distance_nm ? `, ${distance(base.distance_nm).value} ${distance(base.distance_nm).unit} planned` : ""}</p>
   {:else if partial}
     <p class="hint">Add both an origin and a destination to use a flight plan.</p>
+  {:else if originAuto && origin && !dest}
+    <p class="hint">Departing from {origin.icao}, where the aircraft is. Add a destination for a flight plan.</p>
   {/if}
 
   <div class="box">
@@ -192,14 +252,22 @@
         <span>Add your SimBrief Pilot ID in Settings first</span>
       </button>
     {:else}
-      <button type="button" class="opt sb" onclick={importSimbrief} disabled={importing}>
-        <strong>{importing ? "Loading your SimBrief plan…" : base ? "Import from SimBrief again" : "Import from SimBrief"}</strong>
-        {#if base}
-          <span class="num">{base.callsign} {base.origin.icao}–{base.destination.icao}, {ago(base.generated_ms)}</span>
-        {:else}
-          <span>Fills in the plan from your latest SimBrief flight</span>
-        {/if}
-      </button>
+      {#if looking}
+        <div class="opt wait"><strong>Import from SimBrief</strong><span>Looking for your latest flight…</span></div>
+      {:else if latest}
+        <button type="button" class="opt sb" onclick={importSimbrief} disabled={importing}>
+          <strong>{importing ? "Importing…" : base ? "Imported from SimBrief" : "Import from SimBrief"}</strong>
+          <span class="big num">{latest.callsign || `${latest.airline}${latest.flight_number}`} ({latest.origin.icao}–{latest.destination.icao})</span>
+          <span>{[latest.aircraft_icao, latest.distance_nm ? `${distance(latest.distance_nm).value} ${distance(latest.distance_nm).unit}` : "", ago(latest.generated_ms)].filter(Boolean).join(", ")}</span>
+          {#if latest.route}<span class="route num">{latest.route}</span>{/if}
+        </button>
+      {:else}
+        <button type="button" class="opt" onclick={lookSimbrief}>
+          <strong>Import from SimBrief</strong>
+          <span class="err">{sbError ?? "No flight found"}</span>
+          <span>Click to try again</span>
+        </button>
+      {/if}
     {/if}
   </div>
 
@@ -385,6 +453,22 @@
   }
   .opt.sb span.num {
     color: #c4b5fd;
+  }
+  .opt .big {
+    font-size: 18px;
+    letter-spacing: 0.02em;
+  }
+  .opt.sb .route {
+    max-width: 100%;
+    margin-top: 2px;
+    font-size: 12px;
+    color: var(--ink-faint);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .opt.wait {
+    cursor: default;
   }
   .go {
     padding: 11px 14px;

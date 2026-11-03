@@ -14,14 +14,19 @@ MIT licensed.
 ## What works now
 
 - **Automatic tracking for MSFS 2020 and MSFS 2024.** Start the sim and
-  FlightDeck connects through SimConnect. A flight begins once you are in
-  the aircraft (battery or main bus on, or an engine running), never from
-  the menus, and is logged from block out to block in with no clicks.
+  FlightDeck connects through SimConnect. A flight begins once the
+  aircraft is spawned in the world and sits on the ground for a few
+  seconds, unpaused, and you are in it (battery or main bus on, or an
+  engine running). The menus never start one, whatever position the sim
+  reports there. It is logged from block out to block in with no clicks.
 - **Start a flight**: on the map, press **Start a flight** and fill in a
   simple flight plan: callsign and flight number, the aircraft (the one in
   the sim, or any aircraft in your hangar), origin, destination and
-  alternate. Airports are found by code or name as you type. Or press
-  **Import from SimBrief** to fill it in from your latest dispatched plan.
+  alternate. The origin is filled in from where the aircraft is: where the
+  sim has it on the ground, or where a hangar aircraft was parked (so
+  **Fly this aircraft** on the map starts from its airport). Airports are
+  found by code or name as you type. Your latest SimBrief plan is shown
+  (callsign, route, aircraft, distance); press it to fill in the form.
   A plan can also be added mid-flight with **Add a flight plan**.
 - **Boarding pass**: the active flight shows as a boarding pass with the
   callsign and airline, registration and type, the aircraft's picture when

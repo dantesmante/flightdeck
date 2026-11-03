@@ -210,6 +210,19 @@ fn import_elevatex(app: tauri::AppHandle, state: tauri::State<AppState>, files: 
     import_files(&app, &state, files, elevatex::SOURCE, elevatex::parse)
 }
 
+/// The airport an aircraft at this position is at (within a few miles),
+/// for "Fly this aircraft" and "Start a flight" to fill in the origin.
+#[tauri::command]
+fn airport_at(state: tauri::State<AppState>, lat: f64, lon: f64) -> Option<AirportHit> {
+    state.refdata.airport_at(lat, lon, true).map(|a| AirportHit {
+        icao: a.ident.clone(),
+        name: a.name.clone(),
+        country: state.refdata.country_name(&a.country).unwrap_or(&a.country).to_string(),
+        lat: a.lat,
+        lon: a.lon,
+    })
+}
+
 type Parser = fn(&str, &refdata::RefData) -> Result<volanta::ImportedFlight, String>;
 
 fn import_files(app: &tauri::AppHandle, state: &AppState, files: Vec<ImportFile>, source: &str, parse: Parser) -> ImportReport {
@@ -994,6 +1007,7 @@ pub(crate) async fn dispatch(app: &tauri::AppHandle, cmd: &str, a: serde_json::V
         "import_volanta" => ok(to_value(import_volanta(app.clone(), st(), arg(&a, "files")?))),
         "import_elevatex" => ok(to_value(import_elevatex(app.clone(), st(), arg(&a, "files")?))),
         "demo_routes" => ok(to_value(demo_routes())),
+        "airport_at" => ok(to_value(airport_at(st(), arg(&a, "lat")?, arg(&a, "lon")?))),
         "search_airports" => ok(to_value(search_airports(st(), arg(&a, "query")?))),
         "get_settings" => ok(to_value(get_settings(st())?)),
         "set_setting" => ok(to_value(set_setting(st(), arg(&a, "key")?, arg(&a, "value")?)?)),
@@ -1093,6 +1107,7 @@ pub fn run() {
             save_diagnostics,
             demo_routes,
             search_airports,
+            airport_at,
             get_settings,
             set_setting,
             get_pilot,

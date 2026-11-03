@@ -649,6 +649,7 @@ export const api = {
   passport: () => call<PassportData>("get_passport"),
   hangar: () => call<HangarItem[]>("get_hangar"),
   searchAirports: (query: string) => call<AirportHit[]>("search_airports", { query }),
+  airportAt: (lat: number, lon: number) => call<AirportHit | null>("airport_at", { lat, lon }),
   routes: () => call<Route[]>("get_routes"),
   aircraftPhoto: (id: number) => call<string | null>("get_aircraft_photo", { id }),
   setAircraftPhoto: (id: number, dataUrl: string | null) => call<boolean>("set_aircraft_photo", { id, dataUrl }),

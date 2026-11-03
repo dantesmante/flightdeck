@@ -5,6 +5,7 @@
   import { api, type HangarItem, type Status } from "./api";
   import { hhmm, zulu } from "./format";
   import AircraftPicture from "./hangar/AircraftPicture.svelte";
+  import Logo from "./Logo.svelte";
   import { airlineLook, findAirline } from "./hangar/airlines";
   import { modelName } from "./hangar/names";
   import { distance } from "./prefs.svelte";
@@ -106,9 +107,7 @@
     </div>
     <div class="mid" aria-hidden="true">
       <span class="line"></span>
-      <span class="plane">
-        <svg viewBox="0 0 24 24"><path d="M2.5 13.5l7-1.5 5-8h2.5l-2.5 8 5.5-.5 1.8-2.5H23l-1.2 4 1.2 4h-1.2L20 14.5l-5.5-.5 2.5 8h-2.5l-5-8-7-1.5z" /></svg>
-      </span>
+      <span class="plane"><Logo size={21} color="#1b1406" /></span>
       <span class="line"></span>
     </div>
     <div class="end to">
@@ -296,7 +295,6 @@
     border-radius: 50%;
     background: var(--amber);
   }
-  .plane svg,
   .at svg {
     width: 18px;
     height: 18px;

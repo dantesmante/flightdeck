@@ -262,6 +262,11 @@ export async function mockCall<T>(cmd: string, _args?: Record<string, unknown>):
     }
     return p as T;
   }
+  if (cmd === "airport_at") {
+    const lat = Number(_args?.lat), lon = Number(_args?.lon);
+    const near = AIRPORTS.map((a) => ({ a, d: Math.hypot(a.lat - lat, (a.lon - lon) * Math.cos((lat * Math.PI) / 180)) })).sort((x, y) => x.d - y.d)[0];
+    return (near && near.d < 0.15 ? near.a : null) as T;
+  }
   if (cmd === "search_airports") {
     const q = String(_args?.query ?? "").trim().toUpperCase();
     return (q ? AIRPORTS.filter((a) => a.icao.startsWith(q) || (q.length >= 3 && a.name.toUpperCase().includes(q))) : []) as T;
