@@ -4,6 +4,7 @@ mod diag;
 mod elevatex;
 mod engine;
 mod photos;
+mod efb;
 mod remote;
 mod samples;
 mod simbrief;
@@ -975,6 +976,21 @@ fn remote_new_code(app: tauri::AppHandle) -> remote::RemoteInfo {
 }
 
 #[tauri::command]
+fn efb_info(app: tauri::AppHandle) -> efb::EfbInfo {
+    efb::info(&app)
+}
+
+#[tauri::command]
+fn efb_install(app: tauri::AppHandle, folder: Option<String>) -> efb::EfbInfo {
+    efb::install(&app, folder)
+}
+
+#[tauri::command]
+fn efb_uninstall(app: tauri::AppHandle) -> efb::EfbInfo {
+    efb::uninstall(&app)
+}
+
+#[tauri::command]
 fn remote_forget(app: tauri::AppHandle) -> remote::RemoteInfo {
     remote::forget_devices(&app);
     remote::info(&app)
@@ -1068,6 +1084,7 @@ pub fn run() {
             app.manage(AppState { db, refdata: refdata_for_state, shared, tx: Mutex::new(tx), data_dir, photos: Default::default() });
             app.manage(remote::Remote::default());
             remote::init(app.handle());
+            efb::update_if_installed(app.handle());
             remote::start_if_enabled(app.handle());
             Ok(())
         })
@@ -1127,7 +1144,10 @@ pub fn run() {
             remove_sample_flights,
             check_update,
             install_update,
-            app_version
+            app_version,
+            efb_info,
+            efb_install,
+            efb_uninstall
         ])
         .run(tauri::generate_context!())
         .expect("error while running FlightDeck");

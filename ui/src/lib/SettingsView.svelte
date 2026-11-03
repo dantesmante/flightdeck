@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { api, inRemote, type FlightPlan, type Pilot, type RemoteInfo } from "./api";
+  import { api, inRemote, type FlightPlan, type Pilot, type RemoteInfo, type EfbInfo } from "./api";
   import { shrinkImage } from "./image";
   import { prefs, setPref } from "./prefs.svelte";
   import ExportDialog from "./ExportDialog.svelte";
@@ -186,6 +186,21 @@
     }, 3000);
     return () => clearInterval(t);
   });
+  // FlightDeck in the MSFS 2024 EFB (only set up on the PC).
+  let efb = $state<EfbInfo | null>(null);
+  let efbBusy = $state(false);
+  let efbFolder = $state("");
+  async function efbDo(f: () => Promise<EfbInfo>) {
+    efbBusy = true;
+    try {
+      efb = await f();
+    } finally {
+      efbBusy = false;
+    }
+  }
+  onMount(() => {
+    if (!inRemote) api.efbInfo().then((e) => (efb = e));
+  });
   const ago = (ms: number) => new Date(ms).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 </script>
 
@@ -316,6 +331,38 @@
       <button role="radio" aria-checked={prefs.s.logbook_view === "list"} class:on={prefs.s.logbook_view === "list"} onclick={() => setPref("logbook_view", "list")}>Simple list</button>
     </div>
   </div>
+
+  {#if !inRemote && efb}
+    <div class="group">
+      <h3>MSFS 2024 EFB</h3>
+      <p class="help">
+        Put FlightDeck on the tablet in the cockpit: your current flight, your last flight's score and your pilot rating.
+        The EFB app talks to FlightDeck on this PC only, so FlightDeck has to be running while you fly.
+      </p>
+      {#if efb.installed}
+        <p class="ok" role="status">Installed{efb.version ? ` (version ${efb.version})` : ""}. Restart MSFS 2024 if it is running, then open FlightDeck in the EFB's app list.</p>
+        <div class="row">
+          <button class="ghost" onclick={() => efbDo(() => api.efbUninstall())} disabled={efbBusy}>Uninstall from EFB</button>
+        </div>
+      {:else}
+        <div class="row">
+          <button class="primary" onclick={() => efbDo(() => api.efbInstall(efbFolder.trim() || null))} disabled={efbBusy || (!efb.community && !efbFolder.trim())}>
+            {efbBusy ? "Installing…" : "Install in MSFS 2024 EFB"}
+          </button>
+        </div>
+      {/if}
+      {#if efb.error}<p class="err" role="alert">{efb.error}</p>{/if}
+      {#if efb.community}
+        <p class="help">Community folder: <span class="num">{efb.community}</span></p>
+      {/if}
+      {#if !efb.community || efb.error}
+        <div class="row">
+          <label class="folder">Community folder<input bind:value={efbFolder} placeholder="e.g. D:\MSFS 2024\Packages\Community" /></label>
+        </div>
+        <p class="help">The Community folder sits in the folder you chose for MSFS 2024's packages when you installed it.</p>
+      {/if}
+    </div>
+  {/if}
 
   {#if !inRemote && remote}
     <div class="group">
@@ -578,6 +625,10 @@
   }
   .sb {
     width: 220px;
+  }
+  .folder {
+    flex: 1;
+    min-width: 280px;
   }
   .row {
     grid-column: 1 / -1;

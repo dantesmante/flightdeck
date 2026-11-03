@@ -1,38 +1,51 @@
 # FlightDeck in the MSFS 2024 EFB
 
-`flightdeck-efb-test/` is a feasibility test: a Community package that adds a
-**FlightDeck** app to the MSFS 2024 EFB tablet. It has two tabs:
+`flightdeck-efb/` is FlightDeck's app for the MSFS 2024 EFB tablet: a
+Community package with one plain-JavaScript file (no build step) and its
+icons. FlightDeck embeds it and installs it from **Settings, MSFS 2024 EFB**
+(`src-tauri/src/efb.rs`):
 
-- **FlightDeck** shows FlightDeck's own page from the same PC
-  (`http://127.0.0.1:8420/`, the server behind Settings, Other devices) in a
-  frame.
-- **Compatibility check** lists what the EFB's browser engine (Coherent GT)
-  can do: CSS variables, grid and flex gap, WebGL for the map, modern
-  JavaScript, local storage, and whether FlightDeck's server answers.
+- It finds the Community folder from the sim's `UserCfg.opt`
+  (`InstalledPackagesPath`; Microsoft Store and Steam locations), or uses a
+  folder the user types in.
+- It writes `Community/flightdeck-efb/`, putting the FlightDeck version in
+  `manifest.json` and the script (`__FD_VERSION__`), and generates
+  `layout.json` (every file with its size and date, which MSFS needs).
+- It turns on FlightDeck's server on 127.0.0.1:8420 for the app, even with
+  Other devices off. Uninstalling removes only that folder (after checking
+  its manifest is ours) and stops the server unless Other devices is on.
+- On start, FlightDeck updates an installed app to its own version.
 
-The answers decide how the real EFB app is built: a thin frame onto
-FlightDeck's page, or a small dedicated app reading FlightDeck's data.
+The app:
 
-The app is plain JavaScript with no build step. It registers through the
-`window.EFB_API` and `window.msfssdk` globals the sim provides, so no part of
-the SDK is shipped. The pattern follows the MIT-licensed
+- **Flight**: the current flight as a boarding pass (callsign, route, out
+  and airborne times, time in the air, ETA, progress) with altitude, ground
+  speed, vertical speed and heading; End flight. Before a flight: Start a
+  flight with the latest SimBrief plan or without one.
+- **Last flight**: landing rate, G and grade, the pilot score with landing
+  and flight stability, the rating change and XP. It opens by itself when a
+  flight is saved.
+- **Pilot**: rank, rating, XP to the next rank, averages and totals.
+
+It pairs itself through `POST /api/pair-local`, which FlightDeck answers only
+for a program on the same PC with no web origin or the sim's `coui://` one,
+and keeps the token in local storage. Calls go to `/api/call/{cmd}` and live
+status comes over `/api/events` (polling `get_status` every 2 s when the
+socket is down). The server allows cross-origin calls only from `coui://`
+pages.
+
+The EFB's browser (Coherent GT) is old: the script keeps to ES2017 (no `?.`,
+`??` or class fields), no flexbox `gap`, and leaves the top 56 px (the EFB's
+clock and bell) and the bottom 84 px (its dock) clear. It registers through
+the `window.EFB_API` and `window.msfssdk` globals the sim provides, so no part
+of the SDK is shipped. The pattern follows the MIT-licensed
 [msfs-efb-iframe](https://github.com/RCCSilva/msfs-efb-iframe).
 
-## Build the package
+## The feasibility test
+
+`flightdeck-efb-test/` is the first test package: a frame onto FlightDeck's
+page plus a compatibility check of the EFB browser. It showed the frame
+cannot work (no WebGL, old JavaScript), which is why the real app is a small
+dedicated one. Build it by hand to check a new sim version:
 
     python3 tools/build_efb_package.py efb/flightdeck-efb-test out/flightdeck-efb-test.zip
-
-This writes `layout.json` (every file with its size and date, which MSFS
-needs) and zips the folder.
-
-## Try it
-
-1. In FlightDeck, turn on **Settings, Other devices**.
-2. Unzip into the MSFS 2024 Community folder, so it holds
-   `Community\flightdeck-efb-test\manifest.json`. Restart MSFS 2024.
-3. Start a flight in an aircraft with an EFB, open the EFB and pick
-   **FlightDeck**. Pair it with the code from FlightDeck's Settings, as with a
-   phone.
-4. Look at both tabs and screenshot them.
-
-To remove it, delete the `flightdeck-efb-test` folder and restart the sim.

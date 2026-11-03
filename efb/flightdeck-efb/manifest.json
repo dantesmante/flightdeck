@@ -1,0 +1,15 @@
+{
+  "dependencies": [],
+  "content_type": "MISC",
+  "title": "FlightDeck",
+  "manufacturer": "",
+  "creator": "FlightDeck",
+  "package_version": "__FD_VERSION__",
+  "minimum_game_version": "1.0.0",
+  "release_notes": {
+    "neutral": {
+      "LastUpdate": "FlightDeck in the EFB: your current flight, your last flight's score and your pilot rating, live from FlightDeck on this PC.",
+      "OlderHistory": ""
+    }
+  }
+}

@@ -591,6 +591,15 @@ export interface RemoteInfo {
   error: string | null;
 }
 
+/** FlightDeck's app in the MSFS 2024 EFB (Settings on the PC). */
+export interface EfbInfo {
+  installed: boolean;
+  version: string | null;
+  community: string | null;
+  manual: boolean;
+  error: string | null;
+}
+
 export interface UpdateInfo {
   current: string;
   latest: string;
@@ -664,6 +673,9 @@ export const api = {
   remoteSet: (enabled: boolean | null, canEdit: boolean | null) => call<RemoteInfo>("remote_set", { enabled, canEdit }),
   remoteNewCode: () => call<RemoteInfo>("remote_new_code"),
   remoteForget: () => call<RemoteInfo>("remote_forget"),
+  efbInfo: () => call<EfbInfo>("efb_info"),
+  efbInstall: (folder: string | null = null) => call<EfbInfo>("efb_install", { folder }),
+  efbUninstall: () => call<EfbInfo>("efb_uninstall"),
   checkUpdate: () => call<UpdateInfo>("check_update"),
   installUpdate: (url: string) => call<void>("install_update", { url }),
   version: () => call<string>("app_version"),

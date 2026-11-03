@@ -196,6 +196,17 @@ MIT licensed.
   network (port 8420) and never the internet: nothing is forwarded from
   the router and no outside service is involved. Windows may ask whether
   FlightDeck can use private networks; choose Allow.
+- **MSFS 2024 EFB** (Settings, MSFS 2024 EFB): **Install in MSFS 2024 EFB**
+  adds a FlightDeck app to the cockpit tablet: the current flight as a
+  boarding pass with altitude, speeds, progress and ETA, Start a flight
+  (with the latest SimBrief plan or without one) and End flight, the last
+  flight's landing and pilot score, and the pilot's rating, rank and XP. It
+  has no map, since the EFB has its own. FlightDeck finds the Community
+  folder from the sim's settings (or you choose it), writes the
+  `flightdeck-efb` package there and keeps it up to date with each
+  FlightDeck version; **Uninstall from EFB** removes only that folder. The
+  app pairs itself and talks to FlightDeck on this PC only (127.0.0.1), so
+  it needs neither Other devices nor the home network.
 - **Duplicate flights** (Logbook, Find duplicates): lists flights on the
   same day, in the same aircraft, between the same airports. The most
   complete one in each set is kept and the rest are ticked; review the list

@@ -11,6 +11,12 @@
 //! - Devices can view; editing (and flight controls) needs "Other devices
 //!   can edit". Things that touch the PC itself (updates, exports into its
 //!   folders, diagnostics) stay on the PC.
+//!
+//! FlightDeck's app in the MSFS 2024 EFB uses the same server from the same
+//! PC. While it is installed the server also runs with "Other devices" off,
+//! but then only on this PC's own address (127.0.0.1). The EFB pairs itself
+//! without a code (only from this PC, only from the sim's own pages) and may
+//! make changes, as the pilot at the PC can.
 
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
@@ -41,6 +47,10 @@ const EVENTS: &[&str] = &["status", "flights-changed", "flight-saved", "touchdow
 /// Settings keys (stored with the other settings).
 pub const KEY_ENABLED: &str = "remote_enabled";
 pub const KEY_EDIT: &str = "remote_edit";
+/// Set while FlightDeck's EFB app is installed in MSFS 2024.
+pub const KEY_EFB: &str = "efb_installed";
+/// The name the EFB pairs itself under.
+const EFB_DEVICE: &str = "MSFS 2024 EFB";
 const KEY_DEVICES: &str = "remote_devices";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -48,6 +58,9 @@ pub struct Device {
     pub token: String,
     pub name: String,
     pub paired_ms: i64,
+    /// Paired from this PC (the EFB): may make changes.
+    #[serde(default)]
+    pub local: bool,
 }
 
 /// What the PC's Settings shows about access from other devices.
@@ -81,6 +94,8 @@ pub struct Remote {
 #[derive(Default)]
 struct Inner {
     stop: Option<oneshot::Sender<()>>,
+    /// Listening on every address (other devices), not just this PC's own.
+    all: bool,
     code: String,
     error: Option<String>,
     /// Failed pairing attempts per address, to slow down guessing.
@@ -127,13 +142,13 @@ fn is_local(ip: IpAddr) -> bool {
     }
 }
 
-fn setting(app: &AppHandle, key: &str) -> Option<String> {
+pub(crate) fn setting(app: &AppHandle, key: &str) -> Option<String> {
     let st = app.state::<AppState>();
     let db = st.db.lock().unwrap();
     db.settings().ok().and_then(|s| s.get(key).cloned())
 }
 
-fn set(app: &AppHandle, key: &str, value: &str) {
+pub(crate) fn set(app: &AppHandle, key: &str, value: &str) {
     let st = app.state::<AppState>();
     let db = st.db.lock().unwrap();
     let _ = db.set_setting(key, value);
@@ -184,7 +199,7 @@ pub fn info(app: &AppHandle) -> RemoteInfo {
     let urls = local_urls();
     RemoteInfo {
         enabled: setting(app, KEY_ENABLED).as_deref() == Some("1"),
-        running: inner.stop.is_some(),
+        running: inner.stop.is_some() && inner.all,
         can_edit: can_edit(app),
         port: PORT,
         qr_svg: urls.first().and_then(|u| qr(u)),
@@ -195,13 +210,30 @@ pub fn info(app: &AppHandle) -> RemoteInfo {
     }
 }
 
-/// Turn the server on or off (and remember the choice).
+/// Turn access from other devices on or off (and remember the choice).
 pub fn set_enabled(app: &AppHandle, on: bool) {
     set(app, KEY_ENABLED, if on { "1" } else { "0" });
-    if on {
-        start(app.clone());
-    } else {
-        stop(app);
+    refresh(app);
+}
+
+/// Run the server as the settings say: on every address for other
+/// devices, on this PC's own address for the EFB app only, or not at all.
+pub fn refresh(app: &AppHandle) {
+    let others = setting(app, KEY_ENABLED).as_deref() == Some("1");
+    let efb = setting(app, KEY_EFB).as_deref() == Some("1");
+    let (running, all) = {
+        let remote = app.state::<Remote>();
+        let inner = remote.inner.lock().unwrap();
+        (inner.stop.is_some(), inner.all)
+    };
+    match (others || efb, running) {
+        (false, true) => stop(app),
+        (true, true) if all != others => {
+            stop(app);
+            start(app.clone(), others);
+        }
+        (true, false) => start(app.clone(), others),
+        _ => {}
     }
 }
 
@@ -226,11 +258,9 @@ fn stop(app: &AppHandle) {
     }
 }
 
-/// Start the server if it is switched on (at launch, or when turned on).
+/// Start the server if other devices or the EFB app need it (at launch).
 pub fn start_if_enabled(app: &AppHandle) {
-    if setting(app, KEY_ENABLED).as_deref() == Some("1") {
-        start(app.clone());
-    }
+    refresh(app);
 }
 
 #[derive(Clone)]
@@ -239,13 +269,14 @@ struct Ctx {
     events: broadcast::Sender<String>,
 }
 
-fn start(app: AppHandle) {
+fn start(app: AppHandle, all: bool) {
     let remote = app.state::<Remote>();
     {
         let mut inner = remote.inner.lock().unwrap();
         if inner.stop.is_some() {
             return;
         }
+        inner.all = all;
         if inner.code.is_empty() {
             inner.code = new_code();
         }
@@ -270,18 +301,33 @@ fn start(app: AppHandle) {
     let api = Router::new()
         .route("/api/session", get(session))
         .route("/api/pair", post(pair))
+        .route("/api/pair-local", post(pair_local))
         .route("/api/call/{cmd}", post(call))
         .route("/api/events", get(events_ws))
         .layer(DefaultBodyLimit::max(64 * 1024 * 1024));
     let router = Router::new()
         .merge(api)
         .fallback(get(asset))
+        .layer(middleware::from_fn(efb_cors))
         .layer(middleware::from_fn(local_only))
         .with_state(ctx);
 
     let app2 = app.clone();
     tauri::async_runtime::spawn(async move {
-        let listener = match tokio::net::TcpListener::bind(SocketAddr::from(([0, 0, 0, 0], PORT))).await {
+        let ip = if all { [0, 0, 0, 0] } else { [127, 0, 0, 1] };
+        // A server just stopped (switching between this PC only and other
+        // devices) can hold the port for a moment.
+        let mut tries = 0;
+        let bound = loop {
+            match tokio::net::TcpListener::bind(SocketAddr::from((ip, PORT))).await {
+                Err(_) if tries < 20 => {
+                    tries += 1;
+                    tokio::time::sleep(Duration::from_millis(250)).await;
+                }
+                other => break other,
+            }
+        };
+        let listener = match bound {
             Ok(l) => l,
             Err(e) => {
                 let msg = format!("Could not open port {PORT}: {e}");
@@ -325,15 +371,77 @@ fn token_of(headers: &HeaderMap) -> Option<String> {
 }
 
 fn paired(app: &AppHandle, token: Option<&str>) -> bool {
-    let Some(t) = token.filter(|t| t.len() == 64) else { return false };
-    devices(app).iter().any(|d| d.token == t)
+    device(app, token).is_some()
+}
+
+fn device(app: &AppHandle, token: Option<&str>) -> Option<Device> {
+    let t = token.filter(|t| t.len() == 64)?;
+    devices(app).into_iter().find(|d| d.token == t)
+}
+
+/// Pages inside the sim (the EFB) come from coui://; some engines send
+/// "null". Web pages from the internet never get either.
+fn sim_origin(headers: &HeaderMap) -> Option<String> {
+    let o = headers.get(header::ORIGIN)?.to_str().ok()?;
+    (o.starts_with("coui://") || o == "null").then(|| o.to_string())
+}
+
+/// Let FlightDeck's EFB app (a coui:// page) call the API: answer the
+/// browser's preflight and allow its origin. Other origins get nothing
+/// extra, so web pages still cannot read FlightDeck's answers.
+async fn efb_cors(req: Request<Body>, next: Next) -> Response {
+    let origin = sim_origin(req.headers());
+    if req.method() == axum::http::Method::OPTIONS {
+        let mut res = StatusCode::NO_CONTENT.into_response();
+        if let Some(o) = &origin {
+            add_cors(res.headers_mut(), o);
+        }
+        return res;
+    }
+    let mut res = next.run(req).await;
+    if let Some(o) = &origin {
+        add_cors(res.headers_mut(), o);
+    }
+    res
+}
+
+fn add_cors(h: &mut HeaderMap, origin: &str) {
+    if let Ok(v) = origin.parse() {
+        h.insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, v);
+    }
+    h.insert(header::ACCESS_CONTROL_ALLOW_HEADERS, header::HeaderValue::from_static("authorization, content-type"));
+    h.insert(header::ACCESS_CONTROL_ALLOW_METHODS, header::HeaderValue::from_static("GET, POST, OPTIONS"));
+    h.insert(header::VARY, header::HeaderValue::from_static("Origin"));
+}
+
+/// The EFB pairs itself: only from this PC, and only from a page inside the
+/// sim (or a program on this PC, which sends no origin). Always the same
+/// pairing, so the list of devices does not grow.
+async fn pair_local(State(ctx): State<Ctx>, ConnectInfo(addr): ConnectInfo<SocketAddr>, headers: HeaderMap) -> Response {
+    let from_pc = match addr.ip() {
+        IpAddr::V4(v4) => v4.is_loopback(),
+        IpAddr::V6(v6) => v6.is_loopback() || v6.to_ipv4_mapped().is_some_and(|v4| v4.is_loopback()),
+    };
+    let origin_ok = headers.get(header::ORIGIN).is_none() || sim_origin(&headers).is_some();
+    if !from_pc || !origin_ok {
+        return (StatusCode::FORBIDDEN, "Only FlightDeck's app in the sim on this PC can pair without a code.").into_response();
+    }
+    let mut list = devices(&ctx.app);
+    if let Some(d) = list.iter().find(|d| d.local && d.name == EFB_DEVICE) {
+        return Json(json!({ "token": d.token })).into_response();
+    }
+    let token = new_token();
+    list.push(Device { token: token.clone(), name: EFB_DEVICE.into(), paired_ms: now_ms(), local: true });
+    save_devices(&ctx.app, &list);
+    log::info!("the MSFS 2024 EFB paired itself");
+    Json(json!({ "token": token })).into_response()
 }
 
 async fn session(State(ctx): State<Ctx>, headers: HeaderMap) -> Json<Value> {
-    let ok = paired(&ctx.app, token_of(&headers).as_deref());
+    let dev = device(&ctx.app, token_of(&headers).as_deref());
     Json(json!({
-        "paired": ok,
-        "can_edit": ok && can_edit(&ctx.app),
+        "paired": dev.is_some(),
+        "can_edit": dev.is_some_and(|d| d.local || can_edit(&ctx.app)),
         "version": ctx.app.package_info().version.to_string(),
     }))
 }
@@ -369,7 +477,7 @@ async fn pair(State(ctx): State<Ctx>, ConnectInfo(addr): ConnectInfo<SocketAddr>
     let token = new_token();
     let mut list = devices(&ctx.app);
     let name = if req.name.trim().is_empty() { format!("Device at {}", addr.ip()) } else { req.name.trim().chars().take(60).collect() };
-    list.push(Device { token: token.clone(), name: name.clone(), paired_ms: now_ms() });
+    list.push(Device { token: token.clone(), name: name.clone(), paired_ms: now_ms(), local: false });
     save_devices(&ctx.app, &list);
     log::info!("paired a new device: {name}");
     Json(json!({ "token": token })).into_response()
@@ -429,12 +537,12 @@ fn fail(code: StatusCode, msg: &str) -> Response {
 
 async fn call(State(ctx): State<Ctx>, headers: HeaderMap, Path(cmd): Path<String>, body: Option<Json<Value>>) -> Response {
     let app = &ctx.app;
-    if !paired(app, token_of(&headers).as_deref()) {
+    let Some(dev) = device(app, token_of(&headers).as_deref()) else {
         return fail(StatusCode::UNAUTHORIZED, "This device is not paired with FlightDeck.");
-    }
+    };
     let args = body.map(|b| b.0).unwrap_or(Value::Null);
     if EDIT.contains(&cmd.as_str()) {
-        if !can_edit(app) {
+        if !dev.local && !can_edit(app) {
             return fail(
                 StatusCode::FORBIDDEN,
                 "This device can only view. To make changes from here, turn on \"Other devices can edit\" in Settings on the flight sim PC.",
@@ -509,4 +617,24 @@ fn load_asset(path: &str) -> Option<(Vec<u8>, String)> {
         _ => "application/octet-stream",
     };
     Some((bytes, mime.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn with_origin(o: &str) -> HeaderMap {
+        let mut h = HeaderMap::new();
+        h.insert(header::ORIGIN, o.parse().unwrap());
+        h
+    }
+
+    #[test]
+    fn only_the_sim_gets_cors() {
+        assert_eq!(sim_origin(&with_origin("coui://html_ui")).as_deref(), Some("coui://html_ui"));
+        assert_eq!(sim_origin(&with_origin("null")).as_deref(), Some("null"));
+        assert_eq!(sim_origin(&with_origin("http://evil.example")), None);
+        assert_eq!(sim_origin(&with_origin("http://192.168.1.5:8420")), None);
+        assert_eq!(sim_origin(&HeaderMap::new()), None);
+    }
 }

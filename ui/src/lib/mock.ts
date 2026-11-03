@@ -237,6 +237,8 @@ function mockProfile(): PilotProfile {
   };
 }
 
+let mockEfb = false;
+
 export async function mockCall<T>(cmd: string, _args?: Record<string, unknown>): Promise<T> {
   if (cmd === "set_banner") mockBanner = (_args?.dataUrl as string | null) ?? null;
   if (cmd === "set_pilot_photo") mockPhoto = (_args?.dataUrl as string | null) ?? null;
@@ -266,6 +268,17 @@ export async function mockCall<T>(cmd: string, _args?: Record<string, unknown>):
     const lat = Number(_args?.lat), lon = Number(_args?.lon);
     const near = AIRPORTS.map((a) => ({ a, d: Math.hypot(a.lat - lat, (a.lon - lon) * Math.cos((lat * Math.PI) / 180)) })).sort((x, y) => x.d - y.d)[0];
     return (near && near.d < 0.15 ? near.a : null) as T;
+  }
+  if (cmd === "efb_info" || cmd === "efb_install" || cmd === "efb_uninstall") {
+    if (cmd !== "efb_info") mockEfb = cmd === "efb_install";
+    const found = scene !== "nocommunity" || (cmd === "efb_install" && !!_args?.folder);
+    return {
+      installed: mockEfb && found,
+      version: mockEfb && found ? "0.1.36" : null,
+      community: found ? (_args?.folder as string) || "C:\\Users\\Pilot\\AppData\\Local\\Packages\\Microsoft.Limitless_8wekyb3d8bbwe\\LocalCache\\Packages\\Community" : null,
+      manual: false,
+      error: found ? null : "MSFS 2024's Community folder was not found. Choose it below.",
+    } as T;
   }
   if (cmd === "search_airports") {
     const q = String(_args?.query ?? "").trim().toUpperCase();
