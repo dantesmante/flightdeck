@@ -133,7 +133,9 @@ export function showSatellite(map: maplibregl.Map, on: boolean) {
       });
     }
     const layers = map.getStyle().layers ?? [];
-    const before = map.getLayer("fd-regions") ? "fd-regions" : layers.find((l) => l.id.startsWith("boundary") || l.type === "symbol")?.id;
+    // Under the terrain shading, if that is already on the map.
+    const before = ["terrain-light", "terrain-dark", "fd-regions"].find((id) => map.getLayer(id))
+      ?? layers.find((l) => l.id.startsWith("boundary") || l.type === "symbol")?.id;
     map.addLayer({ id: "satellite", type: "raster", source: "satellite", paint: { "raster-fade-duration": 0 } }, before);
   }
   if (map.getLayer("satellite")) map.setLayoutProperty("satellite", "visibility", on ? "visible" : "none");
@@ -143,6 +145,37 @@ export function showSatellite(map: maplibregl.Map, on: boolean) {
     if ((layer as { source?: string }).source !== "openmaptiles") continue;
     setPaint(map, layer.id, "text-color", on ? "#eceef1" : C.text);
     setPaint(map, layer.id, "text-halo-color", on ? "#0b0c0d" : C.halo);
+  }
+}
+
+/** Relief shading of mountains and valleys (Esri World Hillshade): the dark
+ * version over the night chart, the light one over satellite pictures. It
+ * sits above the land and pictures and below borders, labels and flights. */
+export const TERRAIN_ATTRIBUTION = "Hillshade © Esri, USGS, NGA, NASA, CGIAR";
+export function showTerrain(map: maplibregl.Map, on: boolean, satellite: boolean) {
+  const kinds: [string, string, number][] = [
+    ["terrain-dark", "World_Hillshade_Dark", 0.75],
+    ["terrain-light", "World_Hillshade", 0.4],
+  ];
+  for (const [id, service, opacity] of kinds) {
+    const want = on && (id === "terrain-light") === satellite;
+    if (want && !map.getLayer(id)) {
+      if (!map.getSource(id)) {
+        map.addSource(id, {
+          type: "raster",
+          tiles: [`https://server.arcgisonline.com/ArcGIS/rest/services/Elevation/${service}/MapServer/tile/{z}/{y}/{x}`],
+          tileSize: 256,
+          maxzoom: 16,
+          attribution: TERRAIN_ATTRIBUTION,
+        });
+      }
+      const layers = map.getStyle().layers ?? [];
+      const before = map.getLayer("fd-regions")
+        ? "fd-regions"
+        : layers.find((l) => l.id.startsWith("boundary") || l.type === "symbol")?.id;
+      map.addLayer({ id, type: "raster", source: id, paint: { "raster-opacity": opacity, "raster-fade-duration": 0 } }, before);
+    }
+    if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", want ? "visible" : "none");
   }
 }
 

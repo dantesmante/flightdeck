@@ -1,5 +1,5 @@
-// Passport paper: a cream page with fine guilloche lines, as on real
-// security printing. Generated once as an SVG data URL.
+// Passport paper: an aged parchment page with fine guilloche lines, as on
+// real security printing, over a rough grain. Generated once as SVG data URLs.
 
 function guilloche(w: number, h: number, colors: string[]): string {
   const lines: string[] = [];
@@ -14,7 +14,7 @@ function guilloche(w: number, h: number, colors: string[]): string {
       const y = y0 + Math.sin(x * freq + phase) * amp + Math.sin(x * freq * 0.37 + phase * 2) * amp * 0.6;
       d += ` L${x} ${y.toFixed(1)}`;
     }
-    lines.push(`<path d="${d}" fill="none" stroke="${colors[i % colors.length]}" stroke-width="0.6" opacity="0.55"/>`);
+    lines.push(`<path d="${d}" fill="none" stroke="${colors[i % colors.length]}" stroke-width="0.7" opacity="0.85"/>`);
   }
   // A faint rosette, drawn as a closed curve through the center so there
   // is no empty disc in the middle of the page.
@@ -28,15 +28,33 @@ function guilloche(w: number, h: number, colors: string[]): string {
       const r = r0 * (0.55 + 0.45 * Math.cos(a * (11 + k * 2)));
       d += `${i ? "L" : "M"}${(cx + Math.cos(a) * r).toFixed(1)} ${(cy + Math.sin(a) * r).toFixed(1)} `;
     }
-    lines.push(`<path d="${d}Z" fill="none" stroke="${colors[k % colors.length]}" stroke-width="0.5" opacity="0.4"/>`);
+    lines.push(`<path d="${d}Z" fill="none" stroke="${colors[k % colors.length]}" stroke-width="0.6" opacity="0.6"/>`);
   }
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">${lines.join("")}</svg>`;
   return `url("data:image/svg+xml;utf8,${encodeURIComponent(svg)}")`;
 }
 
+/** Rough paper: fine fibres and blotches from SVG noise, as a tile. */
+function grain(size: number): string {
+  const svg =
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}">` +
+    `<filter id="f"><feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="3" seed="7" stitchTiles="stitch"/>` +
+    `<feColorMatrix values="0 0 0 0 0.32  0 0 0 0 0.22  0 0 0 0 0.12  0 0 0 0.55 -0.18"/></filter>` +
+    `<filter id="b"><feTurbulence type="fractalNoise" baseFrequency="0.012" numOctaves="3" seed="3" stitchTiles="stitch"/>` +
+    `<feColorMatrix values="0 0 0 0 0.36  0 0 0 0 0.25  0 0 0 0 0.14  0 0 0 0.9 -0.42"/></filter>` +
+    `<rect width="100%" height="100%" filter="url(#b)"/><rect width="100%" height="100%" filter="url(#f)"/></svg>`;
+  return `url("data:image/svg+xml;utf8,${encodeURIComponent(svg)}")`;
+}
+
 let cached: string | null = null;
+/** The page background: guilloche lines over rough paper, darker towards
+ * the edges like an old, handled page. Sizes are in .paper's CSS. */
 export function paperPattern(): string {
-  cached ??= guilloche(360, 510, ["#9fc1bd", "#d3a9b8", "#b6c59a"]);
+  cached ??= [
+    guilloche(360, 510, ["#9fc1bd", "#d3a9b8", "#b6c59a"]),
+    grain(320),
+    "radial-gradient(ellipse at 50% 45%, rgba(255, 246, 228, 0.18) 0%, transparent 55%, rgba(92, 62, 36, 0.22) 100%)",
+  ].join(", ");
   return cached;
 }
 

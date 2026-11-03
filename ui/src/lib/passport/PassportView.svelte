@@ -7,7 +7,7 @@
   import Emblem from "./Emblem.svelte";
   import { holoPage, mrz, paperPattern, passportNumber } from "./paper";
   import Stamp from "./Stamp.svelte";
-  import WorldMap from "./WorldMap.svelte";
+  import WorldMap, { type MapAirport, type View } from "./WorldMap.svelte";
 
   let { onsettings }: { onsettings: () => void } = $props();
 
@@ -61,6 +61,21 @@
   });
 
   const visited = $derived(new Set((data?.countries ?? []).map((c) => c.country)));
+
+  // The world map pages zoom (scroll or double-click) and pan (drag); both
+  // pages share the view. Zoomed in, every airport flown from or to shows.
+  let mapView = $state<View>({ x: 0, y: 0, k: 1 });
+  let mapAirports = $state<MapAirport[]>([]);
+  onMount(() => {
+    api.routes().then((routes) => {
+      const seen = new Map<string, MapAirport>();
+      for (const r of routes ?? []) {
+        if (r.dep_icao) seen.set(r.dep_icao, { icao: r.dep_icao, lon: r.from[0], lat: r.from[1] });
+        if (r.arr_icao) seen.set(r.arr_icao, { icao: r.arr_icao, lon: r.to[0], lat: r.to[1] });
+      }
+      mapAirports = [...seen.values()];
+    });
+  });
 
   const pages = $derived.by<Page[]>(() => {
     if (!data) return [];
@@ -138,13 +153,21 @@
         <h3>{mp.half === "left" ? "Countries visited" : visited.size ? `${visited.size} ${visited.size === 1 ? "country" : "countries"}` : "No countries yet"}</h3>
         <div class="mapbox">
           {#if world}
-            <WorldMap {world} {visited} half={mp.half} width={340} />
+            <WorldMap {world} {visited} half={mp.half} width={340} view={mapView} onview={(v) => (mapView = v)} airports={mapAirports} />
           {/if}
         </div>
         {#if mp.half === "left"}
-          <p class="legend"><span class="swatch"></span>Countries you have landed in</p>
-        {:else if data && data.countries.length}
-          <p class="legend first">First country: {data.countries[0].name}</p>
+          <p class="legend"><span class="swatch"></span>Countries you have landed in{#if mapView.k >= 2.5}<span class="apt-key"></span>Airports{/if}</p>
+        {:else if mapView.k > 1}
+          <p class="legend first">
+            Drag to move around
+            <button class="fullmap" onclick={() => (mapView = { x: 0, y: 0, k: 1 })}>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" /></svg>
+              Full map
+            </button>
+          </p>
+        {:else}
+          <p class="legend first">Scroll or double-click the map to zoom in{data && data.countries.length ? ` · First country: ${data.countries[0].name}` : ""}</p>
         {/if}
       </div>
     {/snippet}
@@ -434,7 +457,9 @@
     position: relative;
     width: 100%;
     height: 100%;
-    background-color: #e9dfc8;
+    background-color: #c9b39a;
+    background-size: 360px 510px, 320px 320px, 100% 100%;
+    background-repeat: repeat, repeat, no-repeat;
     color: #3a3446;
     font-family: "Source Serif 4", Georgia, serif;
   }
@@ -445,7 +470,41 @@
     right: 0;
     text-align: center;
     font-size: 11px;
-    color: #8a8296;
+    color: #665c6f;
+  }
+  .fullmap {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px;
+    border: 1px solid #7d6c58;
+    border-radius: 4px;
+    background: rgba(240, 228, 204, 0.75);
+    color: #3a3446;
+    font: 600 12px var(--sans);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    font-style: normal;
+    cursor: pointer;
+  }
+  .fullmap:hover {
+    background: rgba(240, 228, 204, 0.95);
+  }
+  .fullmap svg {
+    width: 14px;
+    height: 14px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+  }
+  .apt-key {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    margin: 0 6px 0 16px;
+    border-radius: 50%;
+    background: #7a2e3a;
+    vertical-align: middle;
   }
   .endpaper {
     position: relative;
@@ -521,7 +580,7 @@
     text-align: right;
     font-size: 13px;
     letter-spacing: 0.04em;
-    color: #6f6880;
+    color: #544c60;
   }
   .quote cite::before {
     content: "\2014\00a0";
@@ -543,7 +602,7 @@
   .rules .small {
     font-style: normal;
     font-size: 11px;
-    color: #6f6880;
+    color: #544c60;
     margin-top: 16px;
   }
   .watermark {
@@ -650,7 +709,7 @@
     height: 100%;
     border: none;
     background: #ddd6e6;
-    color: #6f6880;
+    color: #544c60;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -687,7 +746,7 @@
   dt {
     font-size: 9.5px;
     font-style: italic;
-    color: #7a7189;
+    color: #5c5367;
   }
   dd {
     margin: 0;
@@ -744,14 +803,14 @@
     font-size: 12px;
     letter-spacing: 0.3em;
     text-transform: uppercase;
-    color: #8a8296;
+    color: #665c6f;
   }
   .empty {
     margin: 120px auto 0;
     max-width: 24ch;
     text-align: center;
     font-style: italic;
-    color: #7a7189;
+    color: #5c5367;
   }
   .slot {
     position: absolute;
@@ -777,6 +836,6 @@
   .since {
     font-family: "IBM Plex Mono", ui-monospace, monospace;
     font-size: 11px;
-    color: #6f6880;
+    color: #544c60;
   }
 </style>

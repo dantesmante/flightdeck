@@ -5,7 +5,7 @@
   import { onDestroy, onMount, untrack } from "svelte";
   import { api, type FlightPlan, type HangarItem, type MapAirport, type Route } from "./api";
   import AirportCard from "./AirportCard.svelte";
-  import { C as BASE, STYLE, addRegionLines, offlineStyle, setBorders, showSatellite, tintMap } from "./mapStyle";
+  import { C as BASE, STYLE, addRegionLines, offlineStyle, setBorders, showSatellite, showTerrain, tintMap } from "./mapStyle";
   import MapLayers from "./MapLayers.svelte";
   import { latestRadar } from "./radar";
   import { nightShade } from "./terminator";
@@ -603,6 +603,7 @@
     vis("night", on.has("night"));
     vis("night-edge", on.has("night"));
     showSatellite(map, on.has("satellite") && !offline);
+    showTerrain(map, on.has("terrain") && !offline, on.has("satellite"));
     setBorders(map, on.has("borders"), on.has("satellite") && !offline);
     showRadar(on.has("radar"));
   });

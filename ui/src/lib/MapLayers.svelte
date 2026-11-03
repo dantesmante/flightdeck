@@ -50,6 +50,14 @@
       <path d="M0 18 C 18 10, 34 22, 56 14 C 70 9, 86 18, 120 8 V0 H0 Z" fill="#7c7158" opacity="0.8" />
       <path d="M58 64 C 62 50, 76 44, 70 30 C 66 20, 80 14, 88 0" fill="none" stroke="#2c4a5e" stroke-width="4" />
       <path d="M20 54 L44 34" stroke="#b9b2a0" stroke-width="2" />
+    {:else if kind === "terrain"}
+      <defs>
+        <linearGradient id="la-ridge" x1="0" x2="1" y1="0" y2="1">
+          <stop offset="0" stop-color="#d9dde2" /><stop offset="1" stop-color="#2a2d31" />
+        </linearGradient>
+      </defs>
+      <path d="M0 64 L22 30 L34 42 L56 12 L74 36 L88 26 L120 58 V64 Z" fill="url(#la-ridge)" opacity="0.85" />
+      <path d="M0 64 L30 46 L48 54 L70 40 L96 52 L120 46 V64 Z" fill="#3a3e43" />
     {:else if kind === "borders"}
       <path d="M0 22 L30 26 L44 10 L60 18 L82 8 L120 16 M44 10 L50 40 L36 64 M50 40 L84 44 L96 64 M84 44 L120 38" fill="none" stroke="#9aa0a8" stroke-width="1.6" />
     {:else if kind === "routes"}
@@ -118,6 +126,7 @@
       {@render card("3d", "3D flight", three, () => onthree(!three))}
       {@render card("night", "Day / night", on.has("night"), () => ontoggle("night"))}
       {@render card("satellite", "Satellite", on.has("satellite"), () => ontoggle("satellite"))}
+      {@render card("terrain", "Topographic", on.has("terrain"), () => ontoggle("terrain"))}
       {@render card("borders", "Strong borders", on.has("borders"), () => ontoggle("borders"))}
     </div>
     <h4>Airports</h4>
@@ -151,7 +160,7 @@
     <div class="grid">
       {@render card("radar", "Rain radar", on.has("radar"), () => ontoggle("radar"), radarNote)}
     </div>
-    <p class="credit">Radar by RainViewer, updated every 10 minutes. Satellite imagery by Esri.</p>
+    <p class="credit">Radar by RainViewer, updated every 10 minutes. Satellite imagery and terrain shading by Esri.</p>
   </div>
 {/if}
 

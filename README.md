@@ -72,7 +72,8 @@ MIT licensed.
   flight files (.json); each becomes a FlightDeck flight with its track,
   landing and times. Re-importing is skipped.
 - **Map layers** panel: 3D flight, a live day/night line, **satellite**
-  imagery (Esri World Imagery), stronger borders, past routes, airports, **parked aircraft** (where you last left
+  imagery (Esri World Imagery), **topographic** relief shading (Esri World
+  Hillshade, over the chart or the satellite pictures), stronger borders, past routes, airports, **parked aircraft** (where you last left
   each aircraft, off by default), and live **rain radar** (RainViewer,
   refreshed every 10 minutes). **World airports** puts the world's
   airports on the map with a **Detail** slider: 1 major airports only, 2
@@ -106,7 +107,9 @@ MIT licensed.
 - **Passport book**: a passport whose cover turns open like a real one,
   in a cover color you choose (burgundy, red, navy, royal blue, teal,
   green, brown or black). Inside the cover, a world map spread over both
-  pages shades every country you have landed in. Then a data page (your
+  pages shades every country you have landed in; scroll or double-click
+  to zoom, drag to move, and zoomed in a dot marks every airport you have
+  flown from or to (**Full map** goes back). Then a data page (your
   photo, details and a machine-readable zone), generated rubber stamps and
   an index of countries. Only landings count: where a flight starts (or
   where you spawn) never counts as a visit. Landing in a different country
@@ -381,6 +384,7 @@ cargo run -p refdata --features build-tool --bin build-refdata -- ourairports-da
 - Flight plans from SimBrief (Navigraph) via its public OFP fetch.
 - Weather radar by RainViewer (free API for personal use).
 - METARs and TAFs from aviationweather.gov (NOAA Aviation Weather Center).
+- Terrain shading: Esri World Hillshade (Esri, USGS, NGA, NASA, CGIAR).
 - Satellite imagery: Esri World Imagery (Esri, Maxar, Earthstar
   Geographics, and the GIS User Community), shown with its attribution.
 - Fonts: Barlow and Barlow Condensed (SIL Open Font License).

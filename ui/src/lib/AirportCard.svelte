@@ -142,7 +142,8 @@
 
     {#if card.frequencies.length}
       <section>
-        <h4>Frequencies</h4>
+        <details class="fold">
+        <summary><h4>Frequencies <span class="count">{card.frequencies.length}</span></h4></summary>
         <ul class="freqs">
           {#each freqs as f, i (i)}
             <li><span class="fk">{f.kind}</span><span class="fd">{f.description}</span><b class="mono">{f.mhz.toFixed(3)}</b></li>
@@ -153,11 +154,13 @@
             {allFreqs ? "Fewer" : `All ${card.frequencies.length} frequencies`}
           </button>
         {/if}
+        </details>
       </section>
     {/if}
 
     <section>
-      <h4>Your flights here</h4>
+      <details class="fold">
+      <summary><h4>Your flights here <span class="count">{card.departures + card.arrivals || ""}</span></h4></summary>
       {#if card.departures + card.arrivals === 0}
         <p class="dim">You have not flown here yet.</p>
       {:else}
@@ -177,6 +180,7 @@
           {/each}
         </ul>
       {/if}
+      </details>
     </section>
     <p class="credit">Airport data from OurAirports. Weather from aviationweather.gov.</p>
   {/if}
@@ -287,6 +291,41 @@
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--ink-dim);
+  }
+  .fold summary {
+    list-style: none;
+    cursor: pointer;
+    position: relative;
+  }
+  .fold summary::-webkit-details-marker {
+    display: none;
+  }
+  .fold summary h4 {
+    margin: 0;
+  }
+  .fold summary::after {
+    content: "";
+    position: absolute;
+    right: 4px;
+    top: 3px;
+    width: 7px;
+    height: 7px;
+    border-right: 1.6px solid var(--ink-dim);
+    border-bottom: 1.6px solid var(--ink-dim);
+    transform: rotate(45deg);
+    transition: transform 0.15s;
+  }
+  .fold[open] summary::after {
+    transform: rotate(-135deg);
+    top: 7px;
+  }
+  .fold[open] summary {
+    margin-bottom: 8px;
+  }
+  .count {
+    margin-left: 4px;
+    color: var(--ink-faint);
+    letter-spacing: 0;
   }
   .dim {
     color: var(--ink-dim);

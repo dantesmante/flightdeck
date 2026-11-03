@@ -375,7 +375,7 @@
   .picture {
     position: relative;
     z-index: 2;
-    aspect-ratio: 5 / 4;
+    aspect-ratio: 3 / 2;
     overflow: hidden;
   }
   .star {
