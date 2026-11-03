@@ -320,14 +320,12 @@
     letter-spacing: 0.02em;
     white-space: nowrap;
   }
-  /* An airline's colors behind the registration: its main color with a
-     cheat-line stripe in the accent color. */
+  /* An airline's colors behind the registration: its main color, with a
+     band of the accent color along the right edge (as on the aircraft page). */
   .reg.airline {
     color: #fff;
-    background:
-      linear-gradient(100deg, transparent 0 68%, var(--b) 68% 73%, transparent 73% 76%, var(--b) 76% 78%, transparent 78%),
-      linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(0, 0, 0, 0.18)),
-      var(--a);
+    background: var(--a);
+    box-shadow: inset -6px 0 0 var(--b);
   }
   .reg.airline h3 {
     text-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);

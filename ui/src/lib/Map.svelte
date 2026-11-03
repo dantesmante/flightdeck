@@ -108,7 +108,8 @@
   }
   /** The airport whose card is open. */
   let openAirport = $state<string | null>(null);
-  const AIRPORT_LAYERS = ["wa-major", "wa-regional", "wa-small", "routes-airports"];
+  /** Dots and their codes: either opens the airport. */
+  const AIRPORT_LAYERS = ["wa-major", "wa-regional", "wa-small", "wa-labels-0", "wa-labels-1", "wa-labels-2", "routes-airports"];
   /** The airport (code) at a point on the map, if any. */
   function airportAt(pt: maplibregl.PointLike): string | null {
     if (!map) return null;
@@ -261,9 +262,9 @@
     map.addSource("world-airports", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
     const WORLD: [string, number, string, number[]][] = [
       // [layer, rank, color, [radius at zoom 3, at zoom 10]]
-      ["wa-small", 2, "#7d8792", [1.6, 3.2]],
-      ["wa-regional", 1, "#8fa8c4", [2, 4]],
-      ["wa-major", 0, "#a9c8f0", [2.8, 5.5]],
+      ["wa-small", 2, "#a98be0", [1.6, 3.2]],
+      ["wa-regional", 1, "#5cc08a", [2, 4]],
+      ["wa-major", 0, "#4f9cf0", [3.1, 6]],
     ];
     const MINZOOM = [0, 4.5, 7];
     for (const [id, rank, color, [r0, r1]] of WORLD) {
@@ -300,7 +301,7 @@
             "text-anchor": "left",
             "text-optional": true,
           },
-          paint: { "text-color": "#b9c3cf", "text-halo-color": "#111214", "text-halo-width": 1.2 },
+          paint: { "text-color": ["#8fc0f7", "#8fd6ad", "#c6b2ec"][rank], "text-halo-color": "#111214", "text-halo-width": 1.2 },
         });
       }
     }

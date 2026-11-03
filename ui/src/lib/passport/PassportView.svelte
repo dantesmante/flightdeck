@@ -434,7 +434,7 @@
     position: relative;
     width: 100%;
     height: 100%;
-    background-color: #f3eedf;
+    background-color: #e9dfc8;
     color: #3a3446;
     font-family: "Source Serif 4", Georgia, serif;
   }

@@ -61,7 +61,7 @@
       {/each}
     {:else if kind === "world"}
       {#each [[18, 16, 4], [70, 40, 4], [100, 14, 3], [40, 50, 2.4], [56, 22, 2.4], [88, 54, 2.4], [24, 36, 1.8], [108, 38, 1.8], [64, 8, 1.8], [10, 56, 1.8]] as [x, y, r] (`${x},${y}`)}
-        <circle cx={x} cy={y} r={r} fill={r > 3 ? "#a9c8f0" : r > 2 ? "#8fa8c4" : "#7d8792"} stroke="#111214" stroke-width="1" />
+        <circle cx={x} cy={y} r={r} fill={r > 3 ? "#4f9cf0" : r > 2 ? "#5cc08a" : "#a98be0"} stroke="#111214" stroke-width="1" />
       {/each}
     {:else if kind === "parked"}
       {#each [[22, 22], [64, 42], [92, 18]] as [x, y] (x)}

@@ -346,11 +346,14 @@ impl Engine {
         }
         self.last_scan = Some(Instant::now());
         let found = self.watcher.scan();
-        self.notice = None;
+        // The notice stays while the sim is still found; it went away
+        // between connection attempts before, so it blinked.
+        let prev = self.notice.take();
         for d in found {
             match d {
                 watcher::Detected::Msfs(hint) => {
                     if self.last_connect.is_some_and(|t| t.elapsed() < RETRY_CONNECT) {
+                        self.notice = prev.clone();
                         continue;
                     }
                     self.last_connect = Some(Instant::now());

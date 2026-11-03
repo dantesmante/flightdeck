@@ -92,7 +92,7 @@
     opacity: 0.7;
   }
   path:not(.sea):not(.grid) {
-    fill: #e6dec9;
+    fill: #d9ccae;
     stroke: #a99d81;
     stroke-width: 0.45;
     stroke-linejoin: round;
@@ -103,7 +103,7 @@
   }
   .dot {
     fill: #3f6f69;
-    stroke: #f3eedf;
+    stroke: #e9dfc8;
     stroke-width: 0.8;
   }
 </style>
