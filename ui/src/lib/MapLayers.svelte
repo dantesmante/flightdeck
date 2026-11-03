@@ -40,6 +40,12 @@
       <path d="M70 0 C 58 16, 58 48, 70 64" fill="none" stroke="#f0b23a" stroke-width="1.4" opacity="0.8" />
       <circle cx="96" cy="20" r="7" fill="#f6c453" opacity="0.9" />
       <circle cx="28" cy="20" r="1" fill="#fff" /><circle cx="44" cy="34" r="1" fill="#fff" /><circle cx="18" cy="44" r="1" fill="#fff" />
+    {:else if kind === "satellite"}
+      <rect width="120" height="64" fill="#2f3a2a" />
+      <path d="M0 40 C 20 30, 40 46, 64 36 C 84 28, 100 40, 120 30 V64 H0 Z" fill="#4a5a38" />
+      <path d="M0 18 C 18 10, 34 22, 56 14 C 70 9, 86 18, 120 8 V0 H0 Z" fill="#7c7158" opacity="0.8" />
+      <path d="M58 64 C 62 50, 76 44, 70 30 C 66 20, 80 14, 88 0" fill="none" stroke="#2c4a5e" stroke-width="4" />
+      <path d="M20 54 L44 34" stroke="#b9b2a0" stroke-width="2" />
     {:else if kind === "borders"}
       <path d="M0 22 L30 26 L44 10 L60 18 L82 8 L120 16 M44 10 L50 40 L36 64 M50 40 L84 44 L96 64 M84 44 L120 38" fill="none" stroke="#9aa0a8" stroke-width="1.6" />
     {:else if kind === "routes"}
@@ -103,6 +109,7 @@
     <div class="grid">
       {@render card("3d", "3D flight", three, () => onthree(!three))}
       {@render card("night", "Day / night", on.has("night"), () => ontoggle("night"))}
+      {@render card("satellite", "Satellite", on.has("satellite"), () => ontoggle("satellite"))}
       {@render card("borders", "Strong borders", on.has("borders"), () => ontoggle("borders"))}
     </div>
     <h4>Your flights</h4>
@@ -117,7 +124,7 @@
     <div class="grid">
       {@render card("radar", "Rain radar", on.has("radar"), () => ontoggle("radar"), radarNote)}
     </div>
-    <p class="credit">Radar by RainViewer, updated every 10 minutes.</p>
+    <p class="credit">Radar by RainViewer, updated every 10 minutes. Satellite imagery by Esri.</p>
   </div>
 {/if}
 

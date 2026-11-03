@@ -127,18 +127,67 @@ fn new_token() -> String {
     random_bytes::<32>().iter().map(|b| format!("{b:02x}")).collect()
 }
 
-/// Home-network addresses only: private IPv4 ranges, link-local, loopback
-/// and IPv6 unique-local. Anything from the internet is refused.
-fn is_local(ip: IpAddr) -> bool {
-    match ip {
-        IpAddr::V4(v4) => v4.is_private() || v4.is_loopback() || v4.is_link_local(),
-        IpAddr::V6(v6) => {
-            if let Some(v4) = v6.to_ipv4_mapped() {
-                return v4.is_private() || v4.is_loopback() || v4.is_link_local();
-            }
-            let first = v6.segments()[0];
-            v6.is_loopback() || (first & 0xfe00) == 0xfc00 || (first & 0xffc0) == 0xfe80
+/// A network: an address on it and its netmask.
+type Net = (std::net::Ipv4Addr, std::net::Ipv4Addr);
+
+/// Words in the names of network adapters that are not the home network:
+/// VPNs, overlay networks and virtual machines.
+const NOT_HOME: &[&str] = &[
+    "vpn", "wireguard", "tailscale", "zerotier", "openvpn", "nordlynx", "proton", "mullvad", "hamachi", "radmin",
+    "tunnel", "vethernet", "virtualbox", "vmware", "hyper-v", "wsl", "docker", "npcap", "loopback",
+];
+
+fn is_home_adapter(name: &str) -> bool {
+    let n = name.to_lowercase();
+    !(NOT_HOME.iter().any(|w| n.contains(w)) || n.starts_with("wg") || n.starts_with("tun") || n.starts_with("tap"))
+}
+
+/// This PC's home networks: (address, netmask) of each private IPv4 address
+/// on a real adapter (Wi-Fi, Ethernet). VPN and virtual adapters, and
+/// single-address networks (as VPNs hand out), are left out.
+fn home_networks() -> Vec<Net> {
+    static CACHE: Mutex<Option<(Instant, Vec<Net>)>> = Mutex::new(None);
+    let mut cache = CACHE.lock().unwrap();
+    if let Some((at, nets)) = cache.as_ref() {
+        if at.elapsed() < Duration::from_secs(30) {
+            return nets.clone();
         }
+    }
+    let nets: Vec<_> = if_addrs::get_if_addrs()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|i| !i.is_loopback() && is_home_adapter(&i.name))
+        .filter_map(|i| match i.addr {
+            if_addrs::IfAddr::V4(a) if a.ip.is_private() && a.prefixlen <= 30 => Some((a.ip, a.netmask)),
+            _ => None,
+        })
+        .collect();
+    *cache = Some((Instant::now(), nets.clone()));
+    nets
+}
+
+fn same_network(ip: std::net::Ipv4Addr, nets: &[Net]) -> bool {
+    nets.iter().any(|(own, mask)| u32::from(ip) & u32::from(*mask) == u32::from(*own) & u32::from(*mask))
+}
+
+/// This PC, or a device on the same home network as one of its Wi-Fi or
+/// Ethernet adapters. Anything else, from the internet or through a VPN,
+/// is refused.
+fn is_local(ip: IpAddr) -> bool {
+    is_local_with(ip, &home_networks())
+}
+
+fn is_local_with(ip: IpAddr, nets: &[Net]) -> bool {
+    let ip = match ip {
+        IpAddr::V6(v6) => match v6.to_ipv4_mapped() {
+            Some(v4) => IpAddr::V4(v4),
+            None => return v6.is_loopback() || (v6.segments()[0] & 0xffc0) == 0xfe80,
+        },
+        v4 => v4,
+    };
+    match ip {
+        IpAddr::V4(v4) => v4.is_loopback() || (v4.is_private() && same_network(v4, nets)),
+        IpAddr::V6(_) => false,
     }
 }
 
@@ -168,15 +217,7 @@ fn can_edit(app: &AppHandle) -> bool {
 
 /// This PC's addresses on the home network.
 fn local_urls() -> Vec<String> {
-    let mut out: Vec<String> = if_addrs::get_if_addrs()
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|i| !i.is_loopback())
-        .filter_map(|i| match i.ip() {
-            IpAddr::V4(v4) if v4.is_private() => Some(format!("http://{v4}:{PORT}")),
-            _ => None,
-        })
-        .collect();
+    let mut out: Vec<String> = home_networks().into_iter().map(|(ip, _)| format!("http://{ip}:{PORT}")).collect();
     out.sort();
     out.dedup();
     out
@@ -627,6 +668,31 @@ mod tests {
         let mut h = HeaderMap::new();
         h.insert(header::ORIGIN, o.parse().unwrap());
         h
+    }
+
+    #[test]
+    fn only_the_home_network_is_local() {
+        let home = [("192.168.1.76".parse().unwrap(), "255.255.255.0".parse().unwrap())];
+        let ok = |s: &str| is_local_with(s.parse().unwrap(), &home);
+        assert!(ok("127.0.0.1"));
+        assert!(ok("192.168.1.20"));
+        assert!(ok("::ffff:192.168.1.20"));
+        assert!(ok("fe80::1"));
+        // Another private network, such as the far side of a VPN.
+        assert!(!ok("10.2.0.1"));
+        assert!(!ok("192.168.2.20"));
+        assert!(!ok("fd7a:115c:a1e0::1"));
+        assert!(!ok("8.8.8.8"));
+    }
+
+    #[test]
+    fn vpn_adapters_are_not_home() {
+        for n in ["ProtonVPN", "WireGuard Tunnel", "wg0", "Tailscale", "vEthernet (WSL)", "NordLynx", "TAP-Windows Adapter V9"] {
+            assert!(!is_home_adapter(n), "{n}");
+        }
+        for n in ["Wi-Fi", "Ethernet", "Ethernet 2", "Local Area Connection"] {
+            assert!(is_home_adapter(n), "{n}");
+        }
     }
 
     #[test]

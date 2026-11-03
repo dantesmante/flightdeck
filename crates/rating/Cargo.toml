@@ -9,3 +9,6 @@ license.workspace = true
 tracker.workspace = true
 store.workspace = true
 serde.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

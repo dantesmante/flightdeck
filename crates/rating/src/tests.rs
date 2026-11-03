@@ -395,6 +395,53 @@ fn a_stable_approach_scores_100_and_an_unstable_one_loses() {
     assert_eq!((s.approach_sink_max, s.approach_bank_max, s.approach_speed_dev), (1500.0, 25.0, 20.0));
 }
 
+fn real_approach(json: &str) -> Approach {
+    serde_json::from_str(json).unwrap()
+}
+
+#[test]
+fn a_steady_slow_down_on_final_is_fine() {
+    // A Comanche into Concrete (K3W5): level at 88 kt about 500 ft above the
+    // valley, then a descent slowing steadily to 59 kt by 50 ft. The old
+    // rule took 88 kt as the typical speed and scored this approach 0.
+    let mut h = smooth_handling(60.0);
+    h.approach = Some(real_approach(include_str!("testdata/approach_86.json")));
+    let s = score_safety(&h, false).unwrap();
+    let a = s.approach.as_ref().unwrap().score;
+    eprintln!("K3W5 approach {a}, speed off by up to {:.1} kt", s.approach_speed_dev);
+    assert!(a >= 85.0, "{s:?}");
+    // A steady descent at 81 kt (into Omak): only a moment at 1,003 fpm.
+    h.approach = Some(real_approach(include_str!("testdata/approach_85.json")));
+    assert_eq!(score_safety(&h, false).unwrap().approach.unwrap().score, 99.0);
+}
+
+#[test]
+fn speed_alone_cannot_zero_the_approach() {
+    let wild: Vec<_> = (0..90)
+        .map(|i| (i as f32 - 90.0, 1000.0 - i as f32 * 11.0, -700.0, 2.0, if i % 10 < 5 { 100.0 } else { 160.0 }))
+        .collect();
+    let mut h = smooth_handling(60.0);
+    h.approach = Some(approach(&wild));
+    let a = score_safety(&h, false).unwrap().approach.unwrap().score;
+    assert_eq!(a, 50.0);
+}
+
+#[test]
+fn slowing_far_too_much_costs_a_little() {
+    // 130 kt down to 80 kt from 500 ft: well past the 25 kt allowed.
+    let pts: Vec<_> = (0..90)
+        .map(|i| {
+            let agl = 1000.0 - i as f32 * 11.0;
+            let ias = if agl > 500.0 { 130.0 } else { 130.0 - (500.0 - agl) / 450.0 * 50.0 };
+            (i as f32 - 90.0, agl, -700.0, 2.0, ias)
+        })
+        .collect();
+    let mut h = smooth_handling(60.0);
+    h.approach = Some(approach(&pts));
+    let a = score_safety(&h, false).unwrap().approach.unwrap().score;
+    assert!((60.0..=85.0).contains(&a), "{a}");
+}
+
 #[test]
 fn the_speed_limit_costs_per_second_over() {
     let mut h = smooth_handling(60.0);

@@ -8,7 +8,7 @@
 
   let { onclose }: { onclose: () => void } = $props();
 
-  const EDITION = "0.1.34";
+  const EDITION = "0.1.37";
 
   let page = $state<HTMLElement | null>(null);
   onMount(() => {
@@ -145,8 +145,12 @@
         <li><b>Sink rate:</b> no faster than 1,000 fpm from 1,000 ft down. 10 seconds at 1,300 fpm costs about 18 points.</li>
         <li><b>Bank:</b> no more than 15° from 500 ft down. 10 seconds at 20° costs about 13 points.</li>
         <li>
-          <b>Speed:</b> from 500 ft down to the flare (50 ft), within 10 kt of the typical speed of your approach.
-          10 seconds 15 kt off costs about 25 points.
+          <b>Speed:</b> from 500 ft down to the flare (50 ft), judged only while you are descending, so a stretch flown
+          level (a low circuit, say) does not count. Your speed should stay within 10 kt of what it was over the
+          surrounding 20 seconds: a surge or a sag costs points, but slowing down steadily toward the runway does not.
+          10 seconds 15 kt off costs about 25 points. Slowing by more than 25 kt in total over the final costs 2 points
+          for each knot beyond, and speeding up by more than 10 kt the same. Speed can cost at most half of the
+          approach score.
         </li>
       </ul>
       <h3>Speed limit</h3>

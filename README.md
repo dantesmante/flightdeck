@@ -71,10 +71,12 @@ MIT licensed.
 - **Elevatex import**: Settings, Elevatex. Import any number of Elevatex
   flight files (.json); each becomes a FlightDeck flight with its track,
   landing and times. Re-importing is skipped.
-- **Map layers** panel: 3D flight, a live day/night line, stronger
-  borders, past routes, airports, **parked aircraft** (where you last left
+- **Map layers** panel: 3D flight, a live day/night line, **satellite**
+  imagery (Esri World Imagery), stronger borders, past routes, airports, **parked aircraft** (where you last left
   each aircraft, off by default), and live **rain radar** (RainViewer,
-  refreshed every 10 minutes). Your choices are remembered.
+  refreshed every 10 minutes). Your choices are remembered. State,
+  province and other region lines show from zoom 3 (the base map draws
+  them only from zoom 8).
 - **Cancel a flight**: if tracking has started but you decide not to fly,
   Cancel flight throws it away without saving anything.
 - **Flights list**: point at a flight and its route lights up on the map.
@@ -153,7 +155,9 @@ MIT licensed.
   Limits: bank 30°, nose up 20°, nose down 10°; roll 8°/s, pitch 3°/s, G
   change 0.5 G/s; on the approach (the last descent through 1,000 ft above
   the ground before touchdown) no more than 1,000 fpm down, 15° of bank
-  from 500 ft and airspeed within 10 kt to the flare; 250 kt below 10,000
+  from 500 ft and, while descending from 500 ft to the flare, airspeed
+  within 10 kt of the speed around that moment (a steady slow-down of up
+  to 25 kt is fine); 250 kt below 10,000
   ft. Every second past a limit costs points, growing with the square of
   the excess. The score moves your rating (everyone starts at 1,000)
   against what your rating expects. Every completed flight earns XP: its
@@ -192,8 +196,9 @@ MIT licensed.
   the 6-digit pairing code. Each device pairs once; **Forget all devices**
   signs them all out. Other devices can only view unless **Other devices
   can edit** is on. Exports, diagnostics, updates and the access settings
-  themselves stay on the PC. FlightDeck answers only addresses on the home
-  network (port 8420) and never the internet: nothing is forwarded from
+  themselves stay on the PC. FlightDeck answers only devices on the same
+  network as the PC's Wi-Fi or Ethernet (port 8420), never the internet
+  and never anything coming through a VPN or virtual adapter: nothing is forwarded from
   the router and no outside service is involved. Windows may ask whether
   FlightDeck can use private networks; choose Allow.
 - **MSFS 2024 EFB** (Settings, MSFS 2024 EFB): **Install in MSFS 2024 EFB**
@@ -366,4 +371,6 @@ cargo run -p refdata --features build-tool --bin build-refdata -- ourairports-da
   `tools/build_flags.py`.
 - Flight plans from SimBrief (Navigraph) via its public OFP fetch.
 - Weather radar by RainViewer (free API for personal use).
+- Satellite imagery: Esri World Imagery (Esri, Maxar, Earthstar
+  Geographics, and the GIS User Community), shown with its attribution.
 - Fonts: Barlow and Barlow Condensed (SIL Open Font License).

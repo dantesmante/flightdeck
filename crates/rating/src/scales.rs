@@ -91,11 +91,27 @@ pub const APPROACH_SINK_COST: f64 = 0.2;
 pub const APPROACH_GATE_FT: f64 = 500.0;
 pub const APPROACH_BANK_LIMIT_DEG: f64 = 15.0;
 pub const APPROACH_BANK_COST: f64 = 0.05;
-/// ...and, from 500 ft down to the flare (50 ft), airspeed within this
-/// of its typical value on the approach.
+/// ...and, from 500 ft down to the flare (50 ft), airspeed within this of
+/// the typical speed around that moment (the median over this many seconds
+/// either side), counting only while descending: level stretches, such as
+/// a circuit flown low, are left out, and a steady slow-down toward the
+/// runway is no deviation.
 pub const APPROACH_FLARE_FT: f64 = 50.0;
 pub const APPROACH_SPEED_BAND_KT: f64 = 10.0;
 pub const APPROACH_SPEED_COST: f64 = 0.1;
+pub const APPROACH_SPEED_WINDOW_S: f64 = 10.0;
+/// A point counts as descending below this vertical speed.
+pub const APPROACH_DESCENDING_FPM: f64 = -100.0;
+/// Fewer descending points than this: the speed is not judged.
+pub const APPROACH_SPEED_MIN_POINTS: usize = 10;
+/// From the start of the final to the flare the speed may drop by this much
+/// (the first and last 10 seconds compared), or rise by this much; beyond,
+/// each knot costs APPROACH_TREND_COST points.
+pub const APPROACH_SLOWDOWN_KT: f64 = 25.0;
+pub const APPROACH_SPEEDUP_KT: f64 = 10.0;
+pub const APPROACH_TREND_COST: f64 = 2.0;
+/// Speed can cost at most this much of the approach score.
+pub const APPROACH_SPEED_MAX_LOSS: f64 = 50.0;
 
 /// Speed limit (250 kt below 10,000 ft): points per second per knot of
 /// excess squared, in 5-knot steps. Ten seconds at 260 kt costs 13.

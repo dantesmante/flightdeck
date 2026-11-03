@@ -13,8 +13,10 @@ export const C = {
   road: "#242628",
   roadMajor: "#2b2d30",
   aeroway: "#3d4045",
-  border: "#34373b",
+  border: "#3e4146",
   borderStrong: "#7a8089",
+  region: "#34373b",
+  regionStrong: "#626870",
   text: "#6c7076",
   halo: "#141516",
   track: "#e2468f",
@@ -92,18 +94,84 @@ export function offlineStyle(): maplibregl.StyleSpecification {
   };
 }
 
-/** Country and state borders: faint by default, or picked out clearly. */
+/** States, provinces and other regions (the base style only draws them
+ * from zoom 8): dashed lines from the zoom where the tiles carry them. */
+export function addRegionLines(map: maplibregl.Map) {
+  if (map.getLayer("fd-regions") || !map.getSource("openmaptiles")) return;
+  const before = (map.getStyle().layers ?? []).find((l) => l.id.startsWith("boundary"))?.id;
+  map.addLayer(
+    {
+      id: "fd-regions",
+      type: "line",
+      source: "openmaptiles",
+      "source-layer": "boundary",
+      minzoom: 3,
+      filter: ["all", [">=", ["get", "admin_level"], 3], ["<=", ["get", "admin_level"], 4], ["!=", ["get", "maritime"], 1]],
+      layout: { "line-join": "round", "line-cap": "round" },
+      paint: {
+        "line-color": C.region,
+        "line-width": ["interpolate", ["linear"], ["zoom"], 3, 0.6, 6, 1, 10, 1.6],
+        "line-dasharray": [3, 2],
+      },
+    },
+    before,
+  );
+}
+
+/** Satellite pictures (Esri World Imagery) under the borders, labels and
+ * your flights; the chart's own land, water and roads are covered. */
+export const SATELLITE_ATTRIBUTION = "Imagery © Esri, Maxar, Earthstar Geographics, and the GIS User Community";
+export function showSatellite(map: maplibregl.Map, on: boolean) {
+  if (on && !map.getLayer("satellite")) {
+    if (!map.getSource("satellite")) {
+      map.addSource("satellite", {
+        type: "raster",
+        tiles: ["https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"],
+        tileSize: 256,
+        maxzoom: 19,
+        attribution: SATELLITE_ATTRIBUTION,
+      });
+    }
+    const layers = map.getStyle().layers ?? [];
+    const before = map.getLayer("fd-regions") ? "fd-regions" : layers.find((l) => l.id.startsWith("boundary") || l.type === "symbol")?.id;
+    map.addLayer({ id: "satellite", type: "raster", source: "satellite", paint: { "raster-fade-duration": 0 } }, before);
+  }
+  if (map.getLayer("satellite")) map.setLayoutProperty("satellite", "visibility", on ? "visible" : "none");
+  // Labels stay readable on the pictures.
+  for (const layer of map.getStyle().layers ?? []) {
+    if (layer.type !== "symbol" || layer.id.startsWith("fd-") || "source" in layer === false) continue;
+    if ((layer as { source?: string }).source !== "openmaptiles") continue;
+    setPaint(map, layer.id, "text-color", on ? "#eceef1" : C.text);
+    setPaint(map, layer.id, "text-halo-color", on ? "#0b0c0d" : C.halo);
+  }
+}
+
+/** Country borders and region lines: faint by default, or picked out
+ * clearly; lighter over satellite pictures. */
 const borderWidths = new WeakMap<maplibregl.Map, Map<string, unknown>>();
-export function setBorders(map: maplibregl.Map, strong: boolean) {
+export function setBorders(map: maplibregl.Map, strong: boolean, satellite = false) {
   let widths = borderWidths.get(map);
   if (!widths) borderWidths.set(map, (widths = new Map()));
   for (const layer of map.getStyle().layers ?? []) {
     if (layer.type !== "line") continue;
     const src = "source-layer" in layer ? String(layer["source-layer"] ?? "") : "";
     const key = `${layer.id} ${src}`.toLowerCase();
-    if (!key.match(/boundary|admin/)) continue;
-    setPaint(map, layer.id, "line-color", strong ? C.borderStrong : C.border);
-    setPaint(map, layer.id, "line-opacity", strong ? 0.9 : 1);
+    const region = layer.id === "fd-regions";
+    if (!region && !key.match(/boundary|admin/)) continue;
+    const color = satellite
+      ? region
+        ? "#d9dce1"
+        : "#f2f3f5"
+      : region
+        ? strong
+          ? C.regionStrong
+          : C.region
+        : strong
+          ? C.borderStrong
+          : C.border;
+    setPaint(map, layer.id, "line-color", color);
+    setPaint(map, layer.id, "line-opacity", satellite ? (strong ? 0.85 : 0.55) : strong ? 0.9 : 1);
+    if (region) continue;
     // Remember the style's own width so turning it off restores it.
     if (!widths.has(layer.id)) widths.set(layer.id, map.getPaintProperty(layer.id, "line-width"));
     setPaint(

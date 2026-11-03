@@ -15,7 +15,7 @@ mod scales;
 
 use serde::{Deserialize, Serialize};
 use store::pilot::RatingFlight;
-use tracker::{handling_source, Approach, Handling, LandingReport};
+use tracker::{handling_source, Approach, ApproachPoint, Handling, LandingReport};
 
 pub use scales::{rank_for, Insignia, Rank, RANKS};
 
@@ -284,6 +284,20 @@ struct ApproachJudged {
     speed_dev: f64,
 }
 
+fn median(mut v: Vec<f64>) -> f64 {
+    if v.is_empty() {
+        return 0.0;
+    }
+    v.sort_by(f64::total_cmp);
+    let n = v.len();
+    if n % 2 == 1 { v[n / 2] } else { (v[n / 2 - 1] + v[n / 2]) / 2.0 }
+}
+
+/// The median speed of the points (time, speed) within `half` seconds of `t`.
+fn speed_around(pts: &[(f64, f64)], t: f64, half: f64) -> f64 {
+    median(pts.iter().filter(|p| (p.0 - t).abs() <= half).map(|p| p.1).collect())
+}
+
 fn judge_approach(a: &Approach) -> Option<ApproachJudged> {
     let pts = &a.points;
     if pts.is_empty() {
@@ -295,14 +309,19 @@ fn judge_approach(a: &Approach) -> Option<ApproachJudged> {
         ((next - pts[i].t_s) as f64).clamp(0.0, 5.0)
     };
     let mut j = ApproachJudged { lost: 0.0, sink_max: 0.0, bank_max: 0.0, speed_dev: 0.0 };
-    // Typical approach speed: the median from 500 ft to the flare.
-    let mut speeds: Vec<f64> = pts
+    let in_gate = |p: &ApproachPoint| {
+        let agl = p.agl_ft as f64;
+        (scales::APPROACH_FLARE_FT..=scales::APPROACH_GATE_FT).contains(&agl)
+    };
+    let descending = |p: &ApproachPoint| (p.vs_fpm as f64) < scales::APPROACH_DESCENDING_FPM;
+    // The speed trend from 500 ft to the flare, while descending.
+    let speeds: Vec<(f64, f64)> = pts
         .iter()
-        .filter(|p| (p.agl_ft as f64) <= scales::APPROACH_GATE_FT && (p.agl_ft as f64) >= scales::APPROACH_FLARE_FT)
-        .filter_map(|p| p.ias_kt.map(f64::from))
+        .filter(|p| in_gate(p) && descending(p))
+        .filter_map(|p| p.ias_kt.map(|v| (p.t_s as f64, v as f64)))
         .collect();
-    speeds.sort_by(f64::total_cmp);
-    let typical = speeds.get(speeds.len() / 2).copied();
+    let judge_speed = speeds.len() >= scales::APPROACH_SPEED_MIN_POINTS;
+    let mut speed_lost = 0.0;
     for (i, p) in pts.iter().enumerate() {
         let dt = dur(i);
         let sink = -(p.vs_fpm as f64);
@@ -310,8 +329,7 @@ fn judge_approach(a: &Approach) -> Option<ApproachJudged> {
         if sink > scales::APPROACH_SINK_LIMIT_FPM {
             j.lost += scales::APPROACH_SINK_COST * ((sink - scales::APPROACH_SINK_LIMIT_FPM) / 100.0).powi(2) * dt;
         }
-        let agl = p.agl_ft as f64;
-        if agl <= scales::APPROACH_GATE_FT {
+        if (p.agl_ft as f64) <= scales::APPROACH_GATE_FT {
             if let Some(b) = p.bank_deg {
                 let b = (b as f64).abs();
                 j.bank_max = j.bank_max.max(b);
@@ -319,17 +337,32 @@ fn judge_approach(a: &Approach) -> Option<ApproachJudged> {
                     j.lost += scales::APPROACH_BANK_COST * (b - scales::APPROACH_BANK_LIMIT_DEG).powi(2) * dt;
                 }
             }
-            if let (Some(v), Some(typ)) = (p.ias_kt, typical) {
-                if agl >= scales::APPROACH_FLARE_FT {
-                    let dev = (v as f64 - typ).abs();
-                    j.speed_dev = j.speed_dev.max(dev);
-                    if dev > scales::APPROACH_SPEED_BAND_KT {
-                        j.lost += scales::APPROACH_SPEED_COST * (dev - scales::APPROACH_SPEED_BAND_KT).powi(2) * dt;
-                    }
+        }
+        if let (Some(v), true) = (p.ias_kt, judge_speed) {
+            if in_gate(p) && descending(p) {
+                // Compared with the speed around that moment, so a steady
+                // slow-down is no deviation but a surge or a sag is.
+                let typical = speed_around(&speeds, p.t_s as f64, scales::APPROACH_SPEED_WINDOW_S);
+                let dev = (v as f64 - typical).abs();
+                j.speed_dev = j.speed_dev.max(dev);
+                if dev > scales::APPROACH_SPEED_BAND_KT {
+                    speed_lost += scales::APPROACH_SPEED_COST * (dev - scales::APPROACH_SPEED_BAND_KT).powi(2) * dt;
                 }
             }
         }
     }
+    if judge_speed {
+        // How much the speed changes over the final, start to end.
+        let (t0, t1) = (speeds[0].0, speeds[speeds.len() - 1].0);
+        let w = scales::APPROACH_SPEED_WINDOW_S;
+        let change = speed_around(&speeds, t1 - w / 2.0, w / 2.0) - speed_around(&speeds, t0 + w / 2.0, w / 2.0);
+        if -change > scales::APPROACH_SLOWDOWN_KT {
+            speed_lost += scales::APPROACH_TREND_COST * (-change - scales::APPROACH_SLOWDOWN_KT);
+        } else if change > scales::APPROACH_SPEEDUP_KT {
+            speed_lost += scales::APPROACH_TREND_COST * (change - scales::APPROACH_SPEEDUP_KT);
+        }
+    }
+    j.lost += speed_lost.min(scales::APPROACH_SPEED_MAX_LOSS);
     Some(j)
 }
 

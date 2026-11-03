@@ -4,7 +4,7 @@
   import maplibregl, { type GeoJSONSource, type LngLatBoundsLike } from "maplibre-gl";
   import { onDestroy, onMount, untrack } from "svelte";
   import type { FlightPlan, HangarItem, Route } from "./api";
-  import { C as BASE, STYLE, offlineStyle, setBorders, tintMap } from "./mapStyle";
+  import { C as BASE, STYLE, addRegionLines, offlineStyle, setBorders, showSatellite, tintMap } from "./mapStyle";
   import MapLayers from "./MapLayers.svelte";
   import { latestRadar } from "./radar";
   import { nightShade } from "./terminator";
@@ -187,7 +187,9 @@
   let offline = $state(false);
 
   function tint() {
-    if (map) tintMap(map);
+    if (!map) return;
+    tintMap(map);
+    addRegionLines(map);
   }
 
   function addOverlays() {
@@ -475,7 +477,7 @@
     lastPlanId = id;
   });
 
-  // Optional layers: past routes, airports, borders, day/night, radar.
+  // Optional layers: past routes, airports, borders, satellite, day/night, radar.
   $effect(() => {
     const on = layers;
     if (!loaded || !map || !map.getLayer("routes-line")) return;
@@ -484,7 +486,8 @@
     vis("routes-airports", on.has("airports"));
     vis("night", on.has("night"));
     vis("night-edge", on.has("night"));
-    setBorders(map, on.has("borders"));
+    showSatellite(map, on.has("satellite") && !offline);
+    setBorders(map, on.has("borders"), on.has("satellite") && !offline);
     showRadar(on.has("radar"));
   });
 

@@ -502,7 +502,9 @@ impl Tracker {
             Phase::Airborne => {
                 if s.on_ground {
                     let report = LandingReport::at_touchdown(s, self.recent.make_contiguous());
-                    self.event(t, "touchdown", serde_json::json!({ "vs_fpm": report.vs_fpm }));
+                    // A first estimate; MSFS's own rate replaces it within the
+                    // touchdown window (see the touchdown_rate event).
+                    self.event(t, "touchdown", serde_json::json!({ "vs_fpm": report.vs_fpm, "source": report.vs_source }));
                     self.landings.push(report);
                     // The approach that ended here; a later landing replaces it.
                     if let Some(a) = Approach::from_points(self.approach_buf.make_contiguous(), t) {
@@ -596,6 +598,9 @@ impl Tracker {
 
     fn flush_touchdown(&mut self, out: &mut Vec<TrackerOutput>) {
         if let Some(i) = self.refining.take() {
+            // The rate the landing keeps: MSFS's own when it gave one.
+            let (t, vs, source) = (self.landings[i].t_ms, self.landings[i].vs_fpm, self.landings[i].vs_source.clone());
+            self.event(t, "touchdown_rate", serde_json::json!({ "vs_fpm": vs, "source": source }));
             out.push(TrackerOutput::Touchdown(self.landings[i].clone()));
         }
     }
