@@ -58,6 +58,20 @@ export function paperPattern(): string {
   return cached;
 }
 
+let idCached: string | null = null;
+/** The photo page and the page facing it: the same guilloche lines over a
+ * security-print gradient, rose at the top left through lilac and
+ * periwinkle to aqua at the bottom right, with a soft sheen. */
+export function idPagePattern(): string {
+  idCached ??= [
+    guilloche(360, 510, ["#9fc1bd", "#d3a9b8", "#b6c59a"]),
+    "radial-gradient(ellipse 70% 55% at 30% 25%, rgba(255, 255, 255, 0.28) 0%, transparent 70%)",
+    "radial-gradient(ellipse 60% 50% at 85% 80%, rgba(120, 205, 200, 0.35) 0%, transparent 70%)",
+    "linear-gradient(128deg, #e9c3d6 0%, #d4bddc 22%, #b9b6de 45%, #a9b4dc 62%, #9fc3d9 82%, #92cfcb 100%)",
+  ].join(", ");
+  return idCached;
+}
+
 /** ICAO 9303 check digit. */
 export function checkDigit(s: string): string {
   const weights = [7, 3, 1];

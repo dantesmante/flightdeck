@@ -5,7 +5,7 @@
   import { hoursMinutes } from "../format";
   import { prefs, setPref } from "../prefs.svelte";
   import Emblem from "./Emblem.svelte";
-  import { holoPage, mrz, paperPattern, passportNumber } from "./paper";
+  import { holoPage, idPagePattern, mrz, paperPattern, passportNumber } from "./paper";
   import Stamp from "./Stamp.svelte";
   import WorldMap, { type MapAirport, type View } from "./WorldMap.svelte";
 
@@ -140,8 +140,8 @@
   </button>
 {/snippet}
 
-{#snippet paper(content: Snippet, no: number | null = null)}
-  <div class="paper" style:background-image={paperPattern()}>
+{#snippet paper(content: Snippet, no: number | null = null, id = false)}
+  <div class="paper" class:id style:background-image={id ? idPagePattern() : paperPattern()}>
     {@render content()}
     {#if no != null}<span class="folio">{no}</span>{/if}
   </div>
@@ -195,7 +195,7 @@
         <span class="holo" aria-hidden="true"></span>
       </div>
     {/snippet}
-    {@render paper(inner)}
+    {@render paper(inner, null, true)}
   {:else if p.kind === "data" && data}
     {#snippet dataPage()}
       <div class="holo-zone" onpointermove={tilt} style:--mx="{mx}%" style:--my="{my}%" style:--lines={holoPage()} role="presentation">
@@ -247,7 +247,7 @@
       <span class="holo" aria-hidden="true"></span>
       </div>
     {/snippet}
-    {@render paper(dataPage)}
+    {@render paper(dataPage, null, true)}
   {:else if p.kind === "visa"}
     {@const vp = p}
     {#snippet visa()}
@@ -465,6 +465,12 @@
     background-repeat: repeat, repeat, no-repeat;
     color: #3a3446;
     font-family: "Source Serif 4", Georgia, serif;
+  }
+  /* The photo page and quote page: security-print colors instead of parchment. */
+  .paper.id {
+    background-color: #b9b6de;
+    background-size: 360px 510px, 100% 100%, 100% 100%, 100% 100%;
+    background-repeat: repeat, no-repeat, no-repeat, no-repeat;
   }
   .folio {
     position: absolute;
