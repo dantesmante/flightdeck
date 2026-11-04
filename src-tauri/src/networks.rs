@@ -213,6 +213,12 @@ fn iso_ms(s: &str) -> i64 {
     ((days * 86_400) + h * 3600 + mi * 60 + se) * 1000
 }
 
+/// An ISO time in milliseconds, for the other feeds.
+pub(crate) fn iso_ms_pub(s: &str) -> Option<i64> {
+    let v = iso_ms(s);
+    (v != 0).then_some(v)
+}
+
 fn text(v: &Value) -> String {
     match v {
         Value::String(s) => s.trim().to_string(),

@@ -6,6 +6,8 @@
   import { api, type FlightPlan, type HangarItem, type MapAirport, type Route } from "./api";
   import AirportCard from "./AirportCard.svelte";
   import NetworkCard, { NET_COLOR, POSITION, type NetPick } from "./NetworkCard.svelte";
+  import WxCard, { CATEGORY, WX_GROUP } from "./WxCard.svelte";
+  import type { WxAdvisoryProps } from "./api";
   import type { Net, NetworkData } from "./api";
   import { C as BASE, STYLE, addRegionLines, offlineStyle, setBorders, showSatellite, showTerrain, tintMap } from "./mapStyle";
   import MapLayers from "./MapLayers.svelte";
@@ -110,6 +112,43 @@
   }
   /** The airport whose card is open. */
   let openAirport = $state<string | null>(null);
+  /** A SIGMET or AIRMET whose card is open. */
+  let wxPick = $state<WxAdvisoryProps | null>(null);
+  // Weather from the Aviation Weather Center: only while its layers are on,
+  // every 10 minutes (FlightDeck's own cache has the same age).
+  $effect(() => {
+    const cat = layers.has("wx-cat");
+    const adv = layers.has("wx-adv");
+    if (!loaded || !map || !map.getSource("wx-cat")) return;
+    const set = (id: string, fc: GeoJSON.FeatureCollection) => (map?.getSource(id) as GeoJSONSource | undefined)?.setData(fc);
+    const none: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
+    if (!cat) set("wx-cat", none);
+    if (!adv) set("wx-adv", none);
+    if (!cat && !adv) return;
+    let stop = false;
+    const load = () => {
+      if (document.hidden) return;
+      if (cat)
+        api.wxCategories().then((d) => {
+          if (stop || !d) return;
+          set("wx-cat", {
+            type: "FeatureCollection",
+            features: d.stations.map(([id, lon, lat, c]) => ({ type: "Feature", properties: { id, c }, geometry: { type: "Point", coordinates: [lon, lat] } })),
+          });
+        });
+      if (adv)
+        api.wxAdvisories().then((d) => {
+          if (!stop && d) set("wx-adv", { type: "FeatureCollection", features: d.features });
+        });
+    };
+    load();
+    const t = setInterval(load, 10 * 60_000);
+    return () => {
+      stop = true;
+      clearInterval(t);
+    };
+  });
+
   /** What is open from an online network's layers. */
   let netPick = $state<NetPick | null>(null);
 
@@ -232,7 +271,7 @@
     return null;
   }
   /** Dots and their codes: either opens the airport. */
-  const AIRPORT_LAYERS = ["wa-major", "wa-regional", "wa-small", "wa-labels-0", "wa-labels-1", "wa-labels-2", "routes-airports"];
+  const AIRPORT_LAYERS = ["wa-major", "wa-regional", "wa-small", "wa-labels-0", "wa-labels-1", "wa-labels-2", "routes-airports", "wx-cat"];
   /** The airport (code) at a point on the map, if any. */
   function airportAt(pt: maplibregl.PointLike): string | null {
     return airportHit(pt)?.ident ?? null;
@@ -384,6 +423,32 @@
       layout: { visibility: "none" },
       paint: { "line-color": "#f0b23a", "line-opacity": 0.35, "line-width": 1.2, "line-blur": 1 },
     });
+    // SIGMETs and AIRMETs, under airports and routes.
+    const wxEmpty: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
+    map.addSource("wx-adv", { type: "geojson", data: wxEmpty });
+    map.addSource("wx-cat", { type: "geojson", data: wxEmpty });
+    const wxColor: maplibregl.ExpressionSpecification = [
+      "match",
+      ["get", "group"],
+      ...Object.entries(WX_GROUP).flatMap(([k, v]) => [k, v.color]),
+      WX_GROUP.OTHER.color,
+    ] as unknown as maplibregl.ExpressionSpecification;
+    map.addLayer({ id: "wx-adv-fill", type: "fill", source: "wx-adv", paint: { "fill-color": wxColor, "fill-opacity": 0.1 } });
+    map.addLayer({
+      id: "wx-adv-line",
+      type: "line",
+      source: "wx-adv",
+      filter: ["!=", ["get", "kind"], "AIRMET"],
+      paint: { "line-color": wxColor, "line-width": 1.6, "line-opacity": 0.9 },
+    });
+    // AIRMETs (less severe) dashed.
+    map.addLayer({
+      id: "wx-adv-dash",
+      type: "line",
+      source: "wx-adv",
+      filter: ["==", ["get", "kind"], "AIRMET"],
+      paint: { "line-color": wxColor, "line-width": 1.3, "line-opacity": 0.85, "line-dasharray": [3, 2] },
+    });
     // The world's airports (the Airports layer, by detail level), under
     // your routes. Smaller airports appear as you zoom in.
     map.addSource("world-airports", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
@@ -461,6 +526,19 @@
         "circle-stroke-opacity": 0.7,
         "circle-stroke-width": 1.2,
         "circle-pitch-alignment": "map",
+      },
+    });
+    // Flight category: a coloured ring around each reporting airport.
+    map.addLayer({
+      id: "wx-cat",
+      type: "circle",
+      source: "wx-cat",
+      paint: {
+        "circle-radius": ["interpolate", ["linear"], ["zoom"], 2, 3, 6, 5, 10, 7],
+        "circle-color": ["match", ["get", "c"], 0, CATEGORY[0].color, 1, CATEGORY[1].color, 2, CATEGORY[2].color, CATEGORY[3].color],
+        "circle-opacity": 0.35,
+        "circle-stroke-color": ["match", ["get", "c"], 0, CATEGORY[0].color, 1, CATEGORY[1].color, 2, CATEGORY[2].color, CATEGORY[3].color],
+        "circle-stroke-width": ["interpolate", ["linear"], ["zoom"], 2, 1, 8, 2],
       },
     });
     // Every past flight, faint, under the live track.
@@ -784,13 +862,25 @@
         if (pick) {
           clearHover();
           openAirport = null;
+          wxPick = null;
           netPick = pick;
+          return;
+        }
+        // A SIGMET or AIRMET under the click.
+        if (map?.getLayer("wx-adv-fill")) {
+          const f = map.queryRenderedFeatures(e.point, { layers: ["wx-adv-fill"] })[0];
+          if (f) {
+            openAirport = null;
+            netPick = null;
+            wxPick = f.properties as unknown as WxAdvisoryProps;
+          }
         }
         return;
       }
       if (hit) {
         clearHover();
         netPick = null;
+        wxPick = null;
         openAirport = hit.ident;
         // Bring the airport to the middle of the part of the map the card
         // leaves free, a little closer in.
@@ -1149,6 +1239,9 @@
   {airportDetail}
   ondetail={(d) => setPref("map_airport_detail", String(d))}
 />
+{#if wxPick && !openAirport && !netPick}
+  <WxCard item={wxPick} onclose={() => (wxPick = null)} />
+{/if}
 {#if netPick && !openAirport}
   <NetworkCard
     pick={netPick}

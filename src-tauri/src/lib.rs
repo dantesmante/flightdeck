@@ -7,6 +7,7 @@ mod engine;
 mod photos;
 mod efb;
 mod networks;
+mod wx;
 mod remote;
 mod samples;
 mod simbrief;
@@ -236,6 +237,18 @@ fn map_airports(state: tauri::State<AppState>, detail: u8) -> Vec<(String, Strin
 #[tauri::command]
 async fn online_network(net: String) -> CmdResult<networks::NetworkData> {
     tauri::async_runtime::spawn_blocking(move || networks::network_for_map(&net)).await.map_err(err)
+}
+
+/// Flight categories (VFR, MVFR, IFR, LIFR) of every METAR station.
+#[tauri::command]
+async fn wx_categories() -> CmdResult<wx::Categories> {
+    tauri::async_runtime::spawn_blocking(wx::categories).await.map_err(err)
+}
+
+/// Current SIGMETs and AIRMETs as map shapes.
+#[tauri::command]
+async fn wx_advisories() -> CmdResult<wx::Advisories> {
+    tauri::async_runtime::spawn_blocking(wx::advisories).await.map_err(err)
 }
 
 /// One online pilot with the whole flight plan.
@@ -1067,6 +1080,8 @@ pub(crate) async fn dispatch(app: &tauri::AppHandle, cmd: &str, a: serde_json::V
         "search_airports" => ok(to_value(search_airports(st(), arg(&a, "query")?))),
         "map_airports" => ok(to_value(map_airports(st(), arg(&a, "detail")?))),
         "online_network" => ok(to_value(online_network(arg(&a, "net")?).await?)),
+        "wx_categories" => ok(to_value(wx_categories().await?)),
+        "wx_advisories" => ok(to_value(wx_advisories().await?)),
         "online_pilot" => ok(to_value(online_pilot(arg(&a, "net")?, arg(&a, "callsign")?))),
         "airport_card" => ok(to_value(airport_card(st(), arg(&a, "ident")?)?)),
         "airport_weather" => ok(to_value(airport_weather(st(), arg(&a, "ident")?).await?)),
@@ -1192,6 +1207,8 @@ pub fn run() {
             app_version,
             map_airports,
             online_network,
+            wx_categories,
+            wx_advisories,
             online_pilot,
             airport_card,
             airport_weather,

@@ -280,6 +280,22 @@ export async function mockCall<T>(cmd: string, _args?: Record<string, unknown>):
       error: found ? null : "MSFS 2024's Community folder was not found. Choose it below.",
     } as T;
   }
+  if (cmd === "wx_categories") {
+    return { updated_ms: now, error: null, stations: AIRPORTS.map((a, i) => [a.icao, a.lon, a.lat, i % 4]) } as T;
+  }
+  if (cmd === "wx_advisories") {
+    const sq = (x: number, y: number, w: number, h: number) => ({ type: "Polygon", coordinates: [[[x, y], [x + w, y], [x + w, y + h], [x, y + h], [x, y]]] });
+    const f = (geometry: unknown, props: Record<string, unknown>) => ({ type: "Feature", geometry, properties: { qualifier: "", base: "", top: "", due_to: "", from_ms: now - 3600_000, to_ms: now + 3 * 3600_000, ...props } });
+    return {
+      updated_ms: now, error: null,
+      features: [
+        f(sq(-100, 33, 6, 4), { kind: "CONVECTIVE", group: "TS", hazard: "CONVECTIVE", name: "KKCI 45C", top: "45000", raw: "CONVECTIVE SIGMET 45C VALID UNTIL 0455Z TX OK AREA TS MOV FROM 24025KT. TOPS ABV FL450." }),
+        f(sq(-125, 40, 8, 6), { kind: "AIRMET", group: "TURB", hazard: "TURB-HI", name: "TANGO", base: "FL240", top: "FL400", raw: "" }),
+        f(sq(-110, 44, 7, 5), { kind: "AIRMET", group: "ICE", hazard: "ICE", name: "ZULU", base: "FL080", top: "FL200", raw: "" }),
+        f(sq(-40, 50, 15, 8), { kind: "SIGMET", group: "TURB", hazard: "TURB", qualifier: "SEV", name: "SHANWICK OCEANIC A3", base: "FL300", top: "FL380", raw: "EGGX SIGMET A3 VALID 040100/040500 EGRR- SHANWICK OCEANIC SEV TURB FCST FL300/380 MOV E 20KT NC=" }),
+      ],
+    } as T;
+  }
   if (cmd === "online_network" || cmd === "online_pilot") {
     const net = _args?.net === "ivao" ? "ivao" : "vatsim";
     const t = now - 40 * 60_000;

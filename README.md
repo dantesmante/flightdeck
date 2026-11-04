@@ -122,6 +122,16 @@ MIT licensed.
   small inked flag. The photo and data pages carry a holographic film that
   shimmers around the mouse as you move it over them, and the page facing
   the data page opens with a quote by John H. Secondari.
+- **Aviation weather** (Map layers, Weather): **Flight category** rings
+  every reporting airport in the world by its current METAR (VFR green,
+  MVFR blue, IFR red, LIFR magenta; click one for the airport card with the
+  full METAR and TAF), and **SIGMET / AIRMET** draws international and US
+  SIGMETs (convective included, solid outlines) and US G-AIRMETs (dashed)
+  coloured by hazard: thunderstorms, turbulence, icing, low cloud and
+  visibility, volcanic ash, tropical cyclones. Click an area for the
+  hazard, validity, levels and the raw text. From the NOAA Aviation Weather
+  Center (public domain), downloaded only while a layer is on, every 10
+  minutes.
 - **Online networks** (Map layers): **VATSIM ATC**, **VATSIM pilots**,
   **IVAO ATC** and **IVAO pilots**. Staffed centres and FIRs are shaded
   with their callsigns in the middle; staffed airports show their code and

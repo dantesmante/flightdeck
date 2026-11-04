@@ -700,6 +700,31 @@ export interface NetworkData {
   error: string | null;
 }
 
+/** Flight categories of METAR stations: [code, lon, lat, 0 VFR | 1 MVFR | 2 IFR | 3 LIFR]. */
+export interface WxCategories {
+  updated_ms: number;
+  stations: [string, number, number, number][];
+  error: string | null;
+}
+export interface WxAdvisoryProps {
+  kind: "SIGMET" | "AIRMET" | "CONVECTIVE";
+  group: "TS" | "TURB" | "ICE" | "IFR" | "VA" | "TC" | "OTHER";
+  hazard: string;
+  qualifier: string;
+  name: string;
+  from_ms: number | null;
+  to_ms: number | null;
+  base: string;
+  top: string;
+  raw: string;
+  due_to: string;
+}
+export interface WxAdvisories {
+  updated_ms: number;
+  features: GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon, WxAdvisoryProps>[];
+  error: string | null;
+}
+
 /** FlightDeck's app in the MSFS 2024 EFB (Settings on the PC). */
 export interface EfbInfo {
   installed: boolean;
@@ -782,6 +807,8 @@ export const api = {
   remoteSet: (enabled: boolean | null, canEdit: boolean | null) => call<RemoteInfo>("remote_set", { enabled, canEdit }),
   remoteNewCode: () => call<RemoteInfo>("remote_new_code"),
   remoteForget: () => call<RemoteInfo>("remote_forget"),
+  wxCategories: () => call<WxCategories>("wx_categories"),
+  wxAdvisories: () => call<WxAdvisories>("wx_advisories"),
   onlineNetwork: (net: Net) => call<NetworkData>("online_network", { net }),
   onlinePilot: (net: Net, callsign: string) => call<NetPilot | null>("online_pilot", { net, callsign }),
   mapAirports: (detail: number) => call<MapAirport[]>("map_airports", { detail }),

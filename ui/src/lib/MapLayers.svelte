@@ -29,7 +29,7 @@
 </script>
 
 {#snippet art(kind: string)}
-  <svg viewBox="0 0 120 64" aria-hidden="true">
+  <svg viewBox="0 0 120 64" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
     <rect width="120" height="64" fill="#1b1c1e" />
     {#if kind === "3d"}
       <defs>
@@ -83,6 +83,14 @@
       {#each [[22, 20, 40], [60, 40, 120], [96, 18, 210], [40, 50, 300], [84, 50, 80], [104, 38, 160]] as [x, y, r] (`${x}${y}`)}
         <g transform="translate({x} {y}) rotate({r}) scale(0.32)"><path d="M0 -20 L3.4 -6 L19 1.5 L19 5.5 L3.4 2.6 L2.4 13 L8 17 L8 19.6 L0 17.8 L-8 19.6 L-8 17 L-2.4 13 L-3.4 2.6 L-19 5.5 L-19 1.5 L-3.4 -6 Z" fill={c} /></g>
       {/each}
+    {:else if kind === "wx-cat"}
+      {#each [[18, 18, "#2fbf71"], [48, 40, "#4f8fe8"], [80, 20, "#2fbf71"], [100, 46, "#e2453c"], [30, 50, "#cf5bd6"], [64, 14, "#2fbf71"]] as [x, y, c] (`${x}${y}`)}
+        <circle cx={x} cy={y} r="6" fill={String(c)} fill-opacity="0.35" stroke={String(c)} stroke-width="2" />
+      {/each}
+    {:else if kind === "wx-adv"}
+      <path d="M8 10 L56 6 L62 34 L20 44 Z" fill="#e2453c" fill-opacity="0.15" stroke="#e2453c" stroke-width="1.6" />
+      <path d="M60 30 L110 22 L114 56 L66 58 Z" fill="#f0a03a" fill-opacity="0.12" stroke="#f0a03a" stroke-width="1.4" stroke-dasharray="4 3" />
+      <path d="M78 6 L112 8 L106 20 L80 18 Z" fill="#5cc8e8" fill-opacity="0.15" stroke="#5cc8e8" stroke-width="1.3" stroke-dasharray="4 3" />
     {:else if kind === "parked"}
       {#each [[22, 22], [64, 42], [92, 18]] as [x, y] (x)}
         <g transform="translate({x} {y}) scale(0.32)"><path d="M0 -20 L3.4 -6 L19 1.5 L19 5.5 L3.4 2.6 L2.4 13 L8 17 L8 19.6 L0 17.8 L-8 19.6 L-8 17 L-2.4 13 L-3.4 2.6 L-19 5.5 L-19 1.5 L-3.4 -6 Z" fill="#c4c8ce" /></g>
@@ -108,6 +116,22 @@
       <svg viewBox="0 0 16 16"><path d="M3.5 8.5l3 3 6-7" /></svg>
     </span>
   </button>
+{/snippet}
+
+<!-- A network: one tile, with ATC and pilots switched on their own. -->
+{#snippet netCard(net: "vatsim" | "ivao", name: string)}
+  {@const atc = on.has(`${net}-atc`)}
+  {@const pilots = on.has(`${net}-pilots`)}
+  <div class="card net" class:active={atc || pilots}>
+    <span class="thumb">{@render art(`${net}-atc`)}</span>
+    <span class="text">
+      <span class="label">{name}</span>
+      <span class="chips">
+        <button role="switch" aria-checked={atc} aria-label="{name} ATC" class:on={atc} onclick={() => ontoggle(`${net}-atc`)}>ATC</button>
+        <button role="switch" aria-checked={pilots} aria-label="{name} pilots" class:on={pilots} onclick={() => ontoggle(`${net}-pilots`)}>Pilots</button>
+      </span>
+    </span>
+  </div>
 {/snippet}
 
 {#snippet radarNote()}
@@ -141,9 +165,19 @@
       {@render card("night", "Day / night", on.has("night"), () => ontoggle("night"))}
       {@render card("satellite", "Satellite", on.has("satellite"), () => ontoggle("satellite"))}
       {@render card("terrain", "Topographic", on.has("terrain"), () => ontoggle("terrain"))}
-      {@render card("radar", "Rain radar", on.has("radar"), () => ontoggle("radar"), radarNote)}
       {@render card("borders", "Strong borders", on.has("borders"), () => ontoggle("borders"))}
     </div>
+    <h4>Weather</h4>
+    <div class="grid">
+      {@render card("radar", "Rain radar", on.has("radar"), () => ontoggle("radar"), radarNote)}
+      {@render card("wx-cat", "Flight category", on.has("wx-cat"), () => ontoggle("wx-cat"))}
+      {@render card("wx-adv", "SIGMET / AIRMET", on.has("wx-adv"), () => ontoggle("wx-adv"))}
+    </div>
+    {#if on.has("wx-cat")}
+      <p class="legend">
+        <span style:--c="#2fbf71">VFR</span><span style:--c="#4f8fe8">MVFR</span><span style:--c="#e2453c">IFR</span><span style:--c="#cf5bd6">LIFR</span>
+      </p>
+    {/if}
     <h4>Airports and flights</h4>
     <div class="grid">
       {@render card("world", "World airports", on.has("world"), () => ontoggle("world"))}
@@ -169,14 +203,13 @@
       </div>
     {/if}
     <h4>Online networks</h4>
-    <div class="grid">
-      {@render card("vatsim-atc", "VATSIM ATC", on.has("vatsim-atc"), () => ontoggle("vatsim-atc"))}
-      {@render card("vatsim-pilots", "VATSIM pilots", on.has("vatsim-pilots"), () => ontoggle("vatsim-pilots"))}
-      {@render card("ivao-atc", "IVAO ATC", on.has("ivao-atc"), () => ontoggle("ivao-atc"))}
-      {@render card("ivao-pilots", "IVAO pilots", on.has("ivao-pilots"), () => ontoggle("ivao-pilots"))}
+    <div class="grid two">
+      {@render netCard("vatsim", "VATSIM")}
+      {@render netCard("ivao", "IVAO")}
     </div>
     <p class="credit">
-      Radar RainViewer · Satellite Esri · Terrain AWS Terrain Tiles · Live traffic VATSIM and IVAO (every 30 s while on) · ATC
+      Radar RainViewer · METARs, SIGMETs and AIRMETs NOAA Aviation Weather Center (every 10 min while on) · Satellite Esri ·
+      Terrain AWS Terrain Tiles · Live traffic VATSIM and IVAO (every 30 s while on) · ATC
       areas VAT-Spy Data Project (CC BY-SA 4.0)
     </p>
   </div>
@@ -271,7 +304,7 @@
     position: absolute;
     top: 62px;
     right: 16px;
-    width: 352px;
+    width: 360px;
     max-height: calc(100% - 130px);
     overflow-y: auto;
     overflow-x: hidden;
@@ -320,18 +353,17 @@
   }
   .grid {
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 6px;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 7px;
   }
-  /* Compact tiles: a small picture, the name, a tick when on. */
+  /* Tiles: a short picture strip over the name, a tick when on. */
   .card {
     position: relative;
     display: flex;
-    align-items: center;
-    gap: 8px;
-    min-height: 38px;
-    padding: 5px 24px 5px 5px;
+    flex-direction: column;
+    padding: 0;
     border-radius: 8px;
+    overflow: hidden;
     border: 1.5px solid var(--rule);
     background: var(--panel-2);
     text-align: left;
@@ -342,13 +374,11 @@
   }
   .card.active {
     border-color: var(--amber);
-    background: rgba(240, 178, 58, 0.08);
+    background: rgba(240, 178, 58, 0.07);
   }
   .thumb {
-    flex: none;
-    width: 38px;
-    height: 22px;
-    border-radius: 4px;
+    display: block;
+    height: 30px;
     overflow: hidden;
   }
   .thumb :global(svg) {
@@ -358,25 +388,23 @@
   }
   .text {
     display: grid;
-    min-width: 0;
+    padding: 5px 7px 6px;
   }
   .label {
-    font-size: 12.5px;
+    font-size: 12px;
     font-weight: 600;
     line-height: 1.15;
   }
   .note {
     font-size: 10.5px;
     color: var(--ink-dim);
-    white-space: nowrap;
   }
   .tick {
     position: absolute;
-    top: 50%;
-    right: 7px;
-    width: 14px;
-    height: 14px;
-    margin-top: -7px;
+    top: 5px;
+    right: 5px;
+    width: 16px;
+    height: 16px;
     border-radius: 50%;
     display: grid;
     place-items: center;
@@ -386,17 +414,67 @@
     transition: opacity 0.15s, transform 0.15s;
   }
   .tick svg {
-    width: 10px;
-    height: 10px;
+    width: 11px;
+    height: 11px;
     fill: none;
     stroke: #1b1406;
-    stroke-width: 2.6;
+    stroke-width: 2.5;
     stroke-linecap: round;
     stroke-linejoin: round;
   }
   .card.active .tick {
     opacity: 1;
     transform: none;
+  }
+  .grid.two {
+    grid-template-columns: 1fr 1fr;
+  }
+  .card.net .text {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+  }
+  .chips {
+    display: flex;
+    gap: 4px;
+  }
+  .chips button {
+    padding: 2px 8px;
+    border: 1px solid var(--rule);
+    border-radius: 999px;
+    background: transparent;
+    color: var(--ink-dim);
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .chips button:hover {
+    border-color: #6a6f76;
+    color: var(--ink);
+  }
+  .chips button.on {
+    border-color: var(--amber);
+    background: var(--amber);
+    color: #1b1406;
+  }
+  .legend {
+    display: flex;
+    gap: 12px;
+    margin: 7px 2px 0;
+    font-size: 11px;
+    color: var(--ink-dim);
+  }
+  .legend span::before {
+    content: "";
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    margin-right: 5px;
+    border-radius: 50%;
+    border: 2px solid var(--c);
+    background: color-mix(in srgb, var(--c) 35%, transparent);
+    vertical-align: -1px;
   }
   .credit {
     margin: 10px 0 0;
