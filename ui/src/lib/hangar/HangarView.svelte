@@ -46,6 +46,27 @@
   const hours = (min: number) => (min / 60).toLocaleString("en-US", { maximumFractionDigits: 1, minimumFractionDigits: 1 });
   const name = (it: HangarItem) => modelName(it);
 
+  // Hover: the card tilts towards the pointer, with a holographic sheen and
+  // a glare that follow it. Only CSS transforms, and only while hovered.
+  const still = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  function tilt(e: PointerEvent) {
+    const el = e.currentTarget as HTMLElement;
+    const r = el.getBoundingClientRect();
+    const x = (e.clientX - r.left) / r.width;
+    const y = (e.clientY - r.top) / r.height;
+    el.style.setProperty("--mx", `${(x * 100).toFixed(1)}%`);
+    el.style.setProperty("--my", `${(y * 100).toFixed(1)}%`);
+    if (!still) {
+      el.style.setProperty("--rx", `${((0.5 - y) * 12).toFixed(2)}deg`);
+      el.style.setProperty("--ry", `${((x - 0.5) * 14).toFixed(2)}deg`);
+    }
+  }
+  function untilt(e: PointerEvent) {
+    const el = e.currentTarget as HTMLElement;
+    el.style.setProperty("--rx", "0deg");
+    el.style.setProperty("--ry", "0deg");
+  }
+
   function showFavorites(on: boolean) {
     favSnapshot = new Set(items.filter((i) => i.favorite).map((i) => i.id));
     onlyFavorites = on;
@@ -128,32 +149,52 @@
       <div class="grid">
         {#each shown as it (it.id)}
           {@const look = airlineLook(it.airline)}
-          <article class="card">
+          <article
+            class="card"
+            class:airline={!!look}
+            style:--a={look?.colors[0]}
+            style:--b={look?.colors[1]}
+            style:--c={look?.colors[2] ?? look?.colors[1]}
+            onpointermove={tilt}
+            onpointerleave={untilt}
+          >
             <button class="open" onclick={() => (openId = it.id)} aria-label="Open {it.registration || name(it)}"></button>
-            <div class="reg" class:airline={!!look} style:--a={look?.colors[0]} style:--b={look?.colors[1]} style:--c={look?.colors[2] ?? look?.colors[1]}>
-              <h3 class="num">{it.registration || it.icao_type || "Unregistered"}</h3>
-              {#if look}<span class="al">{look.name}</span>{/if}
+            <div class="banner">
+              <h3>{name(it)}</h3>
+              {#if look}
+                <span class="al">{look.name}</span>
+                <!-- The livery's tail swoosh in the corner: accent colours with a white pinstripe. -->
+                <svg class="swoosh" viewBox="0 0 60 40" preserveAspectRatio="none" aria-hidden="true">
+                  <path d="M26 0 C 38 9, 51 23, 60 40 L 60 0 Z" fill={look.colors[2] ?? look.colors[1]} />
+                  <path d="M26 0 C 38 9, 51 23, 60 40" fill="none" stroke="#fff" stroke-width="1.6" />
+                  <path d="M40 0 C 48 7, 55 16, 60 26 L 60 0 Z" fill={look.colors[1]} />
+                </svg>
+              {/if}
+            </div>
+            <div class="picture">
+              <AircraftPicture item={it} own={photos[it.id] ?? null} onpick={(e) => pick(it, e)} onremove={() => removePhoto(it)} />
+              <span class="reg num">{it.registration || it.icao_type || "No reg."}</span>
               <button class="edit" onclick={() => (form = it)} aria-label="Edit {it.registration || 'aircraft'}" title="Edit registration, model and airline">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4zM13.5 6.5l4 4" /></svg>
               </button>
             </div>
-            <div class="picture">
-              <AircraftPicture item={it} own={photos[it.id] ?? null} onpick={(e) => pick(it, e)} onremove={() => removePhoto(it)} />
-              <button class="star" class:on={it.favorite} onclick={() => star(it)} aria-pressed={it.favorite} aria-label={it.favorite ? "Remove from favorites" : "Add to favorites"}>
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.2l2.7 5.6 6.1.8-4.5 4.2 1.1 6.1L12 17l-5.4 2.9 1.1-6.1-4.5-4.2 6.1-.8z" /></svg>
-              </button>
-            </div>
-            <p class="name">{name(it)}</p>
             <div class="where">
               <span class="lbl">Current aircraft location</span>
               <span class="icao num">{it.last_icao ?? "—"}</span>
               <span class="apt">{it.last_name ?? (it.flights ? "Last position unknown" : "Not flown yet")}</span>
             </div>
-            <dl>
-              <div><dt>Flights flown</dt><dd class="num">{it.flights}</dd></div>
-              <div><dt>Hours flown</dt><dd class="num">{hours(it.minutes)}</dd></div>
-              <div><dt>Avg. landing</dt><dd class="num">{it.avg_landing_fpm != null ? `${int(it.avg_landing_fpm)} ft/min` : "–"}</dd></div>
-            </dl>
+            <div class="foot">
+              <dl>
+                <div><dt>Flights</dt><dd class="num">{it.flights}</dd></div>
+                <div><dt>Hours</dt><dd class="num">{hours(it.minutes)}</dd></div>
+                <div><dt>Avg. landing</dt><dd class="num">{it.avg_landing_fpm != null ? `${int(it.avg_landing_fpm)} ft/min` : "–"}</dd></div>
+              </dl>
+              <button class="star" class:on={it.favorite} onclick={() => star(it)} aria-pressed={it.favorite} aria-label={it.favorite ? "Remove from favorites" : "Add to favorites"}>
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.2l2.7 5.6 6.1.8-4.5 4.2 1.1 6.1L12 17l-5.4 2.9 1.1-6.1-4.5-4.2 6.1-.8z" /></svg>
+              </button>
+            </div>
+            <span class="holo" aria-hidden="true"></span>
+            <span class="glare" aria-hidden="true"></span>
           </article>
         {/each}
         {#if shown.length === 0}<p class="none">No favorites yet. Star an aircraft to keep it here.</p>{/if}
@@ -271,28 +312,79 @@
   .grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-    gap: 26px;
+    gap: 18px;
     padding: 20px 28px 40px;
   }
   .card {
+    --rx: 0deg;
+    --ry: 0deg;
+    --mx: 50%;
+    --my: 50%;
     position: relative;
     display: flex;
     flex-direction: column;
-    border-radius: 14px;
+    border-radius: 12px;
     overflow: hidden;
     color: var(--ink);
     background: #26282c;
-    border: 1px solid rgba(255, 255, 255, 0.06);
-    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
-    transition: box-shadow 0.3s, border-color 0.3s;
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    box-shadow: 0 10px 26px rgba(0, 0, 0, 0.35);
+    transform: perspective(900px) rotateX(var(--rx)) rotateY(var(--ry));
+    transition:
+      transform 0.5s cubic-bezier(0.2, 0.8, 0.2, 1),
+      box-shadow 0.3s;
   }
-  /* Hover: a soft amber glow, as if lit from behind. */
   .card:hover {
-    border-color: rgba(240, 178, 58, 0.35);
+    transform: perspective(900px) rotateX(var(--rx)) rotateY(var(--ry)) scale(1.02);
+    transition:
+      transform 0.12s ease-out,
+      box-shadow 0.3s;
     box-shadow:
-      0 0 0 1px rgba(240, 178, 58, 0.12),
-      0 0 14px 1px rgba(240, 178, 58, 0.32),
-      0 12px 30px rgba(0, 0, 0, 0.35);
+      0 0 0 1px rgba(240, 178, 58, 0.18),
+      0 18px 40px rgba(0, 0, 0, 0.5);
+  }
+  /* The holographic film and the glare, over everything, never in the way. */
+  .holo,
+  .glare {
+    position: absolute;
+    inset: 0;
+    z-index: 5;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.35s;
+    border-radius: inherit;
+  }
+  .holo {
+    background: linear-gradient(
+      115deg,
+      transparent 18%,
+      rgba(255, 0, 132, 0.45) 32%,
+      rgba(252, 164, 0, 0.4) 40%,
+      rgba(255, 255, 0, 0.32) 46%,
+      rgba(0, 255, 138, 0.35) 52%,
+      rgba(0, 207, 255, 0.42) 58%,
+      rgba(204, 76, 250, 0.42) 66%,
+      transparent 82%
+    );
+    background-size: 260% 260%;
+    background-position: var(--mx) var(--my);
+    mix-blend-mode: color-dodge;
+  }
+  .glare {
+    background: radial-gradient(circle at var(--mx) var(--my), rgba(255, 255, 255, 0.38) 0%, rgba(255, 255, 255, 0.08) 30%, transparent 55%);
+    mix-blend-mode: overlay;
+  }
+  .card:hover .holo {
+    opacity: 0.32;
+  }
+  .card:hover .glare {
+    opacity: 1;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .card,
+    .card:hover {
+      transform: none;
+    }
   }
   /* The whole card opens the aircraft; the picture, star and upload sit on top. */
   .open {
@@ -304,57 +396,87 @@
     padding: 0;
     cursor: pointer;
   }
-  .reg {
+  /* The banner: the model, and the airline in its livery colours. */
+  .banner {
     position: relative;
     display: flex;
-    align-items: baseline;
-    gap: 10px;
-    padding: 10px 44px 8px 14px;
+    align-items: center;
+    gap: 8px;
+    min-height: 40px;
+    padding: 0 12px;
     background: #2b2e32;
   }
-  .reg h3 {
-    margin: 0;
-    font-family: "IBM Plex Mono", ui-monospace, monospace;
-    font-size: 27px;
-    font-weight: 600;
-    letter-spacing: 0.02em;
-    white-space: nowrap;
-  }
-  /* An airline's colors behind the registration: its main color, with a
-     band of its accent colors along the right edge (as on the aircraft page). */
-  .reg.airline {
-    color: #fff;
+  .card.airline .banner {
     background: var(--a);
-    /* The accent band; a third livery color sits outermost. */
-    box-shadow:
-      inset -5px 0 0 var(--c),
-      inset -10px 0 0 var(--b);
+    color: #fff;
+    padding-right: 44px;
   }
-  .reg.airline h3 {
-    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+  .banner h3 {
+    flex: 1;
+    min-width: 0;
+    margin: 0;
+    font-size: 15.5px;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .card.airline .banner h3 {
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
   }
   .al {
-    min-width: 0;
+    flex: none;
+    max-width: 45%;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 11.5px;
-    font-weight: 600;
-    opacity: 0.95;
-    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+    font-size: 10.5px;
+    font-weight: 700;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+  }
+  .swoosh {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 40px;
+    height: 100%;
+  }
+  .picture {
+    position: relative;
+    z-index: 2;
+    aspect-ratio: 2 / 1;
+    overflow: hidden;
+  }
+  /* The registration, as a tag on the picture in the airline's colour. */
+  .reg {
+    position: absolute;
+    top: 7px;
+    right: 7px;
+    z-index: 3;
+    padding: 3px 11px;
+    border-radius: 999px;
+    background: #4a4d52;
+    color: #fff;
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+    pointer-events: none;
+  }
+  .card.airline .reg {
+    background: var(--a);
   }
   .edit {
     position: absolute;
-    right: 8px;
-    top: 50%;
-    transform: translateY(-50%);
-    z-index: 2;
-    width: 30px;
-    height: 30px;
+    left: 7px;
+    top: 7px;
+    z-index: 4;
+    width: 28px;
+    height: 28px;
     border: none;
     border-radius: 6px;
-    background: rgba(0, 0, 0, 0.25);
-    color: rgba(255, 255, 255, 0.85);
+    background: rgba(0, 0, 0, 0.45);
+    color: rgba(255, 255, 255, 0.9);
     display: grid;
     place-items: center;
     opacity: 0;
@@ -365,95 +487,89 @@
     opacity: 1;
   }
   .edit:hover {
-    background: rgba(0, 0, 0, 0.45);
+    background: rgba(0, 0, 0, 0.65);
   }
   .edit svg {
-    width: 16px;
-    height: 16px;
+    width: 15px;
+    height: 15px;
     fill: none;
     stroke: currentColor;
     stroke-width: 1.8;
     stroke-linejoin: round;
   }
-  .picture {
-    position: relative;
-    z-index: 2;
-    aspect-ratio: 3 / 2;
-    overflow: hidden;
-  }
-  .star {
-    position: absolute;
-    right: 8px;
-    top: 8px;
-    z-index: 4;
-    width: 34px;
-    height: 34px;
-    padding: 4px;
-    border: none;
-    border-radius: 50%;
-    background: rgba(20, 22, 25, 0.45);
-    display: grid;
-    place-items: center;
-  }
-  .star svg {
-    width: 22px;
-    height: 22px;
-    fill: transparent;
-    stroke: rgba(255, 255, 255, 0.9);
-    stroke-width: 1.6;
-    stroke-linejoin: round;
-    transition: fill 0.15s, transform 0.15s;
-  }
-  .star:hover svg {
-    transform: scale(1.12);
-  }
-  .star.on svg {
-    fill: var(--amber);
-    stroke: #8a5d0c;
-  }
-  .name {
-    margin: 0;
-    padding: 9px 12px 7px;
-    font-size: 17px;
-    border-bottom: 1px solid var(--rule);
-  }
   .where {
     display: flex;
     flex-direction: column;
-    padding: 8px 12px;
+    padding: 8px 10px 7px;
     border-bottom: 1px solid var(--rule);
   }
   .lbl,
   dt {
-    font-size: 10px;
+    font-size: 9.5px;
     white-space: nowrap;
     letter-spacing: 0.05em;
     text-transform: uppercase;
     color: var(--ink-dim);
   }
   .icao {
-    font-size: 19px;
+    font-size: 18px;
     font-weight: 600;
-    line-height: 1.15;
+    line-height: 1.2;
   }
   .apt {
-    font-size: 12px;
+    font-size: 11.5px;
     color: var(--ink-dim);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
+  .foot {
+    display: flex;
+    align-items: stretch;
+  }
   dl {
+    flex: 1;
     margin: 0;
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    padding: 8px 6px 14px;
+    grid-template-columns: 0.8fr 0.8fr 1.3fr;
+    padding: 7px 4px 8px;
     text-align: center;
   }
   dd {
     margin: 2px 0 0;
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 600;
+    white-space: nowrap;
+  }
+  .star {
+    position: relative;
+    z-index: 2;
+    flex: none;
+    width: 52px;
+    padding: 0;
+    border: none;
+    border-left: 1px solid var(--rule);
+    background: transparent;
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+  }
+  .star svg {
+    width: 22px;
+    height: 22px;
+    fill: transparent;
+    stroke: rgba(255, 255, 255, 0.55);
+    stroke-width: 1.5;
+    stroke-linejoin: round;
+    transition: fill 0.15s, transform 0.15s, stroke 0.15s;
+  }
+  .star:hover svg {
+    transform: scale(1.12);
+    stroke: rgba(255, 255, 255, 0.9);
+  }
+  .star.on svg {
+    fill: var(--amber);
+    stroke: #8a5d0c;
   }
   .msg {
     position: fixed;
