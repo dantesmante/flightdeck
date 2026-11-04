@@ -72,8 +72,10 @@ MIT licensed.
   flight files (.json); each becomes a FlightDeck flight with its track,
   landing and times. Re-importing is skipped.
 - **Map layers** panel: 3D flight, a live day/night line, **satellite**
-  imagery (Esri World Imagery), **topographic** relief shading (Esri World
-  Hillshade, over the chart or the satellite pictures), stronger borders, past routes, airports, **parked aircraft** (where you last left
+  imagery (Esri World Imagery), **topographic** relief shading with
+  contour lines in feet (from open elevation data, AWS Terrain Tiles;
+  contours from zoom 9, worked out in the background only for what is on
+  screen), stronger borders, past routes, airports, **parked aircraft** (where you last left
   each aircraft, off by default), and live **rain radar** (RainViewer,
   refreshed every 10 minutes). **World airports** puts the world's
   airports on the map with a **Detail** slider: 1 major airports only, 2
@@ -120,6 +122,11 @@ MIT licensed.
   small inked flag. The photo and data pages carry a holographic film that
   shimmers around the mouse as you move it over them, and the page facing
   the data page opens with a quote by John H. Secondari.
+- **Cross-country time** follows the FAA definition (14 CFR 61.1): a
+  flight landing somewhere other than where it departed, more than 50 nm
+  in a straight line, logs all its time as cross-country, whichever way it
+  came in (recorded, imported or typed in). Set it by hand on a line and
+  FlightDeck keeps your value.
 - **Paper logbook**: a two-page ruled logbook in FAA or EASA layout,
   handwritten or typed, with page totals carried forward. Night time and
   night landings come from the sun's position along your track. Click a
@@ -156,8 +163,8 @@ MIT licensed.
 - **Pilot profile** (Pilot, above Settings): a cover picture and your
   photo (click either to change it), your Pilot Rating with its history,
   your rank on a shoulder board with XP to the next one, average scores
-  and career statistics: hours per month over the last year (recorded
-  and imported flights alike), records, most flown aircraft and favorite
+  and career statistics: hours per month over the last 12 months or any
+  year you have flown (recorded and imported flights alike), records, most flown aircraft and favorite
   airports.
 - **Pilot rating**: every flight FlightDeck records from gate to gate is
   scored out of 100 in whole numbers: half **Landing quality** (touchdown
@@ -384,7 +391,9 @@ cargo run -p refdata --features build-tool --bin build-refdata -- ourairports-da
 - Flight plans from SimBrief (Navigraph) via its public OFP fetch.
 - Weather radar by RainViewer (free API for personal use).
 - METARs and TAFs from aviationweather.gov (NOAA Aviation Weather Center).
-- Terrain shading: Esri World Hillshade (Esri, USGS, NGA, NASA, CGIAR).
+- Elevation for shading and contours: Terrain Tiles on AWS Open Data
+  (Mapzen; USGS, SRTM, GMTED, ETOPO1 and others), contours drawn with
+  maplibre-contour (BSD-3-Clause).
 - Satellite imagery: Esri World Imagery (Esri, Maxar, Earthstar
   Geographics, and the GIS User Community), shown with its attribution.
 - Fonts: Barlow and Barlow Condensed (SIL Open Font License).

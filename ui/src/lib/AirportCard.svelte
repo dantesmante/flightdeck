@@ -45,8 +45,8 @@
   function wind(w: AirportWeather): string {
     if (w.wind_kt == null) return "–";
     if (w.wind_kt === 0) return "Calm";
-    const dir = w.wind_dir == null ? "Variable" : `${pad3(w.wind_dir)}°`;
-    return `${dir} ${Math.round(w.wind_kt)}${w.gust_kt ? ` gusting ${Math.round(w.gust_kt)}` : ""} kt`;
+    const dir = w.wind_dir == null ? "VRB" : `${pad3(w.wind_dir)}°`;
+    return `${dir} ${Math.round(w.wind_kt)}${w.gust_kt ? `G${Math.round(w.gust_kt)}` : ""} kt`;
   }
   function vis(v: number | null): string {
     if (v == null) return "–";
@@ -133,7 +133,7 @@
             <li>
               <b class="mono">{r.name}</b>
               <span>{r.length_ft ? `${ft(r.length_ft)} × ${r.width_ft || "?"} ft` : "Size not known"}</span>
-              <em>{[r.surface, r.lighted ? "Lighted" : ""].filter(Boolean).join(" · ")}</em>
+              <em>{[r.surface, r.lighted ? "Lit" : ""].filter(Boolean).join(" · ")}</em>
             </li>
           {/each}
         </ul>
@@ -196,7 +196,8 @@
     max-height: calc(100% - 32px);
     overflow-y: auto;
     z-index: 4;
-    padding: 16px 18px 12px;
+    padding: 12px 14px 10px;
+    scrollbar-width: thin;
     background: rgba(28, 30, 33, 0.96);
     border: 1px solid var(--rule);
     border-radius: 10px;
@@ -235,7 +236,7 @@
     gap: 8px;
   }
   .ident {
-    font: 600 24px "IBM Plex Mono", ui-monospace, monospace;
+    font: 600 21px "IBM Plex Mono", ui-monospace, monospace;
     color: var(--amber);
   }
   .iata {
@@ -253,7 +254,7 @@
   h3 {
     margin: 2px 0 0;
     font-family: var(--cond);
-    font-size: 21px;
+    font-size: 18px;
     font-weight: 600;
     line-height: 1.15;
   }
@@ -265,8 +266,8 @@
   .facts {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    gap: 8px;
-    margin-top: 12px;
+    gap: 6px;
+    margin-top: 8px;
   }
   .lbl {
     display: block;
@@ -281,12 +282,12 @@
     font-size: 14px;
   }
   section {
-    margin-top: 14px;
-    padding-top: 12px;
+    margin-top: 10px;
+    padding-top: 9px;
     border-top: 1px solid var(--rule);
   }
   h4 {
-    margin: 0 0 8px;
+    margin: 0 0 6px;
     font-size: 12px;
     letter-spacing: 0.08em;
     text-transform: uppercase;
@@ -336,7 +337,7 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    margin-bottom: 8px;
+    margin-bottom: 6px;
   }
   .cat {
     padding: 2px 8px;
@@ -358,18 +359,18 @@
   }
   .wx-grid {
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 8px 12px;
+    grid-template-columns: 1.25fr 0.9fr 1fr;
+    gap: 6px 10px;
   }
   .wx-grid div:last-child {
-    grid-column: 1 / -1;
+    grid-column: span 2;
   }
   .raw {
-    margin: 10px 0 0;
-    padding: 8px 10px;
+    margin: 8px 0 0;
+    padding: 6px 8px;
     border-radius: 6px;
     background: rgba(0, 0, 0, 0.25);
-    font: 12px/1.45 "IBM Plex Mono", ui-monospace, monospace;
+    font: 11.5px/1.4 "IBM Plex Mono", ui-monospace, monospace;
     color: var(--ink-dim);
     white-space: pre-wrap;
     word-break: break-word;
@@ -387,13 +388,14 @@
   }
   .rwys li {
     display: grid;
-    grid-template-columns: 82px 1fr;
+    grid-template-columns: 70px auto 1fr;
+    align-items: baseline;
     gap: 0 8px;
-    padding: 4px 0;
+    padding: 2px 0;
     font-size: 13px;
   }
   .rwys em {
-    grid-column: 2;
+    text-align: right;
     font-style: normal;
     color: var(--ink-faint);
     font-size: 12px;
@@ -451,7 +453,7 @@
     color: var(--ink-dim);
   }
   .credit {
-    margin: 14px 0 0;
+    margin: 10px 0 0;
     color: var(--ink-faint);
     font-size: 11px;
   }

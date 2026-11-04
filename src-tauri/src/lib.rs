@@ -608,7 +608,13 @@ fn set_pilot_photo(state: tauri::State<AppState>, data_url: Option<String>) -> C
 
 #[tauri::command]
 fn get_logbook(state: tauri::State<AppState>) -> CmdResult<Vec<LogRow>> {
-    state.db.lock().unwrap().logbook().map_err(err)
+    let db = state.db.lock().unwrap();
+    // Cross-country time follows the definition, whatever path a line came in by.
+    let rd = &state.refdata;
+    if let Err(e) = db.auto_cross_country(|icao| rd.airport(icao).map(|a| (a.lat, a.lon))) {
+        log::warn!("cross-country: {e}");
+    }
+    db.logbook().map_err(err)
 }
 
 #[tauri::command]

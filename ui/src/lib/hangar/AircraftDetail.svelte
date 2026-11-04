@@ -99,7 +99,7 @@
       <div class="title">
         <h2 class="num">{item.registration || item.icao_type || "Unregistered"}</h2>
         <p>{displayName}{item.icao_type ? ` · ${item.icao_type}` : ""}</p>
-        {#if look}<span class="airline" style:--a={look.colors[0]} style:--b={look.colors[1]}>{look.name}</span>{/if}
+        {#if look}<span class="airline" style:--a={look.colors[0]} style:--b={look.colors[1]} style:--c={look.colors[2] ?? look.colors[1]}>{look.name}</span>{/if}
       </div>
     </div>
 
@@ -254,7 +254,9 @@
     font-weight: 600;
     color: #fff;
     background: var(--a);
-    box-shadow: inset 4px 0 0 var(--b);
+    box-shadow:
+      inset 3px 0 0 var(--c),
+      inset 6px 0 0 var(--b);
     text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
   }
   .change:hover,

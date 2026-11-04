@@ -65,7 +65,10 @@
 {#if selected}
   {@const f = selected.flight}
   <div class="detail">
-    <button class="back" onclick={close}>All flights</button>
+    <button class="back" onclick={close}>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg>
+      Back to all flights
+    </button>
     <h2 class="num">{f.dep_icao ?? "????"} <span class="to">to</span> {f.arr_icao ?? "????"}</h2>
     <p class="names">{f.dep_name ?? "Unknown departure"}<br />{f.arr_name ?? "Unknown arrival"}</p>
     <p class="meta">
@@ -265,11 +268,29 @@
   }
   button.back {
     align-self: flex-start;
-    border: none;
-    background: none;
-    color: var(--amber);
-    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px 6px 8px;
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.03);
+    color: var(--ink);
     font-weight: 600;
+    cursor: pointer;
+  }
+  button.back:hover {
+    border-color: var(--amber);
+    color: var(--amber);
+  }
+  button.back svg {
+    width: 16px;
+    height: 16px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2.2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
   }
   .danger-zone {
     display: flex;

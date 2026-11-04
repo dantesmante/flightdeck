@@ -130,7 +130,7 @@
           {@const look = airlineLook(it.airline)}
           <article class="card">
             <button class="open" onclick={() => (openId = it.id)} aria-label="Open {it.registration || name(it)}"></button>
-            <div class="reg" class:airline={!!look} style:--a={look?.colors[0]} style:--b={look?.colors[1]}>
+            <div class="reg" class:airline={!!look} style:--a={look?.colors[0]} style:--b={look?.colors[1]} style:--c={look?.colors[2] ?? look?.colors[1]}>
               <h3 class="num">{it.registration || it.icao_type || "Unregistered"}</h3>
               {#if look}<span class="al">{look.name}</span>{/if}
               <button class="edit" onclick={() => (form = it)} aria-label="Edit {it.registration || 'aircraft'}" title="Edit registration, model and airline">
@@ -321,11 +321,14 @@
     white-space: nowrap;
   }
   /* An airline's colors behind the registration: its main color, with a
-     band of the accent color along the right edge (as on the aircraft page). */
+     band of its accent colors along the right edge (as on the aircraft page). */
   .reg.airline {
     color: #fff;
     background: var(--a);
-    box-shadow: inset -6px 0 0 var(--b);
+    /* The accent band; a third livery color sits outermost. */
+    box-shadow:
+      inset -5px 0 0 var(--c),
+      inset -10px 0 0 var(--b);
   }
   .reg.airline h3 {
     text-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);

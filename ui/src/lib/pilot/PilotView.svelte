@@ -107,7 +107,20 @@
     return { W, H, line, area: `${line} L${W} ${H} L0 ${H} Z`, base: y(1000), end: [x(h.length - 1), y(vals[vals.length - 1])] };
   });
 
-  const maxMonth = $derived(Math.max(60, ...(data?.stats.months ?? []).map((m) => m.minutes)));
+  /** The hours chart: the last 12 months, or a calendar year. */
+  let period = $state("last");
+  const years = $derived(
+    [...new Set((data?.stats.history ?? []).map((m) => m.month.slice(0, 4)))].sort().reverse(),
+  );
+  const shownMonths = $derived.by(() => {
+    if (period === "last" || !data) return data?.stats.months ?? [];
+    const byKey = new Map((data.stats.history ?? []).map((m) => [m.month, m]));
+    return Array.from({ length: 12 }, (_, i) => {
+      const key = `${period}-${String(i + 1).padStart(2, "0")}`;
+      return byKey.get(key) ?? { month: key, minutes: 0, flights: 0 };
+    });
+  });
+  const maxMonth = $derived(Math.max(60, ...shownMonths.map((m) => m.minutes)));
   /** Minutes as hours: one decimal below ten. */
   const hrs = (min: number) => (min / 60 < 10 ? (Math.round(min / 6) / 10).toString() : String(Math.round(min / 60)));
   const monthName = (m: string) => ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][Number(m.slice(5)) - 1];
@@ -188,6 +201,9 @@
         </div>
       </div>
 
+      <!-- The photo overlaps the banner's lower edge, with the name beside
+           it: compact, so the cards start close below the banner. -->
+      <div class="who">
       <div class="avatar-wrap">
         <button class="avatar" class:busy={busy === "photo"} onclick={() => photoInput?.click()} aria-label={p.photo_url ? "Change your photo" : "Add your photo"}>
           {#if p.photo_url}
@@ -220,6 +236,7 @@
             Scoring guide
           </button>
         </div>
+      </div>
       </div>
       {#if error}<p class="error" role="alert">{error}</p>{/if}
     </header>
@@ -322,11 +339,17 @@
       <div class="two">
         <article class="card">
           <h2 class="split-h">
-            Hours, last 12 months
-            <span class="num">{hrs(s.months.reduce((a, m) => a + m.minutes, 0))} h</span>
+            <span class="period">
+              Hours,
+              <select bind:value={period} aria-label="Period">
+                <option value="last">last 12 months</option>
+                {#each years as y (y)}<option value={y}>{y}</option>{/each}
+              </select>
+            </span>
+            <span class="num">{hrs(shownMonths.reduce((a, m) => a + m.minutes, 0))} h</span>
           </h2>
           <div class="months">
-            {#each s.months as m (m.month)}
+            {#each shownMonths as m (m.month)}
               <div class="month" title="{monthName(m.month)}: {hoursMinutes(m.minutes)}, {m.flights} flights">
                 <span class="col">
                   {#if m.minutes}<b class="num val">{hrs(m.minutes)}</b>{/if}
@@ -487,19 +510,28 @@
     stroke-width: 1.8;
     stroke-linejoin: round;
   }
+  .who {
+    max-width: 1120px;
+    margin: 0 auto 22px;
+    padding: 0 28px;
+    display: grid;
+    grid-template-columns: auto 1fr;
+    align-items: end;
+    gap: 0 22px;
+  }
   .avatar-wrap {
     position: relative;
-    margin: -78px auto 0;
-    width: 156px;
+    margin-top: -64px;
+    width: 132px;
     display: grid;
     justify-items: center;
-    gap: 6px;
+    gap: 4px;
     z-index: 2;
   }
   .avatar {
     position: relative;
-    width: 156px;
-    height: 156px;
+    width: 132px;
+    height: 132px;
     padding: 0;
     border-radius: 50%;
     border: 4px solid var(--panel);
@@ -517,7 +549,7 @@
   }
   .initials {
     font-family: var(--cond);
-    font-size: 54px;
+    font-size: 46px;
     font-weight: 600;
     color: var(--amber);
     letter-spacing: 0.04em;
@@ -551,21 +583,34 @@
     color: var(--ink);
   }
   .identity {
-    text-align: center;
-    margin-top: 8px;
+    min-width: 0;
+    padding-top: 12px;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: end;
+    gap: 4px 16px;
+  }
+  .identity h1,
+  .identity .meta {
+    grid-column: 1;
+  }
+  .identity .badges {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    align-self: center;
   }
   h1 {
     margin: 0;
     font-family: var(--cond);
-    font-size: 36px;
+    font-size: 34px;
     font-weight: 600;
+    line-height: 1.05;
     letter-spacing: 0.01em;
   }
   .meta {
     margin: 4px 0 0;
     display: flex;
     flex-wrap: wrap;
-    justify-content: center;
     gap: 6px 18px;
     color: var(--ink-dim);
     font-size: 14px;
@@ -576,11 +621,20 @@
   }
   .badges {
     display: flex;
-    justify-content: center;
+    justify-content: flex-end;
     align-items: center;
     flex-wrap: wrap;
     gap: 10px;
-    margin-top: 12px;
+  }
+  @media (max-width: 760px) {
+    .identity {
+      grid-template-columns: 1fr;
+    }
+    .identity .badges {
+      grid-column: 1;
+      grid-row: auto;
+      justify-content: flex-start;
+    }
   }
   .guide-btn {
     display: inline-flex;
@@ -638,7 +692,7 @@
     display: grid;
     grid-template-columns: 1.15fr 1fr 1fr;
     gap: 16px;
-    margin-top: 28px;
+    margin-top: 0;
   }
   .card {
     background: var(--panel-2);
@@ -857,6 +911,27 @@
     gap: 16px;
     margin-top: 16px;
   }
+  .period select {
+    margin-left: 2px;
+    padding: 1px 4px;
+    border: 1px solid transparent;
+    border-radius: 5px;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    letter-spacing: inherit;
+    text-transform: inherit;
+    cursor: pointer;
+  }
+  .period select:hover,
+  .period select:focus {
+    border-color: var(--rule);
+    background: var(--panel-2, #26292d);
+  }
+  .period option {
+    text-transform: none;
+    background: #1c1e21;
+  }
   .months {
     display: grid;
     grid-template-columns: repeat(12, 1fr);
@@ -891,7 +966,13 @@
     display: flex;
     justify-content: space-between;
   }
-  .split-h span {
+  .split-h span.period {
+    color: inherit;
+    font-size: inherit;
+    letter-spacing: inherit;
+    text-transform: inherit;
+  }
+  .split-h span:not(.period) {
     color: var(--amber);
     font-size: 14px;
     letter-spacing: 0;

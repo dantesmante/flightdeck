@@ -24,7 +24,11 @@ import sys
 from pathlib import Path
 
 W = 1000.0
-TOLERANCE = 0.75  # simplification tolerance, in map units (about half a pixel in the passport)
+# Simplification tolerance and coordinate precision, in map units. The
+# passport map zooms up to 16x, where one unit is about 11 pixels, so the
+# outlines keep detail to a tenth of a unit.
+TOLERANCE = 0.08
+DECIMALS = 2
 TINY_AREA = 6.0
 FOLD = {"SJ": "NO"}   # countries smaller than this also get a dot so they show
 
@@ -129,17 +133,18 @@ def main():
             total += a
             if biggest is None or a > biggest[0]:
                 biggest = (a, pts)
-            # Round to whole units and drop repeated points.
+            # Round and drop repeated points.
             snapped = []
             for x, y in simple:
-                q = (round(x), round(y))
+                q = (round(x, DECIMALS), round(y, DECIMALS))
                 if not snapped or snapped[-1] != q:
                     snapped.append(q)
-            if len(snapped) >= 4 and area(snapped) > 0.6:
+            if len(snapped) >= 4 and area(snapped) > 0.01:
                 rings.append(snapped)
         if not rings and biggest:
-            rings.append([(round(x), round(y)) for x, y in simplify_ring(biggest[1], TOLERANCE)])
-        d = "".join("M" + "L".join(f"{x} {y}" for x, y in r[:-1]) + "Z" for r in rings)
+            rings.append([(round(x, DECIMALS), round(y, DECIMALS)) for x, y in simplify_ring(biggest[1], TOLERANCE)])
+        num = lambda v: f"{v:.{DECIMALS}f}".rstrip("0").rstrip(".")
+        d = "".join("M" + "L".join(f"{num(x)} {num(y)}" for x, y in r[:-1]) + "Z" for r in rings)
         entry = {"c": c["c"], "n": c["n"], "d": d}
         if total < TINY_AREA and biggest:
             cx, cy = centroid(biggest[1])

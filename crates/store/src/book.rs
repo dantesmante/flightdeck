@@ -8,6 +8,9 @@ use serde::{Deserialize, Serialize};
 use crate::passport::{StampFlight, StampPlace};
 use crate::{Result, Store};
 
+/// Straight-line distance beyond which a flight counts as cross-country.
+pub const CROSS_COUNTRY_NM: f64 = 50.0;
+
 /// Settings and their defaults.
 pub const DEFAULT_SETTINGS: &[(&str, &str)] = &[
     ("distance_unit", "nm"),      // nm | mi | km
@@ -312,6 +315,48 @@ impl Store {
         Ok(rows.collect::<std::result::Result<_, _>>()?)
     }
 
+    /// Cross-country time, by the FAA definition (14 CFR 61.1): a flight
+    /// that lands somewhere other than where it departed, more than 50 nm in
+    /// a straight line from the departure point, logs its whole time as
+    /// cross-country; any other flight logs none. `place` gives an airport's
+    /// position; the positions saved with the flight are the fallback. Lines
+    /// whose cross-country time the pilot set by hand are left alone.
+    /// Returns how many lines changed.
+    pub fn auto_cross_country(&self, place: impl Fn(&str) -> Option<(f64, f64)>) -> Result<usize> {
+        let mut st = self.conn.prepare(
+            "SELECT l.flight_id, l.total_min, l.xc_min, COALESCE(f.dep_icao, ''), COALESCE(f.arr_icao, ''),
+                    COALESCE(f.dep_lat, 0), COALESCE(f.dep_lon, 0), COALESCE(f.arr_lat, 0), COALESCE(f.arr_lon, 0)
+             FROM log_entry l JOIN flight f ON f.id = l.flight_id
+             WHERE l.xc_manual = 0",
+        )?;
+        type Line = (i64, i64, i64, String, String, f64, f64, f64, f64);
+        let rows: Vec<Line> = st
+            .query_map([], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?, r.get(8)?))
+            })?
+            .collect::<std::result::Result<_, _>>()?;
+        let mut changed = 0;
+        for (id, total, xc, dep, arr, dla, dlo, ala, alo) in rows {
+            let known = |la: f64, lo: f64| (la != 0.0 || lo != 0.0).then_some((la, lo));
+            let from = place(&dep).or(known(dla, dlo));
+            let to = place(&arr).or(known(ala, alo));
+            let want = match (from, to) {
+                (Some(a), Some(b))
+                    if (dep != arr || dep.is_empty())
+                        && telemetry::geo::distance_nm(a.0, a.1, b.0, b.1) > CROSS_COUNTRY_NM =>
+                {
+                    total
+                }
+                _ => 0,
+            };
+            if want != xc {
+                self.conn.execute("UPDATE log_entry SET xc_min = ?2 WHERE flight_id = ?1", params![id, want])?;
+                changed += 1;
+            }
+        }
+        Ok(changed)
+    }
+
     pub fn update_log_entry(&self, flight_id: i64, p: &LogPatch) -> Result<bool> {
         let n = self.conn.execute(
             "UPDATE log_entry SET
@@ -321,6 +366,7 @@ impl Store {
                 act_inst_min = COALESCE(?9, act_inst_min), day_landings = COALESCE(?10, day_landings),
                 night_landings = COALESCE(?11, night_landings), approaches = COALESCE(?12, approaches),
                 remarks = COALESCE(?13, remarks),
+                xc_manual = CASE WHEN ?5 IS NOT NULL AND ?5 != xc_min THEN 1 ELSE xc_manual END,
                 class_override = CASE WHEN ?14 IS NULL THEN class_override ELSE NULLIF(?14, '') END
              WHERE flight_id = ?1",
             params![

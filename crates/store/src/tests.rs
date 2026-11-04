@@ -594,3 +594,33 @@ fn older_flights_get_their_estimates_once() {
     assert_eq!(db.flights_needing_estimates().unwrap().len(), 1);
     assert!(!db.reset_estimates(2).unwrap());
 }
+
+#[test]
+fn cross_country_follows_the_definition() {
+    let mut s = Store::open_in_memory().unwrap();
+    let id = s.save_flight(&fly(1), &SaveContext::default()).unwrap();
+    let place = |icao: &str| match icao {
+        "KPYM" => Some((41.909, -70.729)),
+        "KPSM" => Some((43.078, -70.823)),
+        "K3B4" => Some((43.150, -70.866)),
+        _ => None,
+    };
+    let set = |s: &Store, dep: &str, arr: &str| {
+        s.conn.execute("UPDATE flight SET dep_icao = ?2, arr_icao = ?3 WHERE id = ?1", rusqlite::params![id, dep, arr]).unwrap();
+    };
+    let xc = |s: &Store| -> i64 { s.conn.query_row("SELECT xc_min FROM log_entry WHERE flight_id = ?1", [id], |r| r.get(0)).unwrap() };
+    let total: i64 = s.conn.query_row("SELECT total_min FROM log_entry WHERE flight_id = ?1", [id], |r| r.get(0)).unwrap();
+    // 70 nm: all of it is cross-country.
+    set(&s, "KPYM", "KPSM");
+    s.auto_cross_country(place).unwrap();
+    assert_eq!(xc(&s), total);
+    // 5 nm: none.
+    set(&s, "KPSM", "K3B4");
+    s.auto_cross_country(place).unwrap();
+    assert_eq!(xc(&s), 0);
+    // Set by hand: kept.
+    s.update_log_entry(id, &crate::book::LogPatch { xc_min: Some(12), ..Default::default() }).unwrap();
+    set(&s, "KPYM", "KPSM");
+    s.auto_cross_country(place).unwrap();
+    assert_eq!(xc(&s), 12);
+}

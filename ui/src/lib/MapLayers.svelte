@@ -160,7 +160,7 @@
     <div class="grid">
       {@render card("radar", "Rain radar", on.has("radar"), () => ontoggle("radar"), radarNote)}
     </div>
-    <p class="credit">Radar by RainViewer, updated every 10 minutes. Satellite imagery and terrain shading by Esri.</p>
+    <p class="credit">Radar by RainViewer, updated every 10 minutes. Satellite imagery by Esri. Terrain from open elevation data (AWS Terrain Tiles).</p>
   </div>
 {/if}
 

@@ -478,6 +478,8 @@
       fadeDuration: 0,
       maxPitch: 75,
     });
+    // For automated checks of the interface in development builds.
+    if (import.meta.env.DEV) (window as unknown as { __fdMap?: maplibregl.Map }).__fdMap = map;
     map.addControl(new maplibregl.NavigationControl({ showCompass: true, visualizePitch: true }), "bottom-right");
     map.on("style.load", () => {
       tint();

@@ -82,6 +82,9 @@ pub struct PilotStats {
     pub top_airports: Vec<Named>,
     /// The last twelve months, oldest first, including empty ones.
     pub months: Vec<MonthHours>,
+    /// Every month with flights, oldest first, for picking another year.
+    #[serde(default)]
+    pub history: Vec<MonthHours>,
 }
 
 impl Store {
@@ -249,6 +252,7 @@ impl Store {
                  GROUP BY icao ORDER BY 2 DESC, 1 LIMIT 5",
             )?,
             months: vec![],
+            history: vec![],
         };
         // Hours per month over the last year, in UTC.
         let by_month: HashMap<String, (i64, i64)> = {
@@ -260,11 +264,15 @@ impl Store {
                                           ELSE MAX(0, (COALESCE(f.block_in, f.end_ms) - COALESCE(f.block_out, f.start_ms)) / 60000) END), 0),
                         COUNT(*)
                  FROM flight f LEFT JOIN log_entry l ON l.flight_id = f.id
-                 WHERE f.start_ms >= ?1 GROUP BY 1",
+                 GROUP BY 1",
             )?;
-            let rows = st.query_map(params![now_ms - 400 * 86_400_000], |r| Ok((r.get(0)?, (r.get(1)?, r.get(2)?))))?;
+            let rows = st.query_map([], |r| Ok((r.get(0)?, (r.get(1)?, r.get(2)?))))?;
             rows.collect::<std::result::Result<_, _>>()?
         };
+        let mut history: Vec<MonthHours> =
+            by_month.iter().map(|(k, &(minutes, flights))| MonthHours { month: k.clone(), minutes, flights }).collect();
+        history.sort_by(|a, b| a.month.cmp(&b.month));
+        s.history = history;
         let (mut y, mut m): (i64, i64) =
             c.query_row("SELECT CAST(strftime('%Y', ?1 / 1000, 'unixepoch') AS INTEGER), CAST(strftime('%m', ?1 / 1000, 'unixepoch') AS INTEGER)", params![now_ms], |r| {
                 Ok((r.get(0)?, r.get(1)?))

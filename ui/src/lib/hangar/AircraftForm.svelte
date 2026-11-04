@@ -144,7 +144,7 @@
       <button type="button" class="x" aria-label="Close" onclick={onclose}><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" /></svg></button>
     </header>
 
-    <div class="strip" style:--a={look?.colors[0] ?? "#2b2e32"} style:--b={look?.colors[1] ?? "#2b2e32"}>
+    <div class="strip" style:--a={look?.colors[0] ?? "#2b2e32"} style:--b={look?.colors[1] ?? "#2b2e32"} style:--c={look?.colors[2] ?? look?.colors[1] ?? "#2b2e32"}>
       <span class="reg num">{registration.trim().toUpperCase() || "REGISTRATION"}</span>
       {#if look}<span class="al">{look.name}</span>{/if}
     </div>
@@ -294,7 +294,10 @@
     padding: 10px 14px;
     border-radius: 8px;
     color: #fff;
-    background: linear-gradient(100deg, var(--a) 0 70%, var(--b) 70% 76%, var(--a) 76%);
+    background: var(--a);
+    box-shadow:
+      inset -5px 0 0 var(--c),
+      inset -10px 0 0 var(--b);
   }
   .strip .reg {
     font-family: "IBM Plex Mono", ui-monospace, monospace;

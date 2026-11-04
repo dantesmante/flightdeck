@@ -118,6 +118,9 @@
       : { surname: parts[0] ?? "", given: "" };
   });
   const number = $derived(data ? passportNumber(data.pilot.pilot_id, data.pilot.name) : "");
+  /** The data page shows the whole pilot ID; the machine-readable zone keeps
+   * the standard nine characters. */
+  const shownNumber = $derived(data?.pilot.pilot_id.trim() ? data.pilot.pilot_id.trim().toUpperCase() : number);
   const lines = $derived(
     data
       ? mrz({ name: data.pilot.name || "Pilot", nationality: data.pilot.nationality, number, issued: data.first_flight_ms ?? Date.now() })
@@ -216,7 +219,7 @@
             <div class="row3">
               <div><dt>Type</dt><dd>P</dd></div>
               <div><dt>Code</dt><dd>{stateCode}</dd></div>
-              <div><dt>Passport no.</dt><dd>{number}</dd></div>
+              <div><dt>Passport no.</dt><dd>{shownNumber}</dd></div>
             </div>
             <div><dt>Surname</dt><dd>{nameParts.surname.toUpperCase() || "—"}</dd></div>
             <div><dt>Given names</dt><dd>{nameParts.given.toUpperCase() || "—"}</dd></div>
@@ -684,8 +687,8 @@
     background-position: var(--mx) var(--my);
     /* Only the lines within 80px of the pointer light up, fading out towards
        the edge: the line art is intersected with a feathered circle. */
-    -webkit-mask-image: radial-gradient(circle 80px at var(--mx) var(--my), #000 0, rgba(0, 0, 0, 0.85) 30%, rgba(0, 0, 0, 0.4) 65%, transparent 100%), var(--lines);
-    mask-image: radial-gradient(circle 80px at var(--mx) var(--my), #000 0, rgba(0, 0, 0, 0.85) 30%, rgba(0, 0, 0, 0.4) 65%, transparent 100%), var(--lines);
+    -webkit-mask-image: radial-gradient(circle 160px at var(--mx) var(--my), #000 0, rgba(0, 0, 0, 0.8) 15%, rgba(0, 0, 0, 0.55) 35%, rgba(0, 0, 0, 0.3) 55%, rgba(0, 0, 0, 0.12) 75%, transparent 100%), var(--lines);
+    mask-image: radial-gradient(circle 160px at var(--mx) var(--my), #000 0, rgba(0, 0, 0, 0.8) 15%, rgba(0, 0, 0, 0.55) 35%, rgba(0, 0, 0, 0.3) 55%, rgba(0, 0, 0, 0.12) 75%, transparent 100%), var(--lines);
     -webkit-mask-size: 100% 100%, 100% 100%;
     mask-size: 100% 100%, 100% 100%;
     -webkit-mask-repeat: no-repeat;
@@ -727,6 +730,7 @@
     padding-bottom: 6px;
   }
   dl {
+    min-width: 0;
     margin: 0;
     display: flex;
     flex-direction: column;
@@ -753,9 +757,11 @@
     font-family: "IBM Plex Mono", ui-monospace, monospace;
     font-size: 11.5px;
     color: #232030;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    /* Long values (an airport's full name, a long pilot ID) wrap onto a
+       second line rather than running off the page. */
+    white-space: normal;
+    overflow-wrap: anywhere;
+    line-height: 1.3;
   }
   .sig {
     margin-top: 14px;

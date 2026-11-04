@@ -387,6 +387,8 @@ export interface PilotStats {
   top_types: { name: string; count: number; minutes: number }[];
   top_airports: { name: string; count: number; minutes: number }[];
   months: { month: string; minutes: number; flights: number }[];
+  /** Every month with flights, oldest first. */
+  history?: { month: string; minutes: number; flights: number }[];
 }
 
 export interface PilotProfile {

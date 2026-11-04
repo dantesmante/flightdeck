@@ -1,12 +1,14 @@
 // Airlines the hangar knows: ICAO and IATA codes, name and livery colors
-// (main color, accent). Used to tint an aircraft's registration strip.
+// (main color, accent, and a third color when the livery has one). Used to
+// tint an aircraft's registration strip.
 // Airlines not listed still work: they get a neutral color of their own.
 
 export interface Airline {
   icao: string;
   iata: string;
   name: string;
-  colors: [string, string];
+  /** Main color, accent, and a third color for liveries that have one. */
+  colors: [string, string] | [string, string, string];
 }
 
 const LIST: [string, string, string, string, string][] = [
@@ -132,7 +134,33 @@ const LIST: [string, string, string, string, string][] = [
   ["EJA", "1I", "NetJets", "#1a1a1a", "#c0c0c0"],
 ];
 
-export const AIRLINES: Airline[] = LIST.map(([icao, iata, name, a, b]) => ({ icao, iata, name, colors: [a, b] }));
+/** Liveries with a third color worth showing, by ICAO code. */
+const THIRD: Record<string, string> = {
+  AAL: "#cfd5da", // silver
+  SWA: "#c8102e", // heart red
+  BAW: "#01295f", // navy
+  AFR: "#ffffff",
+  ETH: "#da121a",
+  SAA: "#007a4d",
+  KQA: "#00a651",
+  UAE: "#00843d",
+  SVA: "#c4a46a", // sand
+  TOM: "#092a5e",
+  TUI: "#092a5e",
+  IBE: "#ef7d00",
+  AIC: "#d6a64a", // gold
+  THA: "#d4a017", // gold
+  CMP: "#c69214", // gold
+  KLM: "#ffffff",
+  DAL: "#7c878e", // grey
+};
+
+export const AIRLINES: Airline[] = LIST.map(([icao, iata, name, a, b]) => ({
+  icao,
+  iata,
+  name,
+  colors: THIRD[icao] ? [a, b, THIRD[icao]] : [a, b],
+}));
 
 /** An airline from a code (ICAO or IATA) or its name. */
 export function findAirline(q: string | null | undefined): Airline | null {
@@ -156,7 +184,7 @@ export function suggestAirlines(q: string, n = 8): Airline[] {
 }
 
 /** Display name and colors for whatever the pilot typed as the airline. */
-export function airlineLook(q: string | null | undefined): { name: string; colors: [string, string] } | null {
+export function airlineLook(q: string | null | undefined): { name: string; colors: Airline["colors"] } | null {
   const s = (q ?? "").trim();
   if (!s) return null;
   const a = findAirline(s);
