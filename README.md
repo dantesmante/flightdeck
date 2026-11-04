@@ -122,6 +122,18 @@ MIT licensed.
   small inked flag. The photo and data pages carry a holographic film that
   shimmers around the mouse as you move it over them, and the page facing
   the data page opens with a quote by John H. Secondari.
+- **Online networks** (Map layers): **VATSIM ATC**, **VATSIM pilots**,
+  **IVAO ATC** and **IVAO pilots**. Staffed centres and FIRs are shaded
+  with their callsigns in the middle; staffed airports show their code and
+  position letters (D delivery, G ground, T tower, I ATIS) and a ring for
+  approach; pilots are aircraft pointing where they fly (VATSIM green,
+  IVAO blue). Click a centre's callsign for its controller, frequency,
+  facility, time online and info text; an airport for every position
+  there with frequencies and ATIS text (and a link to the airport card);
+  a pilot for the aircraft, route, altitude, speed and flight plan. Data
+  comes from each network's public feed, downloaded by FlightDeck only
+  while one of its layers is on, every 30 seconds; nothing is sent to the
+  networks.
 - **Cross-country time** follows the FAA definition (14 CFR 61.1): a
   flight landing somewhere other than where it departed, more than 50 nm
   in a straight line, logs all its time as cross-country, whichever way it
@@ -390,6 +402,10 @@ cargo run -p refdata --features build-tool --bin build-refdata -- ourairports-da
   `tools/build_flags.py`.
 - Flight plans from SimBrief (Navigraph) via its public OFP fetch.
 - Weather radar by RainViewer (free API for personal use).
+- Live online-network data from the VATSIM data feed and IVAO's Whazzup v2
+  API, both public. FIR and sector boundaries, callsign prefixes and
+  airports from the VAT-Spy Data Project (VATSIM), CC BY-SA 4.0, bundled
+  in `src-tauri/data` by `tools/build_vatspy.py`.
 - METARs and TAFs from aviationweather.gov (NOAA Aviation Weather Center).
 - Elevation for shading and contours: Terrain Tiles on AWS Open Data
   (Mapzen; USGS, SRTM, GMTED, ETOPO1 and others), contours drawn with

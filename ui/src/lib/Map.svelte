@@ -5,6 +5,8 @@
   import { onDestroy, onMount, untrack } from "svelte";
   import { api, type FlightPlan, type HangarItem, type MapAirport, type Route } from "./api";
   import AirportCard from "./AirportCard.svelte";
+  import NetworkCard, { NET_COLOR, POSITION, type NetPick } from "./NetworkCard.svelte";
+  import type { Net, NetworkData } from "./api";
   import { C as BASE, STYLE, addRegionLines, offlineStyle, setBorders, showSatellite, showTerrain, tintMap } from "./mapStyle";
   import MapLayers from "./MapLayers.svelte";
   import { latestRadar } from "./radar";
@@ -108,6 +110,98 @@
   }
   /** The airport whose card is open. */
   let openAirport = $state<string | null>(null);
+  /** What is open from an online network's layers. */
+  let netPick = $state<NetPick | null>(null);
+
+  // Online networks: download only while one of their layers is on, every
+  // 30 seconds (the networks refresh every 15), and not while hidden.
+  let netData = $state<Partial<Record<Net, NetworkData>>>({});
+  const netOn = (net: Net) => layers.has(`${net}-atc`) || layers.has(`${net}-pilots`);
+  $effect(() => {
+    const nets = (["vatsim", "ivao"] as Net[]).filter(netOn);
+    if (!nets.length) return;
+    let stop = false;
+    const load = () => {
+      if (document.hidden) return;
+      for (const n of nets) {
+        api.onlineNetwork(n).then((d) => {
+          if (!stop && d) netData = { ...netData, [n]: d };
+        });
+      }
+    };
+    load();
+    const t = setInterval(load, 30_000);
+    return () => {
+      stop = true;
+      clearInterval(t);
+    };
+  });
+  $effect(() => {
+    const data = netData;
+    const on = layers;
+    if (!loaded || !map || !map.getSource("net-areas")) return;
+    const areas: GeoJSON.Feature[] = [];
+    const labels: GeoJSON.Feature[] = [];
+    const airports: GeoJSON.Feature[] = [];
+    const pilots: GeoJSON.Feature[] = [];
+    for (const net of ["vatsim", "ivao"] as Net[]) {
+      const d = data[net];
+      if (!d) continue;
+      if (on.has(`${net}-atc`)) {
+        d.areas.forEach((a, i) => {
+          const props = { net, i, kind: "area" };
+          areas.push({ type: "Feature", properties: props, geometry: { type: "MultiPolygon", coordinates: a.polys } });
+          labels.push({
+            type: "Feature",
+            properties: { ...props, text: a.controllers.map((c) => c.callsign).join("\n") },
+            geometry: { type: "Point", coordinates: a.label },
+          });
+        });
+        d.airports.forEach((ap, i) => {
+          const kinds = new Set(ap.controllers.map((c) => c.kind));
+          const letters = ["DEL", "GND", "TWR", "ATIS"].filter((k) => kinds.has(k as never)).map((k) => POSITION[k].letter);
+          airports.push({
+            type: "Feature",
+            properties: { net, i, kind: "airport", app: kinds.has("APP") || kinds.has("DEP"), badge: `${ap.icao}${letters.length ? ` ${letters.join(" ")}` : ""}` },
+            geometry: { type: "Point", coordinates: [ap.lon, ap.lat] },
+          });
+        });
+      }
+      if (on.has(`${net}-pilots`)) {
+        d.pilots.forEach((p, i) => {
+          pilots.push({ type: "Feature", properties: { net, i, kind: "pilot", hdg: p.hdg, callsign: p.callsign }, geometry: { type: "Point", coordinates: [p.lon, p.lat] } });
+        });
+      }
+    }
+    const set = (id: string, features: GeoJSON.Feature[]) =>
+      (map!.getSource(id) as GeoJSONSource | undefined)?.setData({ type: "FeatureCollection", features });
+    set("net-areas", areas);
+    set("net-labels", labels);
+    set("net-airports", airports);
+    set("net-pilots", pilots);
+  });
+  /** The online-network thing at a point on the map, if any. */
+  const NET_LAYERS = ["net-pilots", "net-airport-dot", "net-airport-labels", "net-area-labels", "net-app-ring", "net-area-fill"];
+  function netAt(pt: maplibregl.PointLike): NetPick | null {
+    if (!map) return null;
+    const p = pt as maplibregl.Point;
+    const box: [maplibregl.PointLike, maplibregl.PointLike] = [[p.x - 4, p.y - 4], [p.x + 4, p.y + 4]];
+    // Pilots and airports first, then the area under them.
+    for (const layer of NET_LAYERS) {
+      if (!map.getLayer(layer)) continue;
+      // An area opens from its label; the whole area only when there are no labels.
+      if (layer === "net-area-fill" && map.getLayer("net-area-labels")) continue;
+      const f = map.queryRenderedFeatures(layer === "net-area-fill" ? [p.x, p.y] as maplibregl.PointLike : box, { layers: [layer] })[0];
+      if (!f) continue;
+      const { net, i, kind } = f.properties as { net: Net; i: number; kind: string };
+      const d = netData[net];
+      if (!d) continue;
+      if (kind === "pilot" && d.pilots[i]) return { kind: "pilot", net, pilot: d.pilots[i] };
+      if (kind === "airport" && d.airports[i]) return { kind: "airport", net, airport: d.airports[i] };
+      if (kind === "area" && d.areas[i]) return { kind: "area", net, area: d.areas[i] };
+    }
+    return null;
+  }
   /** Dots and their codes: either opens the airport. */
   const AIRPORT_LAYERS = ["wa-major", "wa-regional", "wa-small", "wa-labels-0", "wa-labels-1", "wa-labels-2", "routes-airports"];
   /** The airport (code) at a point on the map, if any. */
@@ -309,6 +403,36 @@
         });
       }
     }
+    // Online networks' controlled areas and approach rings, under your routes.
+    const empty: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
+    const netColor: maplibregl.ExpressionSpecification = ["match", ["get", "net"], "ivao", NET_COLOR.ivao, NET_COLOR.vatsim];
+    map.addSource("net-areas", { type: "geojson", data: empty });
+    map.addSource("net-airports", { type: "geojson", data: empty });
+    map.addSource("net-pilots", { type: "geojson", data: empty });
+    map.addSource("net-labels", { type: "geojson", data: empty });
+    map.addLayer({ id: "net-area-fill", type: "fill", source: "net-areas", paint: { "fill-color": netColor, "fill-opacity": 0.07 } });
+    map.addLayer({
+      id: "net-area-line",
+      type: "line",
+      source: "net-areas",
+      paint: { "line-color": netColor, "line-opacity": 0.75, "line-width": 1.2 },
+    });
+    // Approach: a ring of about 30 nm around the airport, whatever the zoom.
+    map.addLayer({
+      id: "net-app-ring",
+      type: "circle",
+      source: "net-airports",
+      filter: ["==", ["get", "app"], true],
+      paint: {
+        "circle-radius": ["interpolate", ["exponential", 2], ["zoom"], 0, 0.71, 22, 0.71 * 2 ** 22],
+        "circle-color": netColor,
+        "circle-opacity": 0.06,
+        "circle-stroke-color": netColor,
+        "circle-stroke-opacity": 0.7,
+        "circle-stroke-width": 1.2,
+        "circle-pitch-alignment": "map",
+      },
+    });
     // Every past flight, faint, under the live track.
     map.addSource("routes", { type: "geojson", data: routeFeatures(routes) });
     const hot: maplibregl.ExpressionSpecification = [
@@ -450,6 +574,73 @@
       paint: { "line-gradient": altGradient([]), "line-width": 3 },
       layout: { "line-cap": "round", "line-join": "round" },
     });
+    // Online networks: staffed airports, pilots and labels, above everything.
+    if (!map.hasImage("net-plane")) map.addImage("net-plane", planeIcon(), { sdf: true });
+    map.addLayer({
+      id: "net-airport-dot",
+      type: "circle",
+      source: "net-airports",
+      paint: { "circle-radius": 4, "circle-color": netColor, "circle-stroke-color": "#111214", "circle-stroke-width": 1.2 },
+    });
+    map.addLayer({
+      id: "net-pilots",
+      type: "symbol",
+      source: "net-pilots",
+      layout: {
+        "icon-image": "net-plane",
+        "icon-size": ["interpolate", ["linear"], ["zoom"], 2, 0.42, 6, 0.6, 10, 0.8],
+        "icon-rotate": ["get", "hdg"],
+        "icon-rotation-alignment": "map",
+        "icon-allow-overlap": true,
+        "icon-ignore-placement": true,
+      },
+      paint: { "icon-color": netColor, "icon-halo-color": "#111214", "icon-halo-width": 1 },
+    });
+    if (map.getStyle().glyphs) {
+      const font = ["Noto Sans Regular"];
+      map.addLayer({
+        id: "net-pilot-labels",
+        type: "symbol",
+        source: "net-pilots",
+        minzoom: 7,
+        layout: { "text-field": ["get", "callsign"], "text-font": font, "text-size": 10, "text-offset": [0, 1.3], "text-optional": true },
+        paint: { "text-color": "#cfd5dc", "text-halo-color": "#111214", "text-halo-width": 1.2 },
+      });
+      map.addLayer({
+        id: "net-area-labels",
+        type: "symbol",
+        source: "net-labels",
+        layout: { "text-field": ["get", "text"], "text-font": font, "text-size": 11.5, "text-allow-overlap": false },
+        paint: { "text-color": "#eef1f4", "text-halo-color": "#111214", "text-halo-width": 1.5 },
+      });
+      map.addLayer({
+        id: "net-airport-labels",
+        type: "symbol",
+        source: "net-airports",
+        minzoom: 4,
+        layout: {
+          "text-field": ["get", "badge"],
+          "text-font": font,
+          "text-size": 11,
+          "text-anchor": "top",
+          "text-offset": [0, 0.6],
+          "text-allow-overlap": false,
+        },
+        paint: { "text-color": "#eef1f4", "text-halo-color": "#111214", "text-halo-width": 1.5 },
+      });
+    }
+  }
+
+  /** A plane silhouette, drawn once as a tintable icon. */
+  function planeIcon(): ImageData {
+    const c = document.createElement("canvas");
+    c.width = c.height = 32;
+    const g = c.getContext("2d")!;
+    g.translate(16, 16);
+    g.scale(0.72, 0.72);
+    g.fillStyle = "#fff";
+    g.fill(new Path2D("M0 -20 L3.4 -6 L19 1.5 L19 5.5 L3.4 2.6 L2.4 13 L8 17 L8 19.6 L0 17.8 L-8 19.6 L-8 17 L-2.4 13 L-3.4 2.6 L-19 5.5 L-19 1.5 L-3.4 -6 Z"));
+    return g.getImageData(0, 0, 32, 32);
   }
 
   function planeEl() {
@@ -528,8 +719,10 @@
       map.on("click", layer, (e) => {
         const f = e.features?.[0];
         clearHover();
-        // An airport under the pointer wins over a route passing through it.
+        // An airport or online pilot under the pointer wins over a route.
         if (airportAt(e.point)) return;
+        const n = netAt(e.point);
+        if (n && n.kind !== "area") return;
         if (f?.id != null) onroute?.(Number(f.id));
       });
     }
@@ -547,8 +740,19 @@
     }
     map.on("click", (e) => {
       const hit = airportHit(e.point);
+      if (!hit) {
+        // Online network: a pilot, a staffed airport or a controlled area.
+        const pick = netAt(e.point);
+        if (pick) {
+          clearHover();
+          openAirport = null;
+          netPick = pick;
+        }
+        return;
+      }
       if (hit) {
         clearHover();
+        netPick = null;
         openAirport = hit.ident;
         // Bring the airport to the middle of the part of the map the card
         // leaves free, a little closer in.
@@ -562,6 +766,10 @@
         });
       }
     });
+    for (const layer of ["net-pilots", "net-airport-dot", "net-airport-labels", "net-area-labels"]) {
+      map.on("mouseenter", layer, () => (map!.getCanvas().style.cursor = "pointer"));
+      map.on("mouseleave", layer, () => (map!.getCanvas().style.cursor = ""));
+    }
     map.on("movestart", () => (hoverTip = null));
     // Stop drawing while the window is hidden.
     const vis = () => (document.hidden ? map?.stop() : map?.triggerRepaint());
@@ -903,6 +1111,16 @@
   {airportDetail}
   ondetail={(d) => setPref("map_airport_detail", String(d))}
 />
+{#if netPick && !openAirport}
+  <NetworkCard
+    pick={netPick}
+    onclose={() => (netPick = null)}
+    onairport={(icao) => {
+      netPick = null;
+      openAirport = icao;
+    }}
+  />
+{/if}
 {#if openAirport}
   <AirportCard
     ident={openAirport}

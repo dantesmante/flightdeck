@@ -1225,6 +1225,7 @@ dependencies = [
  "tracker",
  "ureq",
  "watcher",
+ "zstd",
 ]
 
 [[package]]

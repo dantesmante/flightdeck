@@ -6,6 +6,7 @@ mod elevatex;
 mod engine;
 mod photos;
 mod efb;
+mod networks;
 mod remote;
 mod samples;
 mod simbrief;
@@ -229,6 +230,18 @@ fn airport_at(state: tauri::State<AppState>, lat: f64, lon: f64) -> Option<Airpo
 #[tauri::command]
 fn map_airports(state: tauri::State<AppState>, detail: u8) -> Vec<(String, String, u8, f32, f32)> {
     airports::map_airports(&state.refdata, detail)
+}
+
+/// A network's pilots and controllers (VATSIM or IVAO) for the map.
+#[tauri::command]
+async fn online_network(net: String) -> CmdResult<networks::NetworkData> {
+    tauri::async_runtime::spawn_blocking(move || networks::network_for_map(&net)).await.map_err(err)
+}
+
+/// One online pilot with the whole flight plan.
+#[tauri::command]
+fn online_pilot(net: String, callsign: String) -> Option<networks::Pilot> {
+    networks::pilot(&net, &callsign)
 }
 
 /// An airport's card: details, runways, frequencies and your visits.
@@ -1053,6 +1066,8 @@ pub(crate) async fn dispatch(app: &tauri::AppHandle, cmd: &str, a: serde_json::V
         "airport_at" => ok(to_value(airport_at(st(), arg(&a, "lat")?, arg(&a, "lon")?))),
         "search_airports" => ok(to_value(search_airports(st(), arg(&a, "query")?))),
         "map_airports" => ok(to_value(map_airports(st(), arg(&a, "detail")?))),
+        "online_network" => ok(to_value(online_network(arg(&a, "net")?).await?)),
+        "online_pilot" => ok(to_value(online_pilot(arg(&a, "net")?, arg(&a, "callsign")?))),
         "airport_card" => ok(to_value(airport_card(st(), arg(&a, "ident")?)?)),
         "airport_weather" => ok(to_value(airport_weather(st(), arg(&a, "ident")?).await?)),
         "get_settings" => ok(to_value(get_settings(st())?)),
@@ -1176,6 +1191,8 @@ pub fn run() {
             install_update,
             app_version,
             map_airports,
+            online_network,
+            online_pilot,
             airport_card,
             airport_weather,
             efb_info,

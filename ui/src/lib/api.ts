@@ -643,6 +643,61 @@ export interface AirportWeather {
   taf: string | null;
 }
 
+/** Online networks (VATSIM, IVAO): who is flying and controlling. */
+export type Net = "vatsim" | "ivao";
+export interface NetPilot {
+  callsign: string;
+  id: string;
+  name: string | null;
+  lat: number;
+  lon: number;
+  alt_ft: number;
+  gs_kt: number;
+  hdg: number;
+  aircraft: string;
+  dep: string;
+  arr: string;
+  route?: string;
+  flight_rules?: string;
+  cruise?: string;
+  logon_ms: number;
+}
+export interface NetController {
+  callsign: string;
+  id: string;
+  name: string | null;
+  frequency: string;
+  kind: "DEL" | "GND" | "TWR" | "APP" | "DEP" | "CTR" | "FSS" | "ATIS" | "RMP";
+  rating: string | null;
+  logon_ms: number;
+  text: string[];
+  atis_code: string | null;
+}
+export interface NetArea {
+  id: string;
+  name: string;
+  oceanic: boolean;
+  label: [number, number];
+  polys: [number, number][][][];
+  controllers: NetController[];
+}
+export interface NetAirport {
+  icao: string;
+  name: string;
+  lat: number;
+  lon: number;
+  controllers: NetController[];
+}
+export interface NetworkData {
+  net: Net;
+  updated_ms: number;
+  pilots: NetPilot[];
+  areas: NetArea[];
+  airports: NetAirport[];
+  other: NetController[];
+  error: string | null;
+}
+
 /** FlightDeck's app in the MSFS 2024 EFB (Settings on the PC). */
 export interface EfbInfo {
   installed: boolean;
@@ -725,6 +780,8 @@ export const api = {
   remoteSet: (enabled: boolean | null, canEdit: boolean | null) => call<RemoteInfo>("remote_set", { enabled, canEdit }),
   remoteNewCode: () => call<RemoteInfo>("remote_new_code"),
   remoteForget: () => call<RemoteInfo>("remote_forget"),
+  onlineNetwork: (net: Net) => call<NetworkData>("online_network", { net }),
+  onlinePilot: (net: Net, callsign: string) => call<NetPilot | null>("online_pilot", { net, callsign }),
   mapAirports: (detail: number) => call<MapAirport[]>("map_airports", { detail }),
   airportCard: (ident: string) => call<AirportCardData | null>("airport_card", { ident }),
   airportWeather: (ident: string) => call<AirportWeather | null>("airport_weather", { ident }),

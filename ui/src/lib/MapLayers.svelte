@@ -71,6 +71,18 @@
       {#each [[18, 16, 4], [70, 40, 4], [100, 14, 3], [40, 50, 2.4], [56, 22, 2.4], [88, 54, 2.4], [24, 36, 1.8], [108, 38, 1.8], [64, 8, 1.8], [10, 56, 1.8]] as [x, y, r] (`${x},${y}`)}
         <circle cx={x} cy={y} r={r} fill={r > 3 ? "#4f9cf0" : r > 2 ? "#5cc08a" : "#a98be0"} stroke="#111214" stroke-width="1" />
       {/each}
+    {:else if kind === "vatsim-atc" || kind === "ivao-atc"}
+      {@const c = kind === "vatsim-atc" ? "#5cc08a" : "#5aa0f0"}
+      <path d="M14 12 L62 8 L80 30 L58 56 L18 50 Z" fill={c} fill-opacity="0.12" stroke={c} stroke-width="1.4" />
+      <text x="40" y="34" text-anchor="middle" font-size="9" font-family="monospace" fill="#eef1f4">CTR</text>
+      <circle cx="96" cy="22" r="13" fill={c} fill-opacity="0.08" stroke={c} stroke-width="1.2" />
+      <circle cx="96" cy="22" r="3" fill={c} />
+      <rect x="86" y="44" width="9" height="9" rx="2" fill="#d6453d" /><rect x="98" y="44" width="9" height="9" rx="2" fill="#2fae73" />
+    {:else if kind === "vatsim-pilots" || kind === "ivao-pilots"}
+      {@const c = kind === "vatsim-pilots" ? "#5cc08a" : "#5aa0f0"}
+      {#each [[22, 20, 40], [60, 40, 120], [96, 18, 210], [40, 50, 300], [84, 50, 80], [104, 38, 160]] as [x, y, r] (`${x}${y}`)}
+        <g transform="translate({x} {y}) rotate({r}) scale(0.32)"><path d="M0 -20 L3.4 -6 L19 1.5 L19 5.5 L3.4 2.6 L2.4 13 L8 17 L8 19.6 L0 17.8 L-8 19.6 L-8 17 L-2.4 13 L-3.4 2.6 L-19 5.5 L-19 1.5 L-3.4 -6 Z" fill={c} /></g>
+      {/each}
     {:else if kind === "parked"}
       {#each [[22, 22], [64, 42], [92, 18]] as [x, y] (x)}
         <g transform="translate({x} {y}) scale(0.32)"><path d="M0 -20 L3.4 -6 L19 1.5 L19 5.5 L3.4 2.6 L2.4 13 L8 17 L8 19.6 L0 17.8 L-8 19.6 L-8 17 L-2.4 13 L-3.4 2.6 L-19 5.5 L-19 1.5 L-3.4 -6 Z" fill="#c4c8ce" /></g>
@@ -156,6 +168,14 @@
         {@render card("parked", "Parked aircraft", on.has("parked"), () => ontoggle("parked"))}
       {/if}
     </div>
+    <h4>Online networks</h4>
+    <div class="grid">
+      {@render card("vatsim-atc", "VATSIM ATC", on.has("vatsim-atc"), () => ontoggle("vatsim-atc"))}
+      {@render card("vatsim-pilots", "VATSIM pilots", on.has("vatsim-pilots"), () => ontoggle("vatsim-pilots"))}
+      {@render card("ivao-atc", "IVAO ATC", on.has("ivao-atc"), () => ontoggle("ivao-atc"))}
+      {@render card("ivao-pilots", "IVAO pilots", on.has("ivao-pilots"), () => ontoggle("ivao-pilots"))}
+    </div>
+    <p class="credit">Live from VATSIM and IVAO, every 30 seconds while on. Areas from the VAT-Spy Data Project (CC BY-SA 4.0).</p>
     <h4>Weather</h4>
     <div class="grid">
       {@render card("radar", "Rain radar", on.has("radar"), () => ontoggle("radar"), radarNote)}

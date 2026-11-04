@@ -280,6 +280,31 @@ export async function mockCall<T>(cmd: string, _args?: Record<string, unknown>):
       error: found ? null : "MSFS 2024's Community folder was not found. Choose it below.",
     } as T;
   }
+  if (cmd === "online_network" || cmd === "online_pilot") {
+    const net = _args?.net === "ivao" ? "ivao" : "vatsim";
+    const t = now - 40 * 60_000;
+    const c = (callsign: string, kind: string, frequency: string, text: string[] = [], code: string | null = null) => ({
+      callsign, id: "1234567", name: net === "vatsim" ? "Justin Controller" : null, frequency, kind, rating: "C1", logon_ms: t, text, atis_code: code,
+    });
+    const box = (x: number, y: number, w: number, h: number) => [[[[x, y], [x + w, y], [x + w, y + h], [x, y + h], [x, y]]]];
+    const pilots = Array.from({ length: 60 }, (_, i) => ({
+      callsign: `${net === "vatsim" ? "DAL" : "AFR"}${100 + i}`, id: String(800000 + i), name: net === "vatsim" ? `Pilot ${i}` : null,
+      lat: 30 + ((i * 7) % 20) + (net === "ivao" ? 1.5 : 0), lon: -120 + ((i * 13) % 45), alt_ft: 1000 * (i % 38), gs_kt: 120 + (i % 30) * 10, hdg: (i * 37) % 360,
+      aircraft: ["B738", "A320", "C172", "B77W"][i % 4], dep: "KJFK", arr: "KLAX", logon_ms: t,
+      route: "DEEZZ5 CANDR J60 PSB HAYNZ6", flight_rules: "I", cruise: "35000",
+    }));
+    if (cmd === "online_pilot") return (pilots.find((p) => p.callsign === _args?.callsign) ?? null) as T;
+    return {
+      net, updated_ms: now - 20_000, pilots,
+      areas: net === "vatsim"
+        ? [{ id: "KZDC", name: "Washington", oceanic: false, label: [-77.5, 37.6], polys: box(-81, 35.5, 7, 4.5), controllers: [c("DC_32_CTR", "CTR", "133.725", ["ZDC does NOT provide terminal service for PHL", "Feedback? vzdc.org/feedback/new"])] }]
+        : [{ id: "KZFW", name: "Fort Worth", oceanic: false, label: [-97.5, 32.5], polys: box(-101, 30.5, 7, 4), controllers: [c("KZFW_CTR", "CTR", "127.000")] }],
+      airports: net === "vatsim"
+        ? [{ icao: "KLAX", name: "Los Angeles Intl", lat: 33.94, lon: -118.41, controllers: [c("LAX_APP", "APP", "124.500"), c("LAX_TWR", "TWR", "133.900"), c("KLAX_ATIS", "ATIS", "133.800", ["LOS ANGELES INFO K 0253Z 25008KT 10SM FEW020"], "K")] }]
+        : [{ icao: "KDFW", name: "Dallas-Fort Worth Intl", lat: 32.9, lon: -97.04, controllers: [c("KDFW_TWR", "TWR", "126.550"), c("KDFW_GND", "GND", "121.650")] }],
+      other: [], error: null,
+    } as T;
+  }
   if (cmd === "map_airports") {
     const d = Number(_args?.detail ?? 1);
     return AIRPORTS.filter((_, i) => d >= 3 || i % (d === 2 ? 2 : 4) === 0).map((a, i) => [a.icao, a.name, Math.min(2, i % 3), a.lon, a.lat]) as T;
