@@ -228,7 +228,10 @@ MIT licensed.
 - **Fly this aircraft**: with the Parked aircraft layer on, click a parked
   aircraft and press Fly this aircraft. The next flight is logged to that
   aircraft whatever the sim shows.
-- **Settings**: pilot details and photo, nautical miles, statute miles or
+- **Settings**, in sections down the left: Pilot profile, Preferences,
+  Third-party connections (SimBrief), Import / export (Volanta, Elevatex),
+  EFB integration, Device pairing, and Updates and diagnostics (with the
+  sample flights). Pilot details and photo, nautical miles, statute miles or
   kilometers, logbook layout, and **sample flights** to
   fill the passport, logbook and hangar for a quick look.
 - **Other devices** (Settings, Other devices): use FlightDeck from a

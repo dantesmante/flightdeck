@@ -51,6 +51,14 @@
   const still = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
   function tilt(e: PointerEvent) {
     const el = e.currentTarget as HTMLElement;
+    // Over the picture (where a photo is changed) or the edit button: no effect.
+    const calm = !!(e.target as HTMLElement | null)?.closest?.(".picture, .edit");
+    el.classList.toggle("calm", calm);
+    if (calm) {
+      el.style.setProperty("--rx", "0deg");
+      el.style.setProperty("--ry", "0deg");
+      return;
+    }
     const r = el.getBoundingClientRect();
     const x = (e.clientX - r.left) / r.width;
     const y = (e.clientY - r.top) / r.height;
@@ -63,6 +71,7 @@
   }
   function untilt(e: PointerEvent) {
     const el = e.currentTarget as HTMLElement;
+    el.classList.remove("calm");
     el.style.setProperty("--rx", "0deg");
     el.style.setProperty("--ry", "0deg");
   }
@@ -163,11 +172,12 @@
               <h3>{name(it)}</h3>
               {#if look}
                 <span class="al">{look.name}</span>
-                <!-- The livery's tail swoosh in the corner: accent colours with a white pinstripe. -->
-                <svg class="swoosh" viewBox="0 0 60 40" preserveAspectRatio="none" aria-hidden="true">
-                  <path d="M26 0 C 38 9, 51 23, 60 40 L 60 0 Z" fill={look.colors[2] ?? look.colors[1]} />
-                  <path d="M26 0 C 38 9, 51 23, 60 40" fill="none" stroke="#fff" stroke-width="1.6" />
-                  <path d="M40 0 C 48 7, 55 16, 60 26 L 60 0 Z" fill={look.colors[1]} />
+                <!-- The livery's tail swoosh in the corner: a broad band of the third
+                     colour (or the accent) sweeping down to the left, the accent in
+                     the corner beneath it. -->
+                <svg class="swoosh" viewBox="0 0 30 40" preserveAspectRatio="none" aria-hidden="true">
+                  <path d="M30 4 C 28 18, 25 30, 20 40 L 30 40 Z" fill={look.colors[1]} />
+                  <path d="M21 0 L30 0 L30 4 C 28 18, 25 30, 20 40 L0 40 C 10 33, 18 20, 21 0 Z" fill={look.colors[2] ?? look.colors[1]} />
                 </svg>
               {/if}
             </div>
@@ -354,31 +364,45 @@
     transition: opacity 0.35s;
     border-radius: inherit;
   }
+  /* Brushed metal: fine horizontal grain, with a band of silver light that
+     moves with the pointer, and a soft glare where it is. */
   .holo {
-    background: linear-gradient(
-      115deg,
-      transparent 18%,
-      rgba(255, 0, 132, 0.45) 32%,
-      rgba(252, 164, 0, 0.4) 40%,
-      rgba(255, 255, 0, 0.32) 46%,
-      rgba(0, 255, 138, 0.35) 52%,
-      rgba(0, 207, 255, 0.42) 58%,
-      rgba(204, 76, 250, 0.42) 66%,
-      transparent 82%
-    );
-    background-size: 260% 260%;
-    background-position: var(--mx) var(--my);
-    mix-blend-mode: color-dodge;
+    background:
+      repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.05) 0 1px, rgba(0, 0, 0, 0.04) 1px 2px, transparent 2px 3px),
+      linear-gradient(
+        105deg,
+        transparent 20%,
+        rgba(200, 206, 214, 0.25) 34%,
+        rgba(255, 255, 255, 0.55) 44%,
+        rgba(176, 184, 194, 0.3) 50%,
+        rgba(240, 243, 247, 0.5) 57%,
+        rgba(160, 168, 178, 0.2) 66%,
+        transparent 80%
+      );
+    background-size:
+      100% 100%,
+      280% 280%;
+    background-position:
+      0 0,
+      var(--mx) var(--my);
+    mix-blend-mode: soft-light;
   }
   .glare {
-    background: radial-gradient(circle at var(--mx) var(--my), rgba(255, 255, 255, 0.38) 0%, rgba(255, 255, 255, 0.08) 30%, transparent 55%);
+    background: radial-gradient(circle at var(--mx) var(--my), rgba(255, 255, 255, 0.3) 0%, rgba(255, 255, 255, 0.06) 32%, transparent 55%);
     mix-blend-mode: overlay;
   }
   .card:hover .holo {
-    opacity: 0.32;
+    opacity: 0.9;
   }
   .card:hover .glare {
     opacity: 1;
+  }
+  .card:global(.calm) .holo,
+  .card:global(.calm) .glare {
+    opacity: 0;
+  }
+  .card:global(.calm):hover {
+    transform: perspective(900px) rotateX(0deg) rotateY(0deg);
   }
   @media (prefers-reduced-motion: reduce) {
     .card,
@@ -409,7 +433,7 @@
   .card.airline .banner {
     background: var(--a);
     color: #fff;
-    padding-right: 44px;
+    padding-right: 36px;
   }
   .banner h3 {
     flex: 1;
@@ -438,7 +462,7 @@
     position: absolute;
     top: 0;
     right: 0;
-    width: 40px;
+    width: 30px;
     height: 100%;
   }
   .picture {

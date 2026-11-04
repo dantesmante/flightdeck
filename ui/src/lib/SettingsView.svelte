@@ -166,6 +166,19 @@
     }
   }
 
+  // The sections, down a sidebar. Some only exist on the PC itself.
+  type Tab = "profile" | "prefs" | "connections" | "import" | "efb" | "devices" | "system";
+  const TABS: { id: Tab; name: string; icon: string; pcOnly?: boolean }[] = [
+    { id: "profile", name: "Pilot profile", icon: "M12 12a4 4 0 100-8 4 4 0 000 8zM4 20c1-4 4.5-6 8-6s7 2 8 6" },
+    { id: "prefs", name: "Preferences", icon: "M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0M14 4v4M8 10v4M16 16v4" },
+    { id: "connections", name: "Third-party connections", icon: "M10 14a4 4 0 005.7 0l3-3a4 4 0 00-5.7-5.7l-1 1M14 10a4 4 0 00-5.7 0l-3 3a4 4 0 005.7 5.7l1-1" },
+    { id: "import", name: "Import / export", icon: "M12 3v12M7 10l5 5 5-5M5 21h14" },
+    { id: "efb", name: "EFB integration", icon: "M7 3h10a2 2 0 012 2v14a2 2 0 01-2 2H7a2 2 0 01-2-2V5a2 2 0 012-2zM10 18h4", pcOnly: true },
+    { id: "devices", name: "Device pairing", icon: "M3 6h12v9H3zM7 19h4M17 9h4v11h-4zM9 15v4", pcOnly: true },
+    { id: "system", name: "Updates and diagnostics", icon: "M20 12a8 8 0 10-2.3 5.7M20 4v6h-6" },
+  ];
+  let tab = $state<Tab>("profile");
+
   // Access from other devices on the home network (only set up on the PC).
   let remote = $state<RemoteInfo | null>(null);
   let rBusy = $state(false);
@@ -214,9 +227,19 @@
   {/if}
 {/snippet}
 
-<section class="settings"><div class="inner">
-  <h2>Settings</h2>
-
+<section class="settings">
+  <nav class="tabs" aria-label="Settings sections">
+    <h2>Settings</h2>
+    {#each TABS.filter((t) => !t.pcOnly || !inRemote) as t (t.id)}
+      <button class:on={tab === t.id} aria-current={tab === t.id ? "page" : undefined} onclick={() => (tab = t.id)}>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d={t.icon} /></svg>
+        {t.name}
+      </button>
+    {/each}
+  </nav>
+  <div class="inner">
+  <h2 class="title">{TABS.find((t) => t.id === tab)?.name}</h2>
+  {#if tab === "profile"}
   <div class="group">
     <h3>Pilot</h3>
     <p class="help">Shown on your passport's data page and logbook.</p>
@@ -250,6 +273,39 @@
     {/if}
   </div>
 
+  {:else if tab === "prefs"}
+  <div class="group">
+    <h3>Units</h3>
+    <div class="seg" role="radiogroup" aria-label="Distance">
+      {#each units as u (u.id)}
+        <button role="radio" aria-checked={prefs.s.distance_unit === u.id} class:on={prefs.s.distance_unit === u.id} onclick={() => setPref("distance_unit", u.id)}>
+          {u.label}
+        </button>
+      {/each}
+    </div>
+  </div>
+
+  <div class="group">
+    <h3>Logbook</h3>
+    <div class="seg" role="radiogroup" aria-label="Logbook layout">
+      <button role="radio" aria-checked={prefs.s.logbook_layout === "faa"} class:on={prefs.s.logbook_layout === "faa"} onclick={() => setPref("logbook_layout", "faa")}>FAA layout</button>
+      <button role="radio" aria-checked={prefs.s.logbook_layout === "easa"} class:on={prefs.s.logbook_layout === "easa"} onclick={() => setPref("logbook_layout", "easa")}>EASA layout</button>
+    </div>
+    <div class="seg" role="radiogroup" aria-label="Writing">
+      <button role="radio" aria-checked={prefs.s.logbook_hand !== "type"} class:on={prefs.s.logbook_hand !== "type"} onclick={() => setPref("logbook_hand", "hand")}>Handwritten</button>
+      <button role="radio" aria-checked={prefs.s.logbook_hand === "type"} class:on={prefs.s.logbook_hand === "type"} onclick={() => setPref("logbook_hand", "type")}>Typed</button>
+    </div>
+    <div class="seg" role="radiogroup" aria-label="Paper">
+      <button role="radio" aria-checked={prefs.s.logbook_theme !== "dark"} class:on={prefs.s.logbook_theme !== "dark"} onclick={() => setPref("logbook_theme", "light")}>Light paper</button>
+      <button role="radio" aria-checked={prefs.s.logbook_theme === "dark"} class:on={prefs.s.logbook_theme === "dark"} onclick={() => setPref("logbook_theme", "dark")}>Dark paper</button>
+    </div>
+    <div class="seg" role="radiogroup" aria-label="Logbook view">
+      <button role="radio" aria-checked={prefs.s.logbook_view !== "list"} class:on={prefs.s.logbook_view !== "list"} onclick={() => setPref("logbook_view", "book")}>Logbook pages</button>
+      <button role="radio" aria-checked={prefs.s.logbook_view === "list"} class:on={prefs.s.logbook_view === "list"} onclick={() => setPref("logbook_view", "list")}>Simple list</button>
+    </div>
+  </div>
+
+  {:else if tab === "connections"}
   <div class="group">
     <h3>SimBrief</h3>
     <p class="help">
@@ -269,6 +325,7 @@
     {/if}
   </div>
 
+  {:else if tab === "import"}
   <div class="group">
     <h3>Volanta</h3>
     <p class="help">
@@ -301,37 +358,7 @@
     {#if vKind === "elevatex"}{@render importStatus()}{/if}
   </div>
 
-  <div class="group">
-    <h3>Units</h3>
-    <div class="seg" role="radiogroup" aria-label="Distance">
-      {#each units as u (u.id)}
-        <button role="radio" aria-checked={prefs.s.distance_unit === u.id} class:on={prefs.s.distance_unit === u.id} onclick={() => setPref("distance_unit", u.id)}>
-          {u.label}
-        </button>
-      {/each}
-    </div>
-  </div>
-
-  <div class="group">
-    <h3>Logbook</h3>
-    <div class="seg" role="radiogroup" aria-label="Logbook layout">
-      <button role="radio" aria-checked={prefs.s.logbook_layout === "faa"} class:on={prefs.s.logbook_layout === "faa"} onclick={() => setPref("logbook_layout", "faa")}>FAA layout</button>
-      <button role="radio" aria-checked={prefs.s.logbook_layout === "easa"} class:on={prefs.s.logbook_layout === "easa"} onclick={() => setPref("logbook_layout", "easa")}>EASA layout</button>
-    </div>
-    <div class="seg" role="radiogroup" aria-label="Writing">
-      <button role="radio" aria-checked={prefs.s.logbook_hand !== "type"} class:on={prefs.s.logbook_hand !== "type"} onclick={() => setPref("logbook_hand", "hand")}>Handwritten</button>
-      <button role="radio" aria-checked={prefs.s.logbook_hand === "type"} class:on={prefs.s.logbook_hand === "type"} onclick={() => setPref("logbook_hand", "type")}>Typed</button>
-    </div>
-    <div class="seg" role="radiogroup" aria-label="Paper">
-      <button role="radio" aria-checked={prefs.s.logbook_theme !== "dark"} class:on={prefs.s.logbook_theme !== "dark"} onclick={() => setPref("logbook_theme", "light")}>Light paper</button>
-      <button role="radio" aria-checked={prefs.s.logbook_theme === "dark"} class:on={prefs.s.logbook_theme === "dark"} onclick={() => setPref("logbook_theme", "dark")}>Dark paper</button>
-    </div>
-    <div class="seg" role="radiogroup" aria-label="Logbook view">
-      <button role="radio" aria-checked={prefs.s.logbook_view !== "list"} class:on={prefs.s.logbook_view !== "list"} onclick={() => setPref("logbook_view", "book")}>Logbook pages</button>
-      <button role="radio" aria-checked={prefs.s.logbook_view === "list"} class:on={prefs.s.logbook_view === "list"} onclick={() => setPref("logbook_view", "list")}>Simple list</button>
-    </div>
-  </div>
-
+  {:else if tab === "efb"}
   {#if !inRemote && efb}
     <div class="group">
       <h3>MSFS 2024 EFB</h3>
@@ -364,6 +391,7 @@
     </div>
   {/if}
 
+  {:else if tab === "devices"}
   {#if !inRemote && remote}
     <div class="group">
       <h3>Other devices</h3>
@@ -412,21 +440,8 @@
     </div>
   {/if}
 
+  {:else if tab === "system"}
   {#if !inRemote}
-  <div class="group">
-    <h3>Diagnostics</h3>
-    <p class="help">
-      If a flight starts, ends or records something wrongly, this report shows what FlightDeck saw: your last five
-      flights step by step and the recent log. It stays on your PC until you send it. Saving it as a file is easiest
-      for long reports.
-    </p>
-    <div class="row">
-      <button class="primary" onclick={saveDiagnostics} disabled={dBusy}>Save diagnostics file</button>
-      <button class="ghost" onclick={copyDiagnostics} disabled={dBusy}>Copy diagnostics</button>
-    </div>
-    {#if dMsg}<p class={dErr ? "err" : "ok"} role="status">{dMsg}</p>{/if}
-  </div>
-
   <div class="group">
     <h3>Updates</h3>
     <p class="help">You have FlightDeck {version || "…"}. New versions install in one click and keep all your flights.</p>
@@ -444,8 +459,21 @@
     </div>
     {#if updates.error}<p class="err">{updates.error}</p>{/if}
   </div>
-  {/if}
+  <div class="group">
+    <h3>Diagnostics</h3>
+    <p class="help">
+      If a flight starts, ends or records something wrongly, this report shows what FlightDeck saw: your last five
+      flights step by step and the recent log. It stays on your PC until you send it. Saving it as a file is easiest
+      for long reports.
+    </p>
+    <div class="row">
+      <button class="primary" onclick={saveDiagnostics} disabled={dBusy}>Save diagnostics file</button>
+      <button class="ghost" onclick={copyDiagnostics} disabled={dBusy}>Copy diagnostics</button>
+    </div>
+    {#if dMsg}<p class={dErr ? "err" : "ok"} role="status">{dMsg}</p>{/if}
+  </div>
 
+  {/if}
   <div class="group">
     <h3>Sample flights</h3>
     <p class="help">
@@ -458,7 +486,9 @@
     </div>
     {#if sampleMsg}<p class="ok" role="status">{sampleMsg}</p>{/if}
   </div>
-</div></section>
+  {/if}
+  </div>
+</section>
 
 {#if exporting}
   <ExportDialog onclose={() => (exporting = false)} />
@@ -550,11 +580,78 @@
   }
   .settings {
     height: 100%;
+    display: grid;
+    grid-template-columns: 230px 1fr;
+    overflow: hidden;
+  }
+  /* The sections, down the left. */
+  .tabs {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 22px 12px;
+    border-right: 1px solid var(--rule);
+    background: rgba(0, 0, 0, 0.12);
     overflow-y: auto;
+  }
+  .tabs h2 {
+    margin: 0 8px 14px;
+  }
+  .tabs button {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 10px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--ink-dim);
+    font: 500 14px var(--sans);
+    text-align: left;
+    cursor: pointer;
+  }
+  .tabs button:hover {
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--ink);
+  }
+  .tabs button.on {
+    background: var(--amber-glow);
+    color: var(--amber);
+    font-weight: 600;
+  }
+  .tabs svg {
+    flex: none;
+    width: 18px;
+    height: 18px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
   }
   .inner {
     padding: 22px 32px 40px;
-    max-width: 820px;
+    max-width: 860px;
+    overflow-y: auto;
+  }
+  .title {
+    color: var(--ink);
+  }
+  @media (max-width: 760px) {
+    .settings {
+      grid-template-columns: 1fr;
+      grid-template-rows: auto 1fr;
+    }
+    .tabs {
+      flex-direction: row;
+      flex-wrap: wrap;
+      border-right: 0;
+      border-bottom: 1px solid var(--rule);
+      padding: 12px;
+    }
+    .tabs h2 {
+      display: none;
+    }
   }
   h2 {
     margin: 0 0 8px;
