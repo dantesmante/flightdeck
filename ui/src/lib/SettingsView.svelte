@@ -475,6 +475,14 @@
 
   {/if}
   <div class="group">
+    <h3>Demo flight</h3>
+    <p class="help">A short simulated flight, flown from the Start a flight card on the map when no simulator is connected.</p>
+    <label class="switch">
+      <input type="checkbox" checked={prefs.s.show_demo !== "0"} onchange={(e) => setPref("show_demo", (e.currentTarget as HTMLInputElement).checked ? "1" : "0")} />
+      <span>Show "No sim handy?" in Start a flight</span>
+    </label>
+  </div>
+  <div class="group">
     <h3>Sample flights</h3>
     <p class="help">
       Five ready-made flights across the US, Canada and Europe in five different aircraft, one of them at night. Use them to

@@ -15,6 +15,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 zstd.workspace = true
 flate2 = "1"
+grib = { version = "0.20.3", default-features = false, features = ["jpeg2000-unpack-with-hayro"] }
 tauri = { version = "2", features = [] }
 serde.workspace = true
 serde_json.workspace = true

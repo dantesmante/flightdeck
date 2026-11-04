@@ -31,6 +31,8 @@ pub type CategoryDot = (String, f32, f32, u8);
 pub struct Categories {
     pub updated_ms: i64,
     pub stations: Vec<CategoryDot>,
+    /// Surface wind of every station that reports it.
+    pub winds: Vec<WindObs>,
     pub error: Option<String>,
 }
 
@@ -59,31 +61,53 @@ fn get(url: &str) -> Result<Vec<u8>, String> {
 
 // --- flight categories -----------------------------------------------------
 
+/// One station's surface wind: [code, lon, lat, direction, speed, gust]
+/// with direction in degrees true it blows from (-1 variable), knots, and
+/// gust 0 when none.
+pub type WindObs = (String, f32, f32, i16, u16, u16);
+
 /// Reads the METAR cache CSV (a few lines of notes, then a header row).
-fn parse_metar_csv(text: &str) -> Vec<CategoryDot> {
+fn parse_metar_csv(text: &str) -> (Vec<CategoryDot>, Vec<WindObs>) {
     let mut lines = text.lines().skip_while(|l| !l.starts_with("raw_text,"));
-    let Some(header) = lines.next() else { return vec![] };
+    let Some(header) = lines.next() else { return (vec![], vec![]) };
     let cols: Vec<&str> = header.split(',').collect();
     let at = |name: &str| cols.iter().position(|c| *c == name);
-    let (Some(id), Some(la), Some(lo), Some(cat)) = (at("station_id"), at("latitude"), at("longitude"), at("flight_category")) else {
-        return vec![];
+    let (Some(id), Some(la), Some(lo)) = (at("station_id"), at("latitude"), at("longitude")) else {
+        return (vec![], vec![]);
     };
-    lines
-        .filter_map(|l| {
-            let f: Vec<&str> = l.split(',').collect();
-            let c = match *f.get(cat)? {
-                "VFR" => 0,
-                "MVFR" => 1,
-                "IFR" => 2,
-                "LIFR" => 3,
-                _ => return None,
-            };
-            Some((f.get(id)?.to_string(), f.get(lo)?.parse().ok()?, f.get(la)?.parse().ok()?, c))
-        })
-        .collect()
+    let (cat, wd, ws, wg) = (at("flight_category"), at("wind_dir_degrees"), at("wind_speed_kt"), at("wind_gust_kt"));
+    let (mut dots, mut winds) = (vec![], vec![]);
+    for l in lines {
+        let f: Vec<&str> = l.split(',').collect();
+        let (Some(code), Some(lon), Some(lat)) = (f.get(id), f.get(lo).and_then(|v| v.parse::<f32>().ok()), f.get(la).and_then(|v| v.parse::<f32>().ok())) else {
+            continue;
+        };
+        let c = match cat.and_then(|i| f.get(i).copied()) {
+            Some("VFR") => Some(0),
+            Some("MVFR") => Some(1),
+            Some("IFR") => Some(2),
+            Some("LIFR") => Some(3),
+            _ => None,
+        };
+        if let Some(c) = c {
+            dots.push((code.to_string(), lon, lat, c));
+        }
+        let field = |i: Option<usize>| i.and_then(|i| f.get(i)).map(|v| v.trim()).filter(|v| !v.is_empty());
+        let speed = field(ws).and_then(|v| v.parse::<u16>().ok());
+        let dir = match field(wd) {
+            Some("VRB") => Some(-1),
+            Some(v) => v.parse::<i16>().ok(),
+            None => None,
+        };
+        if let (Some(dir), Some(speed)) = (dir, speed) {
+            let gust = field(wg).and_then(|v| v.parse::<u16>().ok()).unwrap_or(0);
+            winds.push((code.to_string(), lon, lat, dir, speed, gust));
+        }
+    }
+    (dots, winds)
 }
 
-fn fetch_categories() -> Result<Vec<CategoryDot>, String> {
+fn fetch_categories() -> Result<(Vec<CategoryDot>, Vec<WindObs>), String> {
     let gz = get(METARS)?;
     let mut text = String::new();
     flate2::read::GzDecoder::new(&gz[..])
@@ -228,8 +252,8 @@ pub fn categories() -> Categories {
     }
     let mut c = categories_cache().lock().unwrap();
     match fetch_categories() {
-        Ok(stations) => {
-            c.data = Categories { updated_ms: now_ms(), stations, error: None };
+        Ok((stations, winds)) => {
+            c.data = Categories { updated_ms: now_ms(), stations, winds, error: None };
             c.at = Some(Instant::now());
         }
         Err(e) => {
@@ -269,11 +293,15 @@ mod tests {
     #[test]
     fn reads_the_metar_cache() {
         let csv = "No errors\nNo warnings\n12 ms\ndata source=metars\n3 results\n\
-            raw_text,station_id,observation_time,latitude,longitude,temp_c,flight_category,metar_type\n\
-            KSEA 040053Z 03004KT 10SM,KSEA,2026-11-04T00:53:00Z,47.44,-122.31,8,VFR,METAR\n\
-            KPAE 040053Z 00000KT 2SM BR,KPAE,2026-11-04T00:53:00Z,47.9,-122.28,7,IFR,METAR\n\
-            XXXX 040053Z,XXXX,2026-11-04T00:53:00Z,1,2,3,,METAR\n";
-        let dots = parse_metar_csv(csv);
+            raw_text,station_id,observation_time,latitude,longitude,temp_c,wind_dir_degrees,wind_speed_kt,wind_gust_kt,flight_category,metar_type\n\
+            KSEA 040053Z 03004KT 10SM,KSEA,2026-11-04T00:53:00Z,47.44,-122.31,8,30,4,,VFR,METAR\n\
+            KPAE 040053Z 00000KT 2SM BR,KPAE,2026-11-04T00:53:00Z,47.9,-122.28,7,0,0,,IFR,METAR\n\
+            XXXX 040053Z VRB03G15KT,XXXX,2026-11-04T00:53:00Z,1,2,3,VRB,3,15,,METAR\n";
+        let (dots, winds) = parse_metar_csv(csv);
+        assert_eq!(winds.len(), 3);
+        assert_eq!(winds[0], ("KSEA".to_string(), -122.31, 47.44, 30, 4, 0));
+        assert_eq!(winds[2].3, -1);
+        assert_eq!(winds[2].5, 15);
         assert_eq!(dots.len(), 2);
         assert_eq!(dots[0], ("KSEA".to_string(), -122.31, 47.44, 0));
         assert_eq!(dots[1].3, 2);

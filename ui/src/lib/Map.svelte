@@ -11,6 +11,9 @@
   import type { Net, NetworkData } from "./api";
   import { C as BASE, STYLE, addRegionLines, offlineStyle, setBorders, showSatellite, showTerrain, tintMap } from "./mapStyle";
   import MapLayers from "./MapLayers.svelte";
+  import { WindParticles } from "./wind/particles";
+  import { addWindIcons, windIconExpr, windText } from "./wind/arrows";
+  import { WIND_LEVELS, WIND_STOPS, decodeGrid, dirSpeed, levelFor, sample, type Field } from "./wind/wind";
   import { latestRadar } from "./radar";
   import { nightShade } from "./terminator";
   import { day } from "./format";
@@ -181,6 +184,147 @@
       stop = true;
       clearInterval(t);
     };
+  });
+
+  // --- Wind -----------------------------------------------------------------
+
+  /** Wind level chosen: "auto" follows the aircraft, else a level id. */
+  const windPref = $derived(prefs.s.map_wind_level ?? "auto");
+  const flyingAlt = $derived(live.length ? live[live.length - 1][2] : null);
+  const windLevel = $derived(windPref === "auto" ? levelFor(flyingAlt ?? 0) : windPref);
+  let windField = $state<Field | null>(null);
+  let windError = $state(false);
+  let particles: WindParticles | null = null;
+
+  // Forecast wind at the level shown: only while the layer is on, again
+  // every 30 minutes (the forecast moves on every 3 hours).
+  $effect(() => {
+    const on = layers.has("wind");
+    const level = windLevel;
+    if (!loaded || !map) return;
+    if (!on) {
+      particles?.stop();
+      windField = null;
+      return;
+    }
+    particles ??= new WindParticles(map);
+    particles.start();
+    let stop = false;
+    const load = () => {
+      if (document.hidden) return;
+      api.windGrid(level).then(
+        (g) => {
+          if (stop) return;
+          const f = g ? decodeGrid(g) : null;
+          windError = !f;
+          if (f || !windField) {
+            windField = f;
+            particles?.setField(f);
+          }
+        },
+        () => {
+          if (!stop) windError = true;
+        },
+      );
+    };
+    load();
+    const t = setInterval(load, 30 * 60_000);
+    return () => {
+      stop = true;
+      clearInterval(t);
+    };
+  });
+  onDestroy(() => particles?.destroy());
+
+  /** Wind under the mouse, for the wind key. */
+  let windAt = $state<string | null>(null);
+  function windUnder(e: maplibregl.MapMouseEvent) {
+    const f = windField;
+    if (!f) {
+      windAt = null;
+      return;
+    }
+    const [dir, kt] = dirSpeed(sample(f, e.lngLat.lng, e.lngLat.lat));
+    windAt = kt < 1 ? "Calm" : `${String(dir).padStart(3, "0")}° ${Math.round(kt)} kt`;
+  }
+  const windKey = $derived(
+    `linear-gradient(90deg, ${WIND_STOPS.map(([kt, c]) => `${c} ${Math.round((kt / 140) * 100)}%`).join(", ")})`,
+  );
+  const zulu = (ms: number) => `${String(new Date(ms).getUTCHours()).padStart(2, "0")}Z`;
+
+  /** An airport zoomed to from its card: its wind is drawn big. */
+  let windFocus = $state<{ ident: string; lon: number; lat: number } | null>(null);
+  let focusWx = $state<{ station: string; dir: number | null; kt: number; gust: number; nm: number } | null>(null);
+  $effect(() => {
+    const f = windFocus;
+    focusWx = null;
+    if (!f) return;
+    api.airportWeather(f.ident).then((w) => {
+      if (windFocus !== f || !w || w.wind_kt == null) return;
+      focusWx = { station: w.station, dir: w.wind_dir, kt: w.wind_kt, gust: w.gust_kt ?? 0, nm: w.distance_nm };
+    });
+  });
+
+  /** "Zoom to" in an airport's card. */
+  function zoomToAirport(a: { ident: string; lon: number; lat: number }) {
+    if (!map) return;
+    windFocus = { ...a };
+    const covered = Math.min(372, el.clientWidth / 2);
+    map.flyTo({ center: [a.lon, a.lat], zoom: 13, offset: [covered / 2, 0], duration: 1400 });
+  }
+
+  // Airport wind arrows: METAR winds while the layer is on, every 10 minutes.
+  $effect(() => {
+    const on = layers.has("wx-wind");
+    if (!loaded || !map || !map.getSource("wx-wind")) return;
+    map.setLayoutProperty("wx-wind-arrows", "visibility", on ? "visible" : "none");
+    map.setLayoutProperty("wx-wind-focus", "visibility", on ? "visible" : "none");
+    if (!on) return;
+    let stop = false;
+    const load = () => {
+      if (document.hidden) return;
+      api.wxCategories().then((d) => {
+        if (stop || !d) return;
+        (map?.getSource("wx-wind") as GeoJSONSource | undefined)?.setData({
+          type: "FeatureCollection",
+          features: (d.winds ?? []).map(([id, lon, lat, dir, kt, gust]) => ({
+            type: "Feature",
+            properties: { id, dir, kt, gust, rot: dir < 0 ? 0 : (dir + 180) % 360, text: windText(dir, kt, gust) },
+            geometry: { type: "Point", coordinates: [lon, lat] },
+          })),
+        });
+      });
+    };
+    load();
+    const t = setInterval(load, 10 * 60_000);
+    return () => {
+      stop = true;
+      clearInterval(t);
+    };
+  });
+
+  // The zoomed-to airport's own arrow, and its station left out of the rest.
+  $effect(() => {
+    const f = windFocus;
+    const w = focusWx;
+    if (!loaded || !map || !map.getSource("wx-wind-focus")) return;
+    const features: GeoJSON.Feature[] =
+      f && w
+        ? [
+            {
+              type: "Feature",
+              properties: {
+                dir: w.dir ?? -1,
+                kt: w.kt,
+                rot: w.dir == null ? 0 : (w.dir + 180) % 360,
+                text: `${f.ident}  ${windText(w.dir, w.kt, w.gust)}${w.nm > 0 ? `\n(${w.station}, ${w.nm} nm away)` : ""}`,
+              },
+              geometry: { type: "Point", coordinates: [f.lon, f.lat] },
+            },
+          ]
+        : [];
+    (map.getSource("wx-wind-focus") as GeoJSONSource).setData({ type: "FeatureCollection", features });
+    map.setFilter("wx-wind-arrows", f && w ? ["!=", ["get", "id"], w.station] : null);
   });
 
   /** What is open from an online network's layers. */
@@ -779,6 +923,69 @@
         paint: { "text-color": "#eef1f4", "text-halo-color": "#111214", "text-halo-width": 1.5 },
       });
     }
+    addWindArrows();
+  }
+
+  /** Airport wind arrows: every METAR station's wind once zoomed in, and a
+   * bigger one for an airport you zoomed to from its card. */
+  function addWindArrows() {
+    if (!map) return;
+    addWindIcons(map);
+    const empty: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
+    map.addSource("wx-wind", { type: "geojson", data: empty });
+    map.addSource("wx-wind-focus", { type: "geojson", data: empty });
+    const glyphs = !!map.getStyle().glyphs;
+    const font = ["Noto Sans Regular"];
+    map.addLayer({
+      id: "wx-wind-arrows",
+      type: "symbol",
+      source: "wx-wind",
+      minzoom: 6,
+      layout: {
+        visibility: "none",
+        "icon-image": windIconExpr() as maplibregl.ExpressionSpecification,
+        "icon-size": ["interpolate", ["linear"], ["zoom"], 6, 0.55, 9, 0.8, 12, 1.1],
+        "icon-rotate": ["get", "rot"],
+        "icon-rotation-alignment": "map",
+        "icon-allow-overlap": true,
+        "icon-ignore-placement": true,
+        ...(glyphs
+          ? {
+              "text-field": ["step", ["zoom"], "", 8, ["get", "text"]],
+              "text-font": font,
+              "text-size": 11,
+              "text-offset": [0, 1.9],
+              "text-optional": true,
+            }
+          : {}),
+      } as maplibregl.SymbolLayerSpecification["layout"],
+      paint: glyphs ? { "text-color": "#eef1f4", "text-halo-color": "#111214", "text-halo-width": 1.4 } : {},
+    });
+    map.addLayer({
+      id: "wx-wind-focus",
+      type: "symbol",
+      source: "wx-wind-focus",
+      layout: {
+        visibility: "none",
+        "icon-image": windIconExpr() as maplibregl.ExpressionSpecification,
+        "icon-size": ["interpolate", ["linear"], ["zoom"], 6, 1, 10, 1.8, 13, 2.6],
+        "icon-rotate": ["get", "rot"],
+        "icon-rotation-alignment": "map",
+        "icon-allow-overlap": true,
+        "icon-ignore-placement": true,
+        ...(glyphs
+          ? {
+              "text-field": ["get", "text"],
+              "text-font": font,
+              "text-size": 14,
+              "text-anchor": "top",
+              "text-offset": [0, 5.2],
+              "text-allow-overlap": true,
+            }
+          : {}),
+      } as maplibregl.SymbolLayerSpecification["layout"],
+      paint: glyphs ? { "text-color": "#ffffff", "text-halo-color": "#111214", "text-halo-width": 2 } : {},
+    });
   }
 
   /** A plane silhouette, drawn once as a tintable icon. */
@@ -933,6 +1140,11 @@
       map.on("mouseleave", layer, () => (map!.getCanvas().style.cursor = ""));
     }
     map.on("movestart", () => (hoverTip = null));
+    map.on("zoomend", () => {
+      if (windFocus && map!.getZoom() < 8) windFocus = null;
+    });
+    map.on("mousemove", windUnder);
+    map.on("mouseout", () => (windAt = null));
     // Stop drawing while the window is hidden.
     const vis = () => (document.hidden ? map?.stop() : map?.triggerRepaint());
     document.addEventListener("visibilitychange", vis);
@@ -1290,6 +1502,8 @@
   parkedLayer={parked != null}
   {airportDetail}
   ondetail={(d) => setPref("map_airport_detail", String(d))}
+  windLevel={windPref}
+  onwindlevel={(l) => setPref("map_wind_level", l)}
 />
 {#if wxPick && !openAirport && !netPick}
   <WxCard item={wxPick} onclose={() => (wxPick = null)} />
@@ -1308,6 +1522,9 @@
   <AirportCard
     ident={openAirport}
     onclose={() => (openAirport = null)}
+    onzoom={zoomToAirport}
+    windOn={layers.has("wx-wind")}
+    onwind={() => toggleLayer("wx-wind")}
     onflight={onroute
       ? (id) => {
           openAirport = null;
@@ -1316,6 +1533,23 @@
       : undefined}
   />
 {/if}
+<div class="keys">
+{#if layers.has("wind")}
+  <div class="wind-key" aria-label="Wind speed colours">
+    <span class="t">
+      Wind
+      <select aria-label="Wind level" value={windPref} onchange={(e) => setPref("map_wind_level", (e.currentTarget as HTMLSelectElement).value)}>
+        <option value="auto">Auto ({WIND_LEVELS.find((l) => l.id === windLevel)?.label})</option>
+        {#each WIND_LEVELS as l (l.id)}<option value={l.id}>{l.label}</option>{/each}
+      </select>
+    </span>
+    <span class="bar" style:background={windKey}></span>
+    <span class="ends"><span>0</span><span>70</span><span>140+ kt</span></span>
+    <span class="sub">
+      {#if windError && !windField}Forecast not reachable{:else if !windField}Loading…{:else if windAt}Here: {windAt}{:else}GFS {zulu(windField.run_ms)} run, for {zulu(windField.valid_ms)}{/if}
+    </span>
+  </div>
+{/if}
 {#if shown.length > 1}
   <div class="alt-key" aria-label="Line color shows altitude">
     <span class="t">Altitude{#if three && stretch > 1}<em>heights ×{stretch}</em>{/if}</span>
@@ -1323,6 +1557,7 @@
     <span class="ends"><span>{altLabel(range.lo)}</span><span>{altLabel(range.top)}</span></span>
   </div>
 {/if}
+</div>
 {#if offline}
   <p class="offline">Map tiles could not load, so the map shows a plain grid. Tracking keeps working.</p>
 {/if}
@@ -1472,10 +1707,62 @@
     font-size: 11px;
     color: var(--amber);
   }
-  .alt-key {
+  .keys {
     position: absolute;
     left: 12px;
     bottom: 62px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    pointer-events: none;
+  }
+  .wind-key {
+    width: 190px;
+    padding: 8px 10px 7px;
+    border-radius: 8px;
+    background: rgba(28, 30, 33, 0.9);
+    border: 1px solid var(--rule);
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+  .wind-key .t {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-family: var(--cond);
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-dim);
+  }
+  .wind-key select {
+    pointer-events: auto;
+    padding: 1px 4px;
+    border: 1px solid var(--rule);
+    border-radius: 5px;
+    background: var(--panel-2);
+    color: var(--ink);
+    font: 600 11.5px var(--cond);
+    letter-spacing: 0.02em;
+  }
+  .wind-key .bar {
+    height: 6px;
+    border-radius: 3px;
+  }
+  .wind-key .ends {
+    display: flex;
+    justify-content: space-between;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10.5px;
+    color: var(--ink);
+  }
+  .wind-key .sub {
+    font-size: 11px;
+    color: var(--ink-dim);
+    font-family: "IBM Plex Mono", monospace;
+  }
+  .alt-key {
     width: 190px;
     padding: 8px 10px 7px;
     border-radius: 8px;

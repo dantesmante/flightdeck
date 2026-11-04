@@ -10,8 +10,13 @@
     onclose: () => void;
     /** Open one of your flights. */
     onflight?: (id: number) => void;
+    /** "Zoom to": bring the map in close on the airport. */
+    onzoom?: (a: { ident: string; lon: number; lat: number }) => void;
+    /** Airport wind arrows on the map, and switching them. */
+    windOn?: boolean;
+    onwind?: () => void;
   }
-  let { ident, onclose, onflight }: Props = $props();
+  let { ident, onclose, onflight, onzoom, windOn = false, onwind }: Props = $props();
 
   let card = $state<AirportCardData | null | undefined>(undefined);
   let wx = $state<AirportWeather | null | undefined>(undefined);
@@ -79,6 +84,24 @@
       <h3>{card.name}</h3>
       <p class="where">{[card.city, card.region_name, card.country_name].filter(Boolean).join(", ")}</p>
     </header>
+
+    {#if onzoom || onwind}
+      <div class="tools">
+        {#if onzoom}
+          {@const c = card}
+          <button class="zoom" onclick={() => onzoom?.({ ident: c.ident, lon: c.lon, lat: c.lat })}>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6" /><path d="M15 15l5 5M10.5 8v5M8 10.5h5" /></svg>
+            Zoom to
+          </button>
+        {/if}
+        {#if onwind}
+          <button class="wind" class:on={windOn} role="switch" aria-checked={windOn} onclick={onwind} title="Wind arrows at airports on the map">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20V5M7 9.5L12 4l5 5.5M9 20h6" /></svg>
+            Wind arrow {windOn ? "on" : "off"}
+          </button>
+        {/if}
+      </div>
+    {/if}
 
     <div class="facts">
       <div><span class="lbl">Elevation</span><b>{ft(card.elevation_ft)} ft</b></div>
@@ -262,6 +285,45 @@
     margin: 2px 0 0;
     color: var(--ink-dim);
     font-size: 13px;
+  }
+  .tools {
+    display: flex;
+    gap: 6px;
+    margin-top: 8px;
+  }
+  .tools button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--rule);
+    background: transparent;
+    color: var(--ink-dim);
+    font-size: 12.5px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .tools button:hover {
+    color: var(--ink);
+    border-color: #5a5f66;
+  }
+  .tools .zoom {
+    border-color: var(--amber);
+    color: var(--amber);
+  }
+  .tools .wind.on {
+    color: #49c27a;
+    border-color: #49c27a;
+  }
+  .tools svg {
+    width: 15px;
+    height: 15px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
   }
   .facts {
     display: grid;

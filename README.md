@@ -107,7 +107,9 @@ MIT licensed.
   or the app crashes, the next start saves what you flew as a partial
   flight.
 - **Demo mode**: a built-in flight model flies five routes gate to gate at
-  30 times real speed, so you can try everything without a sim.
+  30 times real speed, so you can try everything without a sim. It sits at
+  the bottom of Start a flight while no sim is connected; Settings, Updates
+  and diagnostics can hide it.
 - **Telemetry recorder**: record a real flight once, then replay it through
   the tracker for testing (see below).
 - **Passport book**: a passport whose cover turns open like a real one,
@@ -136,6 +138,22 @@ MIT licensed.
   hazard, validity, levels and the raw text. From the NOAA Aviation Weather
   Center (public domain), downloaded only while a layer is on, every 10
   minutes.
+- **Wind** (Map layers, Weather): moving particles show the forecast wind,
+  coloured by speed (blue light, green and yellow moderate, orange and red
+  strong, magenta jet stream over 140 kt), at the surface or FL050, FL100,
+  FL180, FL240, FL300, FL340 or FL390; **Auto** follows your aircraft's
+  altitude. The key at the bottom left reads the wind under the mouse.
+  From NOAA's GFS forecast (public domain, via NOAA Open Data on AWS): one
+  level, about 100 KB, taken every 3 hours while the layer is on. The
+  particles are drawn on the processor, not the graphics card, at most 15
+  frames a second, and pause while the map moves or is out of sight.
+- **Airport wind** (Map layers, Weather): zoomed in, every METAR station
+  shows an arrow pointing where the wind blows, longer and warmer in colour
+  as it strengthens, with its speed and gusts (a ring when calm or
+  variable). In an airport's card, **Zoom to** brings the map in close on
+  the airport and draws its wind as a large arrow (from the nearest station
+  within 30 nm if the airport has no METAR); **Wind arrow** switches the
+  arrows on and off from the card.
 - **Online networks** (Map layers): **VATSIM ATC**, **VATSIM pilots**,
   **IVAO ATC** and **IVAO pilots**. Staffed centres and FIRs are shaded
   with their callsigns in the middle; staffed airports show their code and

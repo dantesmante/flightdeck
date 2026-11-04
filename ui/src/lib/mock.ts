@@ -281,7 +281,37 @@ export async function mockCall<T>(cmd: string, _args?: Record<string, unknown>):
     } as T;
   }
   if (cmd === "wx_categories") {
-    return { updated_ms: now, error: null, stations: AIRPORTS.map((a, i) => [a.icao, a.lon, a.lat, i % 4]) } as T;
+    return {
+      updated_ms: now,
+      error: null,
+      stations: AIRPORTS.map((a, i) => [a.icao, a.lon, a.lat, i % 4]),
+      winds: AIRPORTS.map((a, i) => [a.icao, a.lon, a.lat, i % 7 === 3 ? -1 : (i * 47) % 360, [0, 4, 9, 14, 19, 27, 36][i % 7], i % 3 === 0 ? 25 : 0]),
+    } as T;
+  }
+  if (cmd === "wind_grid") {
+    // A made-up world: a westerly jet in each hemisphere and an easterly
+    // trade belt, stronger with height, with a wave so it curves.
+    const lvl = String(_args?.level ?? "sfc");
+    const k = { sfc: 0.25, "850": 0.4, "700": 0.55, "500": 0.75, "400": 0.9, "300": 1, "250": 1, "200": 0.9 }[lvl] ?? 0.5;
+    const u = new Int16Array(360 * 181);
+    const v = new Int16Array(360 * 181);
+    for (let r = 0; r < 181; r++) {
+      const lat = 90 - r;
+      for (let c = 0; c < 360; c++) {
+        const wave = Math.sin(((c * 4) / 360) * Math.PI * 2);
+        const jet = 140 * Math.exp(-(((Math.abs(lat) - 40 - wave * 6) / 9) ** 2));
+        const trade = -18 * Math.exp(-((lat / 14) ** 2));
+        u[r * 360 + c] = Math.round(k * (jet + trade + 12));
+        v[r * 360 + c] = Math.round(k * (30 * Math.cos(((c * 4) / 360) * Math.PI * 2) * Math.exp(-(((Math.abs(lat) - 40) / 14) ** 2)) * Math.sign(lat || 1)));
+      }
+    }
+    const b64 = (a: Int16Array) => {
+      const bytes = new Uint8Array(a.buffer);
+      let s = "";
+      for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+      return btoa(s);
+    };
+    return { level: lvl, run_ms: now - 9 * 3600_000, valid_ms: now, nx: 360, ny: 181, u: b64(u), v: b64(v), error: null } as T;
   }
   if (cmd === "wx_advisories") {
     const sq = (x: number, y: number, w: number, h: number) => ({ type: "Polygon", coordinates: [[[x, y], [x + w, y], [x + w, y + h], [x, y + h], [x, y]]] });

@@ -2,6 +2,7 @@
   // The map's Layers panel: picture cards you switch on and off, grouped
   // into the view, your own flights and weather.
   import type { Snippet } from "svelte";
+  import { WIND_LEVELS } from "./wind/wind";
 
   interface Props {
     three: boolean;
@@ -16,8 +17,11 @@
     /** World airports detail: 1 major, 2 + regional, 3 + small. */
     airportDetail?: number;
     ondetail?: (d: number) => void;
+    /** Wind level: "auto" (follows the aircraft) or a level id. */
+    windLevel?: string;
+    onwindlevel?: (l: string) => void;
   }
-  let { three, on, onthree, ontoggle, radarTime, radarError, parkedLayer = false, airportDetail = 1, ondetail }: Props = $props();
+  let { three, on, onthree, ontoggle, radarTime, radarError, parkedLayer = false, airportDetail = 1, ondetail, windLevel = "auto", onwindlevel }: Props = $props();
   const DETAIL = ["Major airports only", "Major and regional airports", "All airports and airstrips"];
 
   let open = $state(false);
@@ -96,6 +100,17 @@
         <g transform="translate({x} {y}) scale(0.32)"><path d="M0 -20 L3.4 -6 L19 1.5 L19 5.5 L3.4 2.6 L2.4 13 L8 17 L8 19.6 L0 17.8 L-8 19.6 L-8 17 L-2.4 13 L-3.4 2.6 L-19 5.5 L-19 1.5 L-3.4 -6 Z" fill="#c4c8ce" /></g>
         <rect x={x + 8} y={y - 4} width="18" height="8" rx="2" fill="#2e3135" stroke="#4a4e54" stroke-width="0.8" />
       {/each}
+    {:else if kind === "wind"}
+      {#each [[6, 14, "#4fb0c6"], [20, 30, "#49c27a"], [2, 46, "#c9d94a"], [44, 10, "#f0b23a"], [60, 40, "#ec6a3a"], [30, 54, "#49c27a"], [76, 22, "#e2453c"]] as [x, y, c] (`${x}${y}`)}
+        <path d="M{x} {y} q 14 -6 28 0 t 28 0" fill="none" stroke={String(c)} stroke-width="1.6" stroke-linecap="round" opacity="0.85" />
+      {/each}
+    {:else if kind === "wx-wind"}
+      {#each [[24, 32, 60, "#49c27a"], [64, 22, 200, "#4fb0c6"], [98, 40, 120, "#f0b23a"]] as [x, y, r, c] (`${x}${y}`)}
+        <g transform="translate({x} {y}) rotate({r})">
+          <path d="M0 13 V-9 M-5 -4 L0 -12 L5 -4 Z M-3 13 H3" fill={String(c)} stroke={String(c)} stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+        </g>
+        <circle cx={x} cy={y} r="2" fill="#eef1f4" />
+      {/each}
     {:else if kind === "radar"}
       <path d="M10 40 C 20 20, 44 18, 52 30 C 60 42, 40 56, 22 52 C 12 50, 6 46, 10 40 Z" fill="#3aa0ff" opacity="0.55" />
       <path d="M22 40 C 26 32, 38 30, 42 36 C 46 44, 32 48, 26 46 Z" fill="#7ce0ff" opacity="0.8" />
@@ -132,6 +147,10 @@
       </span>
     </span>
   </div>
+{/snippet}
+
+{#snippet windNote()}
+  <span class="note">{on.has("wind") ? (WIND_LEVELS.find((l) => l.id === windLevel)?.label ?? "Auto") : "Moving flow"}</span>
 {/snippet}
 
 {#snippet radarNote()}
@@ -172,7 +191,16 @@
       {@render card("radar", "Rain radar", on.has("radar"), () => ontoggle("radar"), radarNote)}
       {@render card("wx-cat", "Flight category", on.has("wx-cat"), () => ontoggle("wx-cat"))}
       {@render card("wx-adv", "SIGMET / AIRMET", on.has("wx-adv"), () => ontoggle("wx-adv"))}
+      {@render card("wind", "Wind", on.has("wind"), () => ontoggle("wind"), windNote)}
+      {@render card("wx-wind", "Airport wind", on.has("wx-wind"), () => ontoggle("wx-wind"))}
     </div>
+    {#if on.has("wind")}
+      <div class="levels" role="radiogroup" aria-label="Wind level">
+        {#each [{ id: "auto", label: "Auto" }, ...WIND_LEVELS.map((l) => ({ id: l.id, label: l.id === "sfc" ? "SFC" : l.label }))] as l (l.id)}
+          <button role="radio" aria-checked={windLevel === l.id} class:on={windLevel === l.id} onclick={() => onwindlevel?.(l.id)}>{l.label}</button>
+        {/each}
+      </div>
+    {/if}
     {#if on.has("wx-cat")}
       <p class="legend">
         <span style:--c="#2fbf71">VFR</span><span style:--c="#4f8fe8">MVFR</span><span style:--c="#e2453c">IFR</span><span style:--c="#cf5bd6">LIFR</span>
@@ -208,7 +236,8 @@
       {@render netCard("ivao", "IVAO")}
     </div>
     <p class="credit">
-      Radar RainViewer · METARs, SIGMETs and AIRMETs NOAA Aviation Weather Center (every 10 min while on) · Satellite Esri ·
+      Radar RainViewer · METARs, SIGMETs and AIRMETs NOAA Aviation Weather Center (every 10 min while on) · Wind
+      forecast NOAA GFS (one level, about 100 KB, every 3 h while on; drawn on the processor, not the graphics card) · Satellite Esri ·
       Terrain AWS Terrain Tiles · Live traffic VATSIM and IVAO (every 30 s while on) · ATC
       areas VAT-Spy Data Project (CC BY-SA 4.0)
     </p>
@@ -454,6 +483,30 @@
     color: var(--ink);
   }
   .chips button.on {
+    border-color: var(--amber);
+    background: var(--amber);
+    color: #1b1406;
+  }
+  .levels {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin: 8px 2px 0;
+  }
+  .levels button {
+    padding: 2px 7px;
+    border: 1px solid var(--rule);
+    border-radius: 999px;
+    background: transparent;
+    color: var(--ink-dim);
+    font: 600 11px "IBM Plex Mono", ui-monospace, monospace;
+    cursor: pointer;
+  }
+  .levels button:hover {
+    color: var(--ink);
+    border-color: #6a6f76;
+  }
+  .levels button.on {
     border-color: var(--amber);
     background: var(--amber);
     color: #1b1406;

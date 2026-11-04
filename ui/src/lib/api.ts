@@ -704,6 +704,21 @@ export interface NetworkData {
 export interface WxCategories {
   updated_ms: number;
   stations: [string, number, number, number][];
+  /** Surface wind: [code, lon, lat, direction from (-1 variable), knots, gust knots (0 none)]. */
+  winds: [string, number, number, number, number, number][];
+  error: string | null;
+}
+/** Forecast wind at one level on a one-degree grid (GFS). */
+export interface WindGrid {
+  level: string;
+  run_ms: number;
+  valid_ms: number;
+  /** 360 columns from 0°E, 181 rows from 90°N. */
+  nx: number;
+  ny: number;
+  /** East and north components in knots, little-endian Int16, base64. */
+  u: string;
+  v: string;
   error: string | null;
 }
 export interface WxAdvisoryProps {
@@ -808,6 +823,7 @@ export const api = {
   remoteNewCode: () => call<RemoteInfo>("remote_new_code"),
   remoteForget: () => call<RemoteInfo>("remote_forget"),
   wxCategories: () => call<WxCategories>("wx_categories"),
+  windGrid: (level: string) => call<WindGrid>("wind_grid", { level }),
   wxAdvisories: () => call<WxAdvisories>("wx_advisories"),
   onlineNetwork: (net: Net) => call<NetworkData>("online_network", { net }),
   onlinePilot: (net: Net, callsign: string) => call<NetPilot | null>("online_pilot", { net, callsign }),

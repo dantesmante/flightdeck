@@ -562,7 +562,7 @@ const VIEW: &[&str] = &[
     "get_status", "list_flights", "get_totals", "get_flight", "current_briefing", "demo_routes", "get_settings",
     "get_pilot", "get_logbook", "find_duplicates", "aircraft_with_registration", "get_passport", "get_hangar",
     "get_routes", "spotter_photo", "aircraft_flights", "get_aircraft_photo", "app_version", "simbrief_latest",
-    "search_airports", "get_pilot_profile", "airport_at", "map_airports", "airport_card", "airport_weather", "online_network", "online_pilot", "wx_categories", "wx_advisories",
+    "search_airports", "get_pilot_profile", "airport_at", "map_airports", "airport_card", "airport_weather", "online_network", "online_pilot", "wx_categories", "wx_advisories", "wind_grid",
 ];
 /// Commands that change something: only when editing is allowed.
 const EDIT: &[&str] = &[

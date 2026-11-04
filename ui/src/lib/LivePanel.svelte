@@ -5,7 +5,7 @@
   import { fly } from "./flyStore.svelte";
   import { fromTrack, type Pt } from "./track";
   import { hhmm } from "./format";
-  import { distance } from "./prefs.svelte";
+  import { distance, prefs } from "./prefs.svelte";
   import BoardingPass from "./BoardingPass.svelte";
   import PlanForm from "./plan/PlanForm.svelte";
   import LandingCard from "./LandingCard.svelte";
@@ -165,7 +165,7 @@
         <PlanForm mode="start" aircraft={fly.item} {onsettings} ondone={() => ((fly.item = null), (otherPlan = false))} />
       {/key}
     {/if}
-    {#if !connected}
+    {#if !connected && prefs.s.show_demo !== "0"}
     <div class="demo">
       <h3>No sim handy?</h3>
       <p>Fly a short demo flight to see tracking, the map and the landing report. It runs 30 times faster than real time.</p>
