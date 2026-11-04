@@ -180,6 +180,35 @@
     set("net-airports", airports);
     set("net-pilots", pilots);
   });
+  // A picked pilot: a line from their departure airport to where they are
+  // now, kept up to date as positions come in.
+  let pickedDep = $state<{ net: Net; callsign: string; at: [number, number] | null } | null>(null);
+  $effect(() => {
+    const p = netPick;
+    pickedDep = null;
+    if (p?.kind !== "pilot") return;
+    const { net } = p;
+    const callsign = p.pilot.callsign;
+    api.onlinePilot(net, callsign).then((d) => {
+      if (netPick?.kind === "pilot" && netPick.pilot.callsign === callsign) pickedDep = { net, callsign, at: d?.dep_pos ?? null };
+    });
+  });
+  $effect(() => {
+    const dep = pickedDep;
+    const data = netData;
+    if (!loaded || !map) return;
+    const src = map.getSource("net-track") as GeoJSONSource | undefined;
+    if (!src) return;
+    const now = dep?.at ? data[dep.net]?.pilots.find((x) => x.callsign === dep.callsign) : undefined;
+    src.setData(
+      dep?.at && now
+        ? {
+            type: "FeatureCollection",
+            features: [{ type: "Feature", properties: { net: dep.net }, geometry: { type: "LineString", coordinates: greatCircle(dep.at, [now.lon, now.lat]) } }],
+          }
+        : { type: "FeatureCollection", features: [] },
+    );
+  });
   /** The online-network thing at a point on the map, if any. */
   const NET_LAYERS = ["net-pilots", "net-airport-dot", "net-airport-labels", "net-area-labels", "net-app-ring", "net-area-fill"];
   function netAt(pt: maplibregl.PointLike): NetPick | null {
@@ -410,6 +439,7 @@
     map.addSource("net-airports", { type: "geojson", data: empty });
     map.addSource("net-pilots", { type: "geojson", data: empty });
     map.addSource("net-labels", { type: "geojson", data: empty });
+    map.addSource("net-track", { type: "geojson", data: empty });
     map.addLayer({ id: "net-area-fill", type: "fill", source: "net-areas", paint: { "fill-color": netColor, "fill-opacity": 0.07 } });
     map.addLayer({
       id: "net-area-line",
@@ -576,6 +606,14 @@
     });
     // Online networks: staffed airports, pilots and labels, above everything.
     if (!map.hasImage("net-plane")) map.addImage("net-plane", planeIcon(), { sdf: true });
+    // The picked pilot's way so far: a great circle from where they departed.
+    map.addLayer({
+      id: "net-track",
+      type: "line",
+      source: "net-track",
+      layout: { "line-cap": "round" },
+      paint: { "line-color": netColor, "line-width": 2, "line-opacity": 0.85 },
+    });
     map.addLayer({
       id: "net-airport-dot",
       type: "circle",

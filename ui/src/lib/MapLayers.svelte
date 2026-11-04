@@ -99,9 +99,11 @@
 
 {#snippet card(key: string, label: string, active: boolean, toggle: () => void, extra?: Snippet)}
   <button class="card" class:active role="switch" aria-checked={active} onclick={toggle}>
-    {@render art(key)}
-    <span class="label">{label}</span>
-    {#if extra}{@render extra()}{/if}
+    <span class="thumb">{@render art(key)}</span>
+    <span class="text">
+      <span class="label">{label}</span>
+      {#if extra}{@render extra()}{/if}
+    </span>
     <span class="tick" aria-hidden="true">
       <svg viewBox="0 0 16 16"><path d="M3.5 8.5l3 3 6-7" /></svg>
     </span>
@@ -110,7 +112,7 @@
 
 {#snippet radarNote()}
   <span class="note">
-    {#if !on.has("radar")}Live rain and snow{:else if radarError}Could not reach RainViewer{:else if radarTime}Radar {zulu(radarTime)}{:else}Loading…{/if}
+    {#if !on.has("radar")}Rain and snow{:else if radarError}Not reachable{:else if radarTime}{zulu(radarTime)}{:else}Loading…{/if}
   </span>
 {/snippet}
 
@@ -133,21 +135,27 @@
         <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" /></svg>
       </button>
     </header>
-    <h4>View</h4>
+    <h4>Map</h4>
     <div class="grid">
       {@render card("3d", "3D flight", three, () => onthree(!three))}
       {@render card("night", "Day / night", on.has("night"), () => ontoggle("night"))}
       {@render card("satellite", "Satellite", on.has("satellite"), () => ontoggle("satellite"))}
       {@render card("terrain", "Topographic", on.has("terrain"), () => ontoggle("terrain"))}
+      {@render card("radar", "Rain radar", on.has("radar"), () => ontoggle("radar"), radarNote)}
       {@render card("borders", "Strong borders", on.has("borders"), () => ontoggle("borders"))}
     </div>
-    <h4>Airports</h4>
+    <h4>Airports and flights</h4>
     <div class="grid">
       {@render card("world", "World airports", on.has("world"), () => ontoggle("world"))}
+      {@render card("airports", "Your airports", on.has("airports"), () => ontoggle("airports"))}
+      {@render card("routes", "Past routes", on.has("routes"), () => ontoggle("routes"))}
+      {#if parkedLayer}
+        {@render card("parked", "Parked aircraft", on.has("parked"), () => ontoggle("parked"))}
+      {/if}
     </div>
     {#if on.has("world")}
       <div class="detail">
-        <label for="ap-detail">Detail <span>{DETAIL[airportDetail - 1]}</span></label>
+        <label for="ap-detail">Airport detail <span>{DETAIL[airportDetail - 1]}</span></label>
         <input
           id="ap-detail"
           type="range"
@@ -160,14 +168,6 @@
         <div class="ticks"><span>Major</span><span>Regional</span><span>All</span></div>
       </div>
     {/if}
-    <h4>Your flights</h4>
-    <div class="grid">
-      {@render card("routes", "Past routes", on.has("routes"), () => ontoggle("routes"))}
-      {@render card("airports", "Your airports", on.has("airports"), () => ontoggle("airports"))}
-      {#if parkedLayer}
-        {@render card("parked", "Parked aircraft", on.has("parked"), () => ontoggle("parked"))}
-      {/if}
-    </div>
     <h4>Online networks</h4>
     <div class="grid">
       {@render card("vatsim-atc", "VATSIM ATC", on.has("vatsim-atc"), () => ontoggle("vatsim-atc"))}
@@ -175,18 +175,16 @@
       {@render card("ivao-atc", "IVAO ATC", on.has("ivao-atc"), () => ontoggle("ivao-atc"))}
       {@render card("ivao-pilots", "IVAO pilots", on.has("ivao-pilots"), () => ontoggle("ivao-pilots"))}
     </div>
-    <p class="credit">Live from VATSIM and IVAO, every 30 seconds while on. Areas from the VAT-Spy Data Project (CC BY-SA 4.0).</p>
-    <h4>Weather</h4>
-    <div class="grid">
-      {@render card("radar", "Rain radar", on.has("radar"), () => ontoggle("radar"), radarNote)}
-    </div>
-    <p class="credit">Radar by RainViewer, updated every 10 minutes. Satellite imagery by Esri. Terrain from open elevation data (AWS Terrain Tiles).</p>
+    <p class="credit">
+      Radar RainViewer · Satellite Esri · Terrain AWS Terrain Tiles · Live traffic VATSIM and IVAO (every 30 s while on) · ATC
+      areas VAT-Spy Data Project (CC BY-SA 4.0)
+    </p>
   </div>
 {/if}
 
 <style>
   .detail {
-    margin: 10px 2px 4px;
+    margin: 8px 2px 0;
   }
   .detail label {
     display: flex;
@@ -199,7 +197,7 @@
   }
   .detail input {
     width: 100%;
-    margin: 8px 0 2px;
+    margin: 4px 0 0;
     accent-color: var(--amber);
   }
   .ticks {
@@ -273,7 +271,7 @@
     position: absolute;
     top: 62px;
     right: 16px;
-    width: 340px;
+    width: 352px;
     max-height: calc(100% - 130px);
     overflow-y: auto;
     overflow-x: hidden;
@@ -313,7 +311,7 @@
     color: var(--ink);
   }
   h4 {
-    margin: 14px 0 7px;
+    margin: 12px 0 6px;
     font-size: 11px;
     font-weight: 600;
     letter-spacing: 0.12em;
@@ -322,51 +320,63 @@
   }
   .grid {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 8px;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
   }
+  /* Compact tiles: a small picture, the name, a tick when on. */
   .card {
     position: relative;
     display: flex;
-    flex-direction: column;
-    padding: 0;
-    border-radius: 9px;
-    overflow: hidden;
+    align-items: center;
+    gap: 8px;
+    min-height: 38px;
+    padding: 5px 24px 5px 5px;
+    border-radius: 8px;
     border: 1.5px solid var(--rule);
     background: var(--panel-2);
     text-align: left;
-    transition: border-color 0.15s, transform 0.15s;
+    transition: border-color 0.15s, background 0.15s;
   }
   .card:hover {
     border-color: #555a61;
-    transform: translateY(-1px);
   }
   .card.active {
     border-color: var(--amber);
+    background: rgba(240, 178, 58, 0.08);
   }
-  .card svg {
+  .thumb {
+    flex: none;
+    width: 38px;
+    height: 22px;
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .thumb :global(svg) {
     display: block;
     width: 100%;
-    height: auto;
+    height: 100%;
+  }
+  .text {
+    display: grid;
+    min-width: 0;
   }
   .label {
-    padding: 6px 8px 7px;
     font-size: 12.5px;
     font-weight: 600;
-    line-height: 1.2;
+    line-height: 1.15;
   }
   .note {
-    padding: 0 8px 7px;
-    margin-top: -4px;
     font-size: 10.5px;
     color: var(--ink-dim);
+    white-space: nowrap;
   }
   .tick {
     position: absolute;
-    top: 6px;
-    right: 6px;
-    width: 18px;
-    height: 18px;
+    top: 50%;
+    right: 7px;
+    width: 14px;
+    height: 14px;
+    margin-top: -7px;
     border-radius: 50%;
     display: grid;
     place-items: center;
@@ -376,11 +386,11 @@
     transition: opacity 0.15s, transform 0.15s;
   }
   .tick svg {
-    width: 12px;
-    height: 12px;
+    width: 10px;
+    height: 10px;
     fill: none;
     stroke: #1b1406;
-    stroke-width: 2.4;
+    stroke-width: 2.6;
     stroke-linecap: round;
     stroke-linejoin: round;
   }
@@ -389,8 +399,9 @@
     transform: none;
   }
   .credit {
-    margin: 12px 0 0;
-    font-size: 11px;
+    margin: 10px 0 0;
+    font-size: 10.5px;
+    line-height: 1.4;
     color: var(--ink-faint);
   }
 </style>

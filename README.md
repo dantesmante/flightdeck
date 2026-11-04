@@ -130,7 +130,8 @@ MIT licensed.
   IVAO blue). Click a centre's callsign for its controller, frequency,
   facility, time online and info text; an airport for every position
   there with frequencies and ATIS text (and a link to the airport card);
-  a pilot for the aircraft, route, altitude, speed and flight plan. Data
+  a pilot for the aircraft, route, altitude, speed and flight plan, with a
+  great-circle line from their departure airport to where they are now. Data
   comes from each network's public feed, downloaded by FlightDeck only
   while one of its layers is on, every 30 seconds; nothing is sent to the
   networks.

@@ -293,7 +293,10 @@ export async function mockCall<T>(cmd: string, _args?: Record<string, unknown>):
       aircraft: ["B738", "A320", "C172", "B77W"][i % 4], dep: "KJFK", arr: "KLAX", logon_ms: t,
       route: "DEEZZ5 CANDR J60 PSB HAYNZ6", flight_rules: "I", cruise: "35000",
     }));
-    if (cmd === "online_pilot") return (pilots.find((p) => p.callsign === _args?.callsign) ?? null) as T;
+    if (cmd === "online_pilot") {
+      const p = pilots.find((p) => p.callsign === _args?.callsign);
+      return (p ? { ...p, dep_pos: [-73.78, 40.64] } : null) as T;
+    }
     return {
       net, updated_ms: now - 20_000, pilots,
       areas: net === "vatsim"

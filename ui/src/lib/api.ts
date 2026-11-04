@@ -661,6 +661,8 @@ export interface NetPilot {
   flight_rules?: string;
   cruise?: string;
   logon_ms: number;
+  /** [lon, lat] of the departure airport (only for one pilot). */
+  dep_pos?: [number, number];
 }
 export interface NetController {
   callsign: string;

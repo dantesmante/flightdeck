@@ -140,6 +140,9 @@ pub struct Pilot {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cruise: Option<String>,
     pub logon_ms: i64,
+    /// [lon, lat] of the departure airport, when asked for one pilot.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dep_pos: Option<[f64; 2]>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -257,6 +260,7 @@ fn parse_vatsim(v: &Value) -> (Vec<Pilot>, Vec<Controller>, i64) {
                         flight_rules: Some(text(&fp["flight_rules"])).filter(|s| !s.is_empty()),
                         cruise: Some(text(&fp["altitude"])).filter(|s| !s.is_empty()),
                         logon_ms: iso_ms(&text(&p["logon_time"])),
+                        dep_pos: None,
                     }
                 })
                 .collect()
@@ -313,6 +317,7 @@ fn parse_ivao(v: &Value) -> (Vec<Pilot>, Vec<Controller>, i64) {
                         flight_rules: Some(text(&fp["flightRules"])).filter(|s| !s.is_empty()),
                         cruise: Some(text(&fp["level"])).filter(|s| !s.is_empty()),
                         logon_ms: iso_ms(&text(&p["createdAt"])),
+                        dep_pos: None,
                     }
                 })
                 .collect()
@@ -461,9 +466,16 @@ pub fn network_for_map(net: &str) -> NetworkData {
     d
 }
 
-/// One pilot with the whole flight plan, from the last download.
+/// One pilot with the whole flight plan and where they departed from, from
+/// the last download.
 pub fn pilot(net: &str, callsign: &str) -> Option<Pilot> {
-    cache().lock().unwrap().get(net).and_then(|(_, d)| d.pilots.iter().find(|p| p.callsign == callsign).cloned())
+    let mut p = cache().lock().unwrap().get(net).and_then(|(_, d)| d.pilots.iter().find(|p| p.callsign == callsign).cloned())?;
+    let dep = p.dep.to_ascii_uppercase();
+    p.dep_pos = (!dep.is_empty())
+        .then(|| spy().airports.iter().find(|a| a.icao == dep && !a.icao.is_empty()))
+        .flatten()
+        .map(|a| [a.lon, a.lat]);
+    Some(p)
 }
 
 #[cfg(test)]
