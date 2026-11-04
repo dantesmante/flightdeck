@@ -2,7 +2,8 @@
   // A simple flight plan: callsign, aircraft, origin, destination and
   // alternate, typed in or imported from SimBrief. Used to start a flight,
   // and mid-flight to add a plan.
-  import { onMount } from "svelte";
+  import { onDestroy, onMount } from "svelte";
+  import { draft } from "../flyStore.svelte";
   import { api, type FlightPlan, type HangarItem } from "../api";
   import { modelName } from "../hangar/names";
   import { distance, prefs } from "../prefs.svelte";
@@ -36,6 +37,18 @@
   let originAuto = $state(false);
   let busy = $state(false);
   let error = $state<string | null>(null);
+
+  // Preview the route on the map while a flight is being set up.
+  $effect(() => {
+    if (mode !== "start") return;
+    draft.origin = origin;
+    draft.dest = dest;
+  });
+  onDestroy(() => {
+    if (mode !== "start") return;
+    draft.origin = null;
+    draft.dest = null;
+  });
 
   const hasId = $derived(!!prefs.s.simbrief_id?.trim());
 

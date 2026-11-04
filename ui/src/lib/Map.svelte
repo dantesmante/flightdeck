@@ -42,8 +42,42 @@
     highlight?: number | null;
     /** "Fly this aircraft" was pressed in a parked aircraft's card. */
     onfly?: (item: HangarItem) => void;
+    /** A route being set up and not flown yet: drawn like a plan when there is none. */
+    draft?: { origin: { icao: string; name: string; lat: number; lon: number }; dest: { icao: string; name: string; lat: number; lon: number } } | null;
+    /** Room taken by cards over the right and bottom of the map, in pixels:
+     * the map controls move clear of it and routes fit beside it. */
+    insetRight?: number;
+    insetBottom?: number;
   }
-  let { live, aircraft, origin, history, routes = [], selected = null, onroute, plan = null, parked = null, highlight = null, onfly }: Props = $props();
+  let {
+    live,
+    aircraft,
+    origin,
+    history,
+    routes = [],
+    selected = null,
+    onroute,
+    plan = null,
+    parked = null,
+    highlight = null,
+    onfly,
+    draft = null,
+    insetRight = 0,
+    insetBottom = 0,
+  }: Props = $props();
+
+  /** The plan drawn: the real one, or the route being set up. */
+  const shownPlan = $derived<FlightPlan | null>(
+    plan ??
+      (draft
+        ? ({
+            id: "draft",
+            origin: { ...draft.origin, runway: "" },
+            destination: { ...draft.dest, runway: "" },
+            fixes: [],
+          } as unknown as FlightPlan)
+        : null),
+  );
 
   const PLAN = "#a78bfa";
 
@@ -595,7 +629,7 @@
       },
     });
     // The flight plan, under the flown track.
-    map.addSource("plan", { type: "geojson", data: planFeatures(plan) });
+    map.addSource("plan", { type: "geojson", data: planFeatures(untrack(() => shownPlan)) });
     map.addLayer({
       id: "plan-line",
       type: "line",
@@ -934,15 +968,29 @@
   // a plan arrives before any flying.
   let lastPlanId: string | null = null;
   $effect(() => {
-    const p = plan;
+    const p = shownPlan;
     if (!loaded || !map) return;
     (map.getSource("plan") as GeoJSONSource | undefined)?.setData(planFeatures(p));
     const id = p ? `${p.id}-${p.origin.icao}-${p.destination.icao}` : null;
-    if (p && id !== lastPlanId && !untrack(() => history) && untrack(() => live.length) < 2) {
-      const coords: [number, number][] = [[p.origin.lon, p.origin.lat], ...p.fixes.map((f) => [f.lon, f.lat] as [number, number]), [p.destination.lon, p.destination.lat]];
-      fit(coords.filter(([x, y]) => x || y), 8);
-    }
+    // A route being set up always shows; a real plan only before any flying.
+    if (p && id !== lastPlanId && planInView(p)) fitPlan(p);
     lastPlanId = id;
+  });
+  function planInView(p: FlightPlan): boolean {
+    return p.id === "draft" || (!untrack(() => history) && untrack(() => live.length) < 2);
+  }
+  function fitPlan(p: FlightPlan) {
+    const coords: [number, number][] = [[p.origin.lon, p.origin.lat], ...p.fixes.map((f) => [f.lon, f.lat] as [number, number]), [p.destination.lon, p.destination.lat]];
+    fit(coords.filter(([x, y]) => x || y), 8);
+  }
+  // A card opening over the map: move the planned route out from under it.
+  let lastInset = 0;
+  $effect(() => {
+    const r = insetRight;
+    if (!loaded || !map) return;
+    const p = untrack(() => shownPlan);
+    if (r > lastInset && p && planInView(p)) fitPlan(p);
+    lastInset = r;
   });
 
   // Optional layers: past routes, airports, borders, satellite, day/night, radar.
@@ -1038,7 +1086,11 @@
     // In 3D keep the tilt, with extra room at the top for the wall.
     const tilted = untrack(() => three);
     map.fitBounds(b, {
-      padding: tilted ? { top: 160, bottom: 60, left: 80, right: 80 } : 80,
+      padding: (() => {
+        const r = untrack(() => insetRight);
+        const bt = untrack(() => insetBottom);
+        return tilted ? { top: 160, bottom: 60 + bt, left: 80, right: 80 + r } : { top: 80, bottom: 80 + bt, left: 80, right: 80 + r };
+      })(),
       maxZoom,
       duration: 600,
       pitch: tilted ? 60 : 0,
@@ -1212,7 +1264,7 @@
   });
 </script>
 
-<div class="map" bind:this={el} bind:clientWidth={mapW}></div>
+<div class="map" bind:this={el} bind:clientWidth={mapW} style:--inset-r="{insetRight}px" style:--inset-b="{insetBottom}px"></div>
 <div
   class="hover-tip"
   class:show={!!hoverTip}
@@ -1280,6 +1332,11 @@
     position: absolute;
     inset: 0;
     background: #17191b;
+  }
+  .map :global(.maplibregl-ctrl-bottom-right) {
+    right: var(--inset-r, 0px);
+    bottom: var(--inset-b, 0px);
+    transition: right 0.25s ease, bottom 0.25s ease;
   }
   .map :global(.plane) {
     filter: drop-shadow(0 0 6px rgba(240, 178, 58, 0.55));

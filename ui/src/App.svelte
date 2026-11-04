@@ -1,10 +1,10 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { fly } from "./lib/flyStore.svelte";
+  import { draft, fly } from "./lib/flyStore.svelte";
   import { api, inRemote, on, type FlightDetail, type FlightPlan, type HangarItem, type Route, type Status } from "./lib/api";
   import FlightsPanel from "./lib/FlightsPanel.svelte";
   import HangarView from "./lib/hangar/HangarView.svelte";
-  import LivePanel from "./lib/LivePanel.svelte";
+  import MapDock from "./lib/MapDock.svelte";
   import LogbookView from "./lib/logbook/LogbookView.svelte";
   import Map from "./lib/Map.svelte";
   import PassportView from "./lib/passport/PassportView.svelte";
@@ -36,8 +36,10 @@
   function flyThis(item: HangarItem) {
     fly.item = item;
     if (view !== "live") go("live");
-    if (collapsed) togglePanel();
   }
+  /** Room the map's card takes, for the map to keep clear of. */
+  let inset = $state({ r: 0, b: 0 });
+  const draftRoute = $derived(view === "live" && draft.origin && draft.dest ? { origin: draft.origin, dest: draft.dest } : null);
   let openRequest = $state<{ id: number; n: number } | null>(null);
 
   let parked = $state<HangarItem[]>([]);
@@ -144,6 +146,8 @@
     if (v === "live") selectedFlight = null;
     // The flights list lives in the side panel: open it if it is folded.
     if (v === "flights" && collapsed) togglePanel();
+    // The side panel comes and goes with the view: let the map notice.
+    if ((v === "live") !== (view === "live")) requestAnimationFrame(() => window.dispatchEvent(new Event("resize")));
     view = v;
     history = v === "live" && completed ? fromTrack(completed.track) : null;
     historyPlan = v === "live" && completed ? completed.plan : null;
@@ -188,7 +192,7 @@
 
 <div class="app">
 <TitleBar {linkText} link={status?.link ?? "waiting"} />
-<div class="shell" class:full class:collapsed={collapsed && !full}>
+<div class="shell" class:full class:collapsed={(collapsed || view === "live") && !full}>
   <nav class="rail" aria-label="Main">
     {#each NAV as item (item.id)}
       <button class:on={view === item.id} onclick={() => go(item.id)} aria-current={view === item.id ? "page" : undefined}>
@@ -208,10 +212,14 @@
   </nav>
 
   <main class="stage" class:hidden={full}>
-    <Map live={liveTrack} {aircraft} {origin} {history} {routes} parked={parkedShown} highlight={view === "flights" ? hoverFlight : null} onfly={status?.live ? undefined : flyThis} selected={selectedFlight} onroute={showFlight} plan={history ? historyPlan : (status?.plan ?? null)} />
+    <Map live={liveTrack} {aircraft} {origin} {history} {routes} parked={parkedShown} highlight={view === "flights" ? hoverFlight : null} onfly={status?.live ? undefined : flyThis} selected={selectedFlight} onroute={showFlight} plan={history ? historyPlan : (status?.plan ?? null)} draft={draftRoute} insetRight={view === "live" ? inset.r : 0} insetBottom={view === "live" ? inset.b : 0} />
+    {#if view === "live"}
+      <MapDock {status} {completed} track={liveTrack} ondismiss={dismiss} onsettings={() => go("settings")} oninset={(r, b) => (inset = { r, b })} />
+    {:else}
     <button class="fold" onclick={togglePanel} aria-label={collapsed ? "Show the side panel" : "Hide the side panel"} title={collapsed ? "Show panel" : "Hide panel"}>
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d={collapsed ? "M15 5l-7 7 7 7" : "M9 5l7 7-7 7"} /></svg>
     </button>
+    {/if}
     <footer class="status-line" class:connected={status?.link === "connected"}>
       <span class="lamp {status?.link ?? 'waiting'}"></span>
       <span>{linkText}</span>
@@ -242,10 +250,8 @@
     <Briefing plan={briefing.plan} ofp={briefing.ofp} onclose={closeBriefing} />
   {/if}
 
-  <aside class="panel" class:hidden={full || collapsed}>
-    {#if view === "live"}
-      <LivePanel {status} {completed} track={liveTrack} ondismiss={dismiss} onsettings={() => go("settings")} />
-    {:else}
+  <aside class="panel" class:hidden={full || collapsed || view === "live"}>
+    {#if view !== "live"}
       <FlightsPanel
         {refreshKey}
         request={openRequest}

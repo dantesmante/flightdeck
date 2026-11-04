@@ -2,7 +2,7 @@
   import { api, type FlightDetail, type Status } from "./api";
   import AltSpeedGraph from "./AltSpeedGraph.svelte";
   import PlanCard from "./PlanCard.svelte";
-  import StartFlight from "./StartFlight.svelte";
+  import { fly } from "./flyStore.svelte";
   import { fromTrack, type Pt } from "./track";
   import { hhmm } from "./format";
   import { distance } from "./prefs.svelte";
@@ -45,6 +45,14 @@
   async function startDemo() {
     busy = true;
     await api.startDemo(route < 0 ? null : route);
+    busy = false;
+  }
+
+  /** A plan is loaded already (from SimBrief or the EFB): fly it. */
+  let otherPlan = $state(false);
+  async function startWithPlan() {
+    busy = true;
+    await api.startFlight(status?.plan ?? null, fly.item?.id ?? null).catch(() => {});
     busy = false;
   }
 
@@ -133,38 +141,31 @@
     <div class="actions">
       <button class="primary" onclick={ondismiss}>Done</button>
     </div>
-  {:else if connected && status}
-    <header>
-      <h2><span class="good">Connected</span> to {status.sim_label}</h2>
-      <p class="sub">
-        {#if status.armed}
-          Flight started. Tracking begins the moment you are in the cockpit.
-        {:else}
-          Get in the aircraft: tracking starts when the battery is on or an engine is running. Or press Start a flight.
-        {/if}
-      </p>
-    </header>
-    {#if status.plan}
-      <PlanCard plan={status.plan} onremove={() => api.setPlan(null)} />
-    {/if}
-    {#if !status.armed}
-      <StartFlight {onsettings} />
-    {/if}
   {:else}
-    <header>
-      <h2>Ready when you are</h2>
-      <p class="sub">
-        Start MSFS 2020 or 2024 and FlightDeck connects by itself. Tracking starts when you power up the aircraft, or press Start a flight to load your SimBrief plan first.
+    {#if connected && status}
+      <p class="link"><span class="lamp"></span>
+        <span>
+          <b>Connected</b> to {status.sim_label}.
+          {status.armed ? "Flight started: tracking begins the moment you are in the cockpit." : "Tracking starts when the battery is on or an engine is running."}
+        </span>
       </p>
-    </header>
-    {#if status?.notice}
+    {:else if status?.notice}
       <p class="notice">{status.notice}</p>
     {/if}
     {#if status?.plan}
       <PlanCard plan={status.plan} onremove={() => api.setPlan(null)} />
-    {:else}
-      <StartFlight {onsettings} />
     {/if}
+    {#if status?.plan && !status.armed && connected && !otherPlan}
+      <div class="actions">
+        <button class="primary" disabled={busy} onclick={startWithPlan}>Start this flight</button>
+        <button class="ghost" onclick={() => (otherPlan = true)}>Use another plan</button>
+      </div>
+    {:else if !status?.armed && !(status?.plan && !connected)}
+      {#key fly.item?.id}
+        <PlanForm mode="start" aircraft={fly.item} {onsettings} ondone={() => ((fly.item = null), (otherPlan = false))} />
+      {/key}
+    {/if}
+    {#if !connected}
     <div class="demo">
       <h3>No sim handy?</h3>
       <p>Fly a short demo flight to see tracking, the map and the landing report. It runs 30 times faster than real time.</p>
@@ -179,6 +180,7 @@
       </label>
       <button class="primary" onclick={startDemo} disabled={busy}>Fly a demo flight</button>
     </div>
+    {/if}
   {/if}
 </div>
 
@@ -206,6 +208,25 @@
     border-left: 3px solid var(--amber);
     background: var(--panel-2);
     color: var(--ink);
+  }
+  .link {
+    display: flex;
+    gap: 9px;
+    margin: 0;
+    color: var(--ink-dim);
+    font-size: 13.5px;
+  }
+  .link b {
+    color: var(--good);
+  }
+  .link .lamp {
+    flex: none;
+    width: 8px;
+    height: 8px;
+    margin-top: 6px;
+    border-radius: 50%;
+    background: var(--good);
+    box-shadow: 0 0 8px var(--good);
   }
   .demo {
     border-top: 1px solid var(--rule);
@@ -322,8 +343,5 @@
     height: 18px;
     stroke: currentColor;
     stroke-width: 2;
-  }
-  .good {
-    color: var(--good);
   }
 </style>

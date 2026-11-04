@@ -308,7 +308,7 @@
     max-height: calc(100% - 130px);
     overflow-y: auto;
     overflow-x: hidden;
-    z-index: 3;
+    z-index: 6;
     padding: 14px 16px 12px;
     border-radius: 12px;
     background: rgba(28, 30, 33, 0.94);

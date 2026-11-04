@@ -19,14 +19,18 @@ MIT licensed.
   seconds, unpaused, and you are in it (battery or main bus on, or an
   engine running). The menus never start one, whatever position the sim
   reports there. It is logged from block out to block in with no clicks.
-- **Start a flight**: on the map, press **Start a flight** and fill in a
-  simple flight plan: callsign and flight number, the aircraft (the one in
+- **Start a flight**: on the map, press the amber **Start a flight** button
+  at the bottom right; a card slides up over the map with a simple flight
+  plan: callsign and flight number, the aircraft (the one in
   the sim, or any aircraft in your hangar), origin, destination and
   alternate. The origin is filled in from where the aircraft is: where the
   sim has it on the ground, or where a hangar aircraft was parked (so
   **Fly this aircraft** on the map starts from its airport). Airports are
   found by code or name as you type. Your latest SimBrief plan is shown
   (callsign, route, aircraft, distance); press it to fill in the form.
+  Once origin and destination are chosen, the map zooms to the route and
+  previews it as a dashed purple line. During a flight the same card shows
+  the flight; fold it down to see more of the map.
   A plan can also be added mid-flight with **Add a flight plan**.
 - **Boarding pass**: the active flight shows as a boarding pass with the
   callsign and airline, registration and type, the aircraft's picture when
