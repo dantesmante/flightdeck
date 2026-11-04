@@ -80,7 +80,7 @@ const status: FullStatus = {
   armed: false,
   forced_aircraft: null,
   plan: scene === "plan" ? samplePlan : scene === "pass" ? passPlan : null,
-  link: "connected",
+  link: scene === "nosim" ? "waiting" : "connected",
   sim: "msfs2024",
   sim_label: "MSFS 2024",
   sim_version: "12.1",
@@ -280,6 +280,20 @@ export async function mockCall<T>(cmd: string, _args?: Record<string, unknown>):
       error: found ? null : "MSFS 2024's Community folder was not found. Choose it below.",
     } as T;
   }
+  // Starting, cancelling and planning a flight change the status, as in the app.
+  if (cmd === "start_flight" || cmd === "cancel_flight" || cmd === "set_plan") {
+    if (cmd === "start_flight") {
+      status.armed = true;
+      if (_args?.plan) status.plan = _args.plan as FlightPlan;
+    } else if (cmd === "cancel_flight") {
+      if (!status.live) status.plan = null;
+      status.armed = false;
+    } else {
+      status.plan = (_args?.plan as FlightPlan | null) ?? null;
+    }
+    setTimeout(pushStatus, 50);
+    return null as T;
+  }
   if (cmd === "wx_categories") {
     return {
       updated_ms: now,
@@ -429,6 +443,14 @@ export async function mockCall<T>(cmd: string, _args?: Record<string, unknown>):
   return (answers[cmd] ?? null) as T;
 }
 
-export function mockListen(_event: string, _cb: (p: unknown) => void) {
-  return () => {};
+const listeners: Record<string, ((p: unknown) => void)[]> = {};
+export function mockListen(event: string, cb: (p: unknown) => void) {
+  (listeners[event] ??= []).push(cb);
+  return () => {
+    listeners[event] = (listeners[event] ?? []).filter((c) => c !== cb);
+  };
+}
+/** Tell the interface the status changed, as the app does. */
+function pushStatus() {
+  for (const cb of listeners.status ?? []) cb({ ...status, track_tail: [] });
 }

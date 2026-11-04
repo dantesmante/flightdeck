@@ -149,18 +149,35 @@
           {status.armed ? "Flight started: tracking begins the moment you are in the cockpit." : "Tracking starts when the battery is on or an engine is running."}
         </span>
       </p>
-    {:else if status?.notice}
-      <p class="notice">{status.notice}</p>
+    {:else}
+      {#if status?.notice}<p class="notice">{status.notice}</p>{/if}
+      {#if status?.armed}
+        <p class="link waiting"><span class="lamp"></span>
+          <span><b>Flight started.</b> Tracking begins once the simulator is running and you are in the cockpit.</span>
+        </p>
+      {/if}
     {/if}
     {#if status?.plan}
       <PlanCard plan={status.plan} onremove={() => api.setPlan(null)} />
     {/if}
-    {#if status?.plan && !status.armed && connected && !otherPlan}
+    {#if status?.armed}
+      <div class="actions">
+        {#if confirmCancel}
+          <div class="row inline" use:reveal>
+            <span class="ask">Cancel this flight?</span>
+            <button class="danger" onclick={() => ((confirmCancel = false), api.cancelFlight())}>Cancel flight</button>
+            <button class="ghost" onclick={() => (confirmCancel = false)}>Keep it</button>
+          </div>
+        {:else}
+          <button class="ghost" onclick={() => (confirmCancel = true)}>Cancel flight</button>
+        {/if}
+      </div>
+    {:else if status?.plan && !otherPlan}
       <div class="actions">
         <button class="primary" disabled={busy} onclick={startWithPlan}>Start this flight</button>
         <button class="ghost" onclick={() => (otherPlan = true)}>Use another plan</button>
       </div>
-    {:else if !status?.armed && !(status?.plan && !connected)}
+    {:else}
       {#key fly.item?.id}
         <PlanForm mode="start" aircraft={fly.item} {onsettings} ondone={() => ((fly.item = null), (otherPlan = false))} />
       {/key}
@@ -218,6 +235,13 @@
   }
   .link b {
     color: var(--good);
+  }
+  .link.waiting b {
+    color: var(--amber);
+  }
+  .link.waiting .lamp {
+    background: var(--amber);
+    box-shadow: 0 0 8px var(--amber);
   }
   .link .lamp {
     flex: none;

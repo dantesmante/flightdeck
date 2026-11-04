@@ -537,8 +537,13 @@ impl Engine {
     /// is removed, and the next flight waits for power off and on (or the
     /// Start a flight button) so it does not begin again straight away.
     fn cancel_flight(&mut self) {
-        if self.tracker.take().is_some() {
+        let tracked = self.tracker.take().is_some();
+        if tracked {
             log::info!("flight canceled by pilot; nothing saved");
+        } else if self.armed {
+            // Only set up (Start a flight), not flown yet: forget its plan too.
+            log::info!("flight set-up canceled by pilot");
+            self.plan = None;
         }
         if let Some(j) = self.journal.take() {
             let _ = j.finish();
@@ -548,7 +553,9 @@ impl Engine {
         self.dep = None;
         self.armed = false;
         self.forced = None;
-        self.need_reset = true;
+        // Wait for the aircraft to power down before starting on its own
+        // again, but only if there is a sim to see that happen.
+        self.need_reset = tracked || self.conn.is_some();
         self.session += 1;
     }
 

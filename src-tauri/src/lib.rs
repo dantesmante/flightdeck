@@ -527,10 +527,25 @@ fn get_settings(state: tauri::State<AppState>) -> CmdResult<HashMap<String, Stri
     Ok(s)
 }
 
+/// Settings the interface may change (anything else is refused).
+const SETTING_KEYS: &[&str] = &[
+    "distance_unit",
+    "logbook_layout",
+    "logbook_hand",
+    "logbook_theme",
+    "logbook_view",
+    "passport_color",
+    "map_3d",
+    "map_layers",
+    "map_airport_detail",
+    "map_wind_level",
+    "show_demo",
+    "simbrief_id",
+];
+
 #[tauri::command]
 fn set_setting(state: tauri::State<AppState>, key: String, value: String) -> CmdResult<()> {
-    const ALLOWED: &[&str] = &["distance_unit", "logbook_layout", "logbook_hand", "logbook_theme", "logbook_view", "passport_color", "map_3d", "map_layers", "simbrief_id"];
-    if !ALLOWED.contains(&key.as_str()) {
+    if !SETTING_KEYS.contains(&key.as_str()) {
         return Err(format!("unknown setting {key}"));
     }
     state.db.lock().unwrap().set_setting(&key, &value).map_err(err)
@@ -1227,4 +1242,34 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running FlightDeck");
+}
+
+#[cfg(test)]
+mod setting_keys {
+    /// Every setting the interface saves with setPref must be allowed here,
+    /// or it is silently lost when the app closes.
+    #[test]
+    fn interface_settings_are_allowed() {
+        fn walk(dir: &std::path::Path, out: &mut Vec<String>) {
+            for e in std::fs::read_dir(dir).unwrap().flatten() {
+                let p = e.path();
+                if p.is_dir() {
+                    walk(&p, out);
+                } else if p.extension().is_some_and(|x| x == "svelte" || x == "ts") {
+                    let text = std::fs::read_to_string(&p).unwrap();
+                    for part in text.split("setPref(\"").skip(1) {
+                        if let Some(end) = part.find('"') {
+                            out.push(part[..end].to_string());
+                        }
+                    }
+                }
+            }
+        }
+        let mut keys = vec![];
+        walk(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../ui/src"), &mut keys);
+        assert!(keys.len() > 5);
+        for k in keys {
+            assert!(super::SETTING_KEYS.contains(&k.as_str()), "setting {k} is saved by the interface but not allowed");
+        }
+    }
 }
