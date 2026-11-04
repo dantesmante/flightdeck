@@ -5,7 +5,8 @@
   import { hoursMinutes } from "../format";
   import { prefs, setPref } from "../prefs.svelte";
   import Emblem from "./Emblem.svelte";
-  import { holoPage, idPagePattern, mrz, paperPattern, passportNumber } from "./paper";
+  import { holoPage, idPagePattern, mrz, paperPattern, passportNumber, stripNumber } from "./paper";
+  import SecurityStrip from "./SecurityStrip.svelte";
   import Stamp from "./Stamp.svelte";
   import WorldMap, { type MapAirport, type View } from "./WorldMap.svelte";
 
@@ -118,6 +119,7 @@
       : { surname: parts[0] ?? "", given: "" };
   });
   const number = $derived(data ? passportNumber(data.pilot.pilot_id, data.pilot.name) : "");
+  const docNumber = $derived(stripNumber(number));
   /** The data page shows the whole pilot ID; the machine-readable zone keeps
    * the standard nine characters. */
   const shownNumber = $derived(data?.pilot.pilot_id.trim() ? data.pilot.pilot_id.trim().toUpperCase() : number);
@@ -140,9 +142,10 @@
   </button>
 {/snippet}
 
-{#snippet paper(content: Snippet, no: number | null = null, id = false)}
-  <div class="paper" class:id style:background-image={id ? idPagePattern() : paperPattern()}>
+{#snippet paper(content: Snippet, no: number | null = null, id: "" | "left" | "right" = "")}
+  <div class="paper" class:id={!!id} style:background-image={id ? idPagePattern(id === "left") : paperPattern()}>
     {@render content()}
+    {#if id}<SecurityStrip number={docNumber} />{/if}
     {#if no != null}<span class="folio">{no}</span>{/if}
   </div>
 {/snippet}
@@ -195,7 +198,7 @@
         <span class="holo" aria-hidden="true"></span>
       </div>
     {/snippet}
-    {@render paper(inner, null, true)}
+    {@render paper(inner, null, "left")}
   {:else if p.kind === "data" && data}
     {#snippet dataPage()}
       <div class="holo-zone" onpointermove={tilt} style:--mx="{mx}%" style:--my="{my}%" style:--lines={holoPage()} role="presentation">
@@ -247,7 +250,7 @@
       <span class="holo" aria-hidden="true"></span>
       </div>
     {/snippet}
-    {@render paper(dataPage, null, true)}
+    {@render paper(dataPage, null, "right")}
   {:else if p.kind === "visa"}
     {@const vp = p}
     {#snippet visa()}
@@ -554,7 +557,7 @@
     background: repeating-linear-gradient(45deg, #5f8f88 0 2px, #3f6f69 2px 3px);
   }
   .inner {
-    padding: 56px 40px 34px;
+    padding: 56px 40px 66px;
     position: relative;
     height: 100%;
     display: flex;
@@ -572,14 +575,14 @@
     left: -6px;
     top: -18px;
     font-family: "Source Serif 4", Georgia, serif;
-    font-size: 64px;
+    font-size: 52px;
     line-height: 1;
     color: rgba(93, 74, 122, 0.35);
   }
   .quote p {
     margin: 0;
     font-family: "Source Serif 4", Georgia, serif;
-    font-size: 19px;
+    font-size: 15.5px;
     line-height: 1.5;
     color: #3d3550;
   }
@@ -599,18 +602,18 @@
     margin-top: auto;
   }
   .rules p {
-    font-size: 12px;
+    font-size: 10.8px;
     line-height: 1.5;
     max-width: 34ch;
     margin: 0 0 8px;
   }
   .rules .lead {
-    font-size: 14px;
+    font-size: 12.6px;
     margin-bottom: 10px;
   }
   .rules .small {
     font-style: normal;
-    font-size: 11px;
+    font-size: 9.9px;
     color: #544c60;
     margin-top: 16px;
   }
@@ -625,7 +628,7 @@
   .data {
     position: relative;
     height: 100%;
-    padding: 26px 24px 18px;
+    padding: 26px 24px 54px;
     display: flex;
     flex-direction: column;
   }

@@ -112,6 +112,10 @@
   const AIRPORT_LAYERS = ["wa-major", "wa-regional", "wa-small", "wa-labels-0", "wa-labels-1", "wa-labels-2", "routes-airports"];
   /** The airport (code) at a point on the map, if any. */
   function airportAt(pt: maplibregl.PointLike): string | null {
+    return airportHit(pt)?.ident ?? null;
+  }
+  /** The airport at a point on the map: its code and where it is. */
+  function airportHit(pt: maplibregl.PointLike): { ident: string; at: [number, number] } | null {
     if (!map) return null;
     const layers = AIRPORT_LAYERS.filter((l) => map!.getLayer(l) && map!.getLayoutProperty(l, "visibility") !== "none");
     if (!layers.length) return null;
@@ -120,7 +124,7 @@
     for (const f of map.queryRenderedFeatures(box, { layers })) {
       const props = f.properties as { id?: string; ident?: string };
       const ident = props.id ?? props.ident;
-      if (ident) return ident;
+      if (ident && f.geometry.type === "Point") return { ident, at: f.geometry.coordinates as [number, number] };
     }
     return null;
   }
@@ -542,10 +546,20 @@
       map.on("mouseleave", layer, clearHover);
     }
     map.on("click", (e) => {
-      const ident = airportAt(e.point);
-      if (ident) {
+      const hit = airportHit(e.point);
+      if (hit) {
         clearHover();
-        openAirport = ident;
+        openAirport = hit.ident;
+        // Bring the airport to the middle of the part of the map the card
+        // leaves free, a little closer in.
+        // The card is 340 px wide, 16 px in from the left.
+        const covered = Math.min(372, el.clientWidth / 2);
+        map!.easeTo({
+          center: hit.at,
+          zoom: Math.min(Math.max(map!.getZoom() + 1.5, 6), 12),
+          offset: [covered / 2, 0],
+          duration: 700,
+        });
       }
     });
     map.on("movestart", () => (hoverTip = null));

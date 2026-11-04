@@ -58,18 +58,53 @@ export function paperPattern(): string {
   return cached;
 }
 
-let idCached: string | null = null;
+const idCached: Record<string, string> = {};
 /** The photo page and the page facing it: the same guilloche lines over a
- * security-print gradient, rose at the top left through lilac and
- * periwinkle to aqua at the bottom right, with a soft sheen. */
-export function idPagePattern(): string {
-  idCached ??= [
+ * security-print gradient, rose at the top through lilac and periwinkle to
+ * aqua at the bottom, with a soft sheen. The facing page (`mirror`) is its
+ * mirror image, so the two read as one spread. */
+export function idPagePattern(mirror = false): string {
+  const key = mirror ? "m" : "n";
+  const x = (v: number) => (mirror ? 100 - v : v);
+  idCached[key] ??= [
     guilloche(360, 510, ["#9fc1bd", "#d3a9b8", "#b6c59a"]),
-    "radial-gradient(ellipse 70% 55% at 30% 25%, rgba(255, 255, 255, 0.28) 0%, transparent 70%)",
-    "radial-gradient(ellipse 60% 50% at 85% 80%, rgba(120, 205, 200, 0.35) 0%, transparent 70%)",
-    "linear-gradient(128deg, #e9c3d6 0%, #d4bddc 22%, #b9b6de 45%, #a9b4dc 62%, #9fc3d9 82%, #92cfcb 100%)",
+    `radial-gradient(ellipse 70% 55% at ${x(30)}% 25%, rgba(255, 255, 255, 0.28) 0%, transparent 70%)`,
+    `radial-gradient(ellipse 60% 50% at ${x(85)}% 80%, rgba(120, 205, 200, 0.35) 0%, transparent 70%)`,
+    `linear-gradient(${mirror ? 232 : 128}deg, #e9c3d6 0%, #d4bddc 22%, #b9b6de 45%, #a9b4dc 62%, #9fc3d9 82%, #92cfcb 100%)`,
   ].join(", ");
-  return idCached;
+  return idCached[key];
+}
+
+/** A document number for the strip at the foot of the identity pages:
+ * ten digits from the passport number, then a serial. */
+export function stripNumber(passportNo: string): string {
+  let h = 2166136261;
+  for (const c of passportNo || "FD") h = Math.imul(h ^ c.charCodeAt(0), 16777619);
+  const digits = String(h >>> 0).padStart(10, "0").slice(-10);
+  return `${digits}-0001`;
+}
+
+/** Barcode bars (x, width) for a value, in a 0..`width` strip: a steady
+ * pattern from the value, framed by guard bars like a printed code. */
+export function barcode(value: string, width: number): [number, number][] {
+  const bits: number[] = [];
+  let h = 2166136261;
+  for (const c of value + "|") {
+    h = Math.imul(h ^ c.charCodeAt(0), 16777619);
+    for (let i = 0; i < 4; i++) bits.push((h >>> (i * 3)) & 7);
+  }
+  const units: [boolean, number][] = [[true, 1], [false, 1], [true, 1], [false, 1]];
+  for (let i = 0; i < bits.length; i++) units.push([i % 2 === 0, bits[i] > 5 ? 4 : bits[i] > 3 ? 3 : bits[i] > 1 ? 2 : 1]);
+  units.push([false, 1], [true, 1], [false, 1], [true, 1]);
+  const total = units.reduce((a, [, w]) => a + w, 0);
+  const k = width / total;
+  const out: [number, number][] = [];
+  let x = 0;
+  for (const [bar, w] of units) {
+    if (bar) out.push([x * k, w * k]);
+    x += w;
+  }
+  return out;
 }
 
 /** ICAO 9303 check digit. */
