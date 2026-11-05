@@ -22,8 +22,10 @@
     /** Extra classes for the book (paper color etc. come from the pages). */
     label?: string;
     onturn?: (spread: number) => void;
+    /** Rounding of the pages' outer corners, px (the spine stays square). */
+    corner?: number;
   }
-  let { pageCount, pageWidth, pageHeight, page, cover, spread = $bindable(0), label = "Book", onturn }: Props = $props();
+  let { pageCount, pageWidth, pageHeight, page, cover, spread = $bindable(0), label = "Book", onturn, corner = 6 }: Props = $props();
 
   const spreads = $derived(Math.max(1, Math.ceil(pageCount / 2)));
   const first = $derived(cover ? -1 : 0);
@@ -113,6 +115,7 @@
   <div class="stage">
   <div
     class="book"
+    style:--r="{corner}px"
     role="region"
     aria-label={label}
     style:width="{pageWidth * 2}px"
@@ -246,7 +249,7 @@
   }
   .page.cover-page,
   .face.cover-page {
-    border-radius: 6px 14px 14px 6px;
+    border-radius: 6px var(--r) var(--r) 6px;
   }
   .page {
     position: absolute;
@@ -254,12 +257,23 @@
     height: 100%;
     overflow: hidden;
   }
+  /* Rounded outer corners; square along the spine. */
   .left {
     left: 0;
-    border-radius: 6px 0 0 6px;
+    border-radius: var(--r) 0 0 var(--r);
   }
   .right {
-    border-radius: 0 6px 6px 0;
+    border-radius: 0 var(--r) var(--r) 0;
+  }
+  /* A turning leaf keeps its page's corners (a mirrored face is flipped,
+     so its rounding is written the other way round). */
+  .leaf.next .face:not(.mirrored):not(.cover-page),
+  .leaf.prev .face.mirrored:not(.cover-page) {
+    border-radius: 0 var(--r) var(--r) 0;
+  }
+  .leaf.prev .face:not(.mirrored):not(.cover-page),
+  .leaf.next .face.mirrored:not(.cover-page) {
+    border-radius: var(--r) 0 0 var(--r);
   }
   .spine-shade {
     position: absolute;

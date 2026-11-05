@@ -357,7 +357,8 @@ export function addAirportLayout(map: maplibregl.Map) {
     id: "fd-runway-label",
     type: "symbol",
     ...src,
-    minzoom: 12,
+    minzoom: 11.5,
+    maxzoom: 12.5,
     filter: ["all", line, cls("runway"), ["has", "ref"]],
     layout: {
       "symbol-placement": "line-center",
@@ -369,6 +370,24 @@ export function addAirportLayout(map: maplibregl.Map) {
     },
     paint: { "text-color": "#ffffff", "text-halo-color": "#16171a", "text-halo-width": 2.4 },
   });
+  // Runway numbers at each end, from the runways in view (see runwayEnds).
+  if (!map.getSource("fd-runway-ends")) map.addSource("fd-runway-ends", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+  add(
+    {
+      id: "fd-runway-end",
+      type: "symbol",
+      source: "fd-runway-ends",
+      minzoom: 12.5,
+      layout: {
+        "text-field": ["get", "ref"],
+        "text-font": font,
+        "text-size": ["interpolate", ["linear"], ["zoom"], 12.5, 12, 16, 18],
+        "text-allow-overlap": true,
+        "text-ignore-placement": true,
+      },
+      paint: { "text-color": "#ffffff", "text-halo-color": "#0e0f11", "text-halo-width": 2.6 },
+    } as maplibregl.LayerSpecification,
+  );
   add({
     id: "fd-gate-label",
     type: "symbol",
@@ -382,8 +401,86 @@ export function addAirportLayout(map: maplibregl.Map) {
 
 /** Show or hide the airport layout (the base map's plain aeroways otherwise). */
 export function showAirportLayout(map: maplibregl.Map, on: boolean) {
-  for (const id of ["fd-apron", "fd-taxiway-area", "fd-runway-area", "fd-taxiway", "fd-runway", "fd-runway-centre", "fd-taxiway-label", "fd-runway-label", "fd-gate-label"]) {
+  for (const id of ["fd-apron", "fd-taxiway-area", "fd-runway-area", "fd-taxiway", "fd-runway", "fd-runway-centre", "fd-taxiway-label", "fd-runway-label", "fd-runway-end", "fd-gate-label"]) {
     if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", on ? "visible" : "none");
   }
   for (const id of BASE_AEROWAY) if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", on ? "none" : "visible");
+}
+
+type LL = [number, number];
+const R = Math.PI / 180;
+function bearing(a: LL, b: LL): number {
+  const y = Math.sin((b[0] - a[0]) * R) * Math.cos(b[1] * R);
+  const x = Math.cos(a[1] * R) * Math.sin(b[1] * R) - Math.sin(a[1] * R) * Math.cos(b[1] * R) * Math.cos((b[0] - a[0]) * R);
+  return (Math.atan2(y, x) / R + 360) % 360;
+}
+function metres(a: LL, b: LL): number {
+  const dx = (b[0] - a[0]) * Math.cos(((a[1] + b[1]) / 2) * R) * 111_320;
+  const dy = (b[1] - a[1]) * 110_540;
+  return Math.hypot(dx, dy);
+}
+/** A point beyond `b`, past the end of the line a→b by `m` metres. */
+function beyond(a: LL, b: LL, m: number): LL {
+  const d = metres(a, b) || 1;
+  return [b[0] + ((b[0] - a[0]) * m) / d, b[1] + ((b[1] - a[1]) * m) / d];
+}
+
+/**
+ * Where each runway's two numbers go: its runway lines in view (cut up by
+ * the map tiles) are joined back by name and place, the two ends found,
+ * and each end given the number of the runway that starts there (the one
+ * whose heading points down the runway from it: 10 at the west end of
+ * 10/28).
+ */
+export function runwayEnds(map: maplibregl.Map): GeoJSON.FeatureCollection {
+  const parts = map.querySourceFeatures("openmaptiles", {
+    sourceLayer: "aeroway",
+    filter: ["all", ["==", ["get", "class"], "runway"], ["has", "ref"]],
+  });
+  // Runways by name, then by place (many airports have an 18/36).
+  const groups: { ref: string; mid: LL; ends: LL[] }[] = [];
+  for (const f of parts) {
+    const g = f.geometry;
+    const lines: LL[][] = g.type === "LineString" ? [g.coordinates as LL[]] : g.type === "MultiLineString" ? (g.coordinates as LL[][]) : [];
+    const ref = String(f.properties?.ref ?? "").trim();
+    for (const l of lines) {
+      if (l.length < 2 || !ref) continue;
+      const a = l[0];
+      const b = l[l.length - 1];
+      const mid: LL = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+      const near = groups.find((x) => x.ref === ref && metres(x.mid, mid) < 6000);
+      if (near) near.ends.push(a, b);
+      else groups.push({ ref, mid, ends: [a, b] });
+    }
+  }
+  const features: GeoJSON.Feature[] = [];
+  for (const g of groups) {
+    // The two ends: the farthest-apart pair of the pieces' ends.
+    let best: [LL, LL] | null = null;
+    let far = 0;
+    for (let i = 0; i < g.ends.length; i++)
+      for (let j = i + 1; j < g.ends.length; j++) {
+        const d = metres(g.ends[i], g.ends[j]);
+        if (d > far) {
+          far = d;
+          best = [g.ends[i], g.ends[j]];
+        }
+      }
+    if (!best || far < 150) continue;
+    const names = g.ref.split("/").map((s) => s.trim()).filter(Boolean);
+    if (names.length !== 2) continue;
+    const [a, b] = best;
+    const heading = (n: string) => (parseInt(n, 10) * 10) % 360;
+    const off = (x: number, y: number) => Math.min(Math.abs(x - y), 360 - Math.abs(x - y));
+    const ab = bearing(a, b);
+    // Which name belongs at end a: the one pointing from a towards b.
+    const atA = off(heading(names[0]), ab) <= off(heading(names[1]), ab) ? names[0] : names[1];
+    const atB = atA === names[0] ? names[1] : names[0];
+    const gap = Math.max(60, far * 0.035);
+    features.push(
+      { type: "Feature", properties: { ref: atA }, geometry: { type: "Point", coordinates: beyond(b, a, gap) } },
+      { type: "Feature", properties: { ref: atB }, geometry: { type: "Point", coordinates: beyond(a, b, gap) } },
+    );
+  }
+  return { type: "FeatureCollection", features };
 }

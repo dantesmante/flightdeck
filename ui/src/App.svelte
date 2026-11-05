@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { fly as slide } from "svelte/transition";
   import { draft, fly } from "./lib/flyStore.svelte";
   import { api, inRemote, on, type FlightDetail, type FlightPlan, type HangarItem, type Route, type Status } from "./lib/api";
   import FlightsPanel from "./lib/FlightsPanel.svelte";
@@ -144,10 +145,8 @@
   function go(v: View) {
     if ((v === "live" || v === "flights") && view !== "live" && view !== "flights") loadRoutes();
     if (v === "live") selectedFlight = null;
-    // The flights list lives in the side panel: open it if it is folded.
+    // The flights list is a card over the map: bring it out if put away.
     if (v === "flights" && collapsed) togglePanel();
-    // The side panel comes and goes with the view: let the map notice.
-    if ((v === "live") !== (view === "live")) requestAnimationFrame(() => window.dispatchEvent(new Event("resize")));
     view = v;
     history = v === "live" && completed ? fromTrack(completed.track) : null;
     historyPlan = v === "live" && completed ? completed.plan : null;
@@ -161,7 +160,7 @@
     { id: "passport", label: "Passport", icon: "M6 3h11a1 1 0 011 1v16a1 1 0 01-1 1H6zM12 9a3 3 0 100 6 3 3 0 000-6zM9 18h6" },
   ];
 
-  /** The right-hand panel can be folded away to give the map the room. */
+  /** The flights card can be put away to see the whole map. */
   const PANEL_KEY = "fd.panelCollapsed";
   let collapsed = $state((() => {
     try {
@@ -177,9 +176,10 @@
     } catch {
       /* not saved, still works */
     }
-    // Let the map notice its new size.
-    requestAnimationFrame(() => window.dispatchEvent(new Event("resize")));
   }
+
+  const FLIGHTS_LAYERS = ["routes", "airports"];
+  const NO_LAYERS: string[] = [];
 
   const linkText = $derived(
     !status || status.link === "waiting"
@@ -192,7 +192,7 @@
 
 <div class="app">
 <TitleBar {linkText} link={status?.link ?? "waiting"} />
-<div class="shell" class:full class:collapsed={(collapsed || view === "live") && !full}>
+<div class="shell" class:full>
   <nav class="rail" aria-label="Main">
     {#each NAV as item (item.id)}
       <button class:on={view === item.id} onclick={() => go(item.id)} aria-current={view === item.id ? "page" : undefined}>
@@ -212,13 +212,29 @@
   </nav>
 
   <main class="stage" class:hidden={full}>
-    <Map live={liveTrack} {aircraft} {origin} {history} {routes} parked={parkedShown} highlight={view === "flights" ? hoverFlight : null} onfly={status?.live ? undefined : flyThis} selected={selectedFlight} onroute={showFlight} plan={history ? historyPlan : (status?.plan ?? null)} draft={draftRoute} insetRight={view === "live" ? inset.r : 0} insetBottom={view === "live" ? inset.b : 0} />
+    <Map live={liveTrack} {aircraft} {origin} {history} {routes} parked={parkedShown} highlight={view === "flights" ? hoverFlight : null} onfly={status?.live ? undefined : flyThis} selected={selectedFlight} onroute={showFlight} plan={history ? historyPlan : (status?.plan ?? null)} draft={draftRoute} insetRight={view === "live" ? inset.r : view === "flights" && !collapsed ? 396 : 0} insetBottom={view === "live" ? inset.b : 0} initialOn={view === "flights" ? FLIGHTS_LAYERS : NO_LAYERS} />
     {#if view === "live"}
       <MapDock {status} {completed} track={liveTrack} ondismiss={dismiss} onsettings={() => go("settings")} oninset={(r, b) => (inset = { r, b })} />
-    {:else}
-    <button class="fold" onclick={togglePanel} aria-label={collapsed ? "Show the side panel" : "Hide the side panel"} title={collapsed ? "Show panel" : "Hide panel"}>
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d={collapsed ? "M15 5l-7 7 7 7" : "M9 5l7 7-7 7"} /></svg>
-    </button>
+    {:else if view === "flights"}
+      {#if collapsed}
+        <button class="flights-pill" onclick={togglePanel} transition:slide={{ x: 30, duration: 180 }}>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14v16H5zM8 8h8M8 12h8M8 16h5" /></svg>
+          Show flights
+        </button>
+      {:else}
+        <section class="flights-card" aria-label="Flights" transition:slide={{ x: 40, duration: 220 }}>
+          <button class="tuck" onclick={togglePanel} aria-label="Put the flights card away" title="Hide">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7" /></svg>
+          </button>
+          <FlightsPanel
+            {refreshKey}
+            request={openRequest}
+            onhover={(id) => (hoverFlight = id)}
+            onselect={(t, id, plan) => ((history = t), (selectedFlight = id), (historyPlan = plan ?? null))}
+            ondelete={loadRoutes}
+          />
+        </section>
+      {/if}
     {/if}
     <footer class="status-line" class:connected={status?.link === "connected"}>
       <span class="lamp {status?.link ?? 'waiting'}"></span>
@@ -250,17 +266,6 @@
     <Briefing plan={briefing.plan} ofp={briefing.ofp} onclose={closeBriefing} />
   {/if}
 
-  <aside class="panel" class:hidden={full || collapsed || view === "live"}>
-    {#if view !== "live"}
-      <FlightsPanel
-        {refreshKey}
-        request={openRequest}
-        onhover={(id) => (hoverFlight = id)}
-        onselect={(t, id, plan) => ((history = t), (selectedFlight = id), (historyPlan = plan ?? null))}
-        ondelete={loadRoutes}
-      />
-    {/if}
-  </aside>
 </div>
 </div>
 
@@ -273,46 +278,11 @@
   .shell {
     position: relative;
     display: grid;
-    grid-template-columns: 76px 1fr 380px;
+    grid-template-columns: 76px 1fr;
     flex: 1;
     min-height: 0;
   }
-  .shell.full,
-  .shell.collapsed {
-    grid-template-columns: 76px 1fr;
-  }
-  .fold {
-    position: absolute;
-    z-index: 4;
-    right: 0;
-    top: 50%;
-    transform: translateY(-50%);
-    width: 22px;
-    height: 64px;
-    padding: 0;
-    display: grid;
-    place-items: center;
-    border: 1px solid var(--rule);
-    border-right: none;
-    border-radius: 8px 0 0 8px;
-    background: rgba(28, 30, 33, 0.92);
-    color: var(--ink-dim);
-    transition: width 0.15s, color 0.15s, background 0.15s;
-  }
-  .fold:hover {
-    width: 28px;
-    color: var(--amber);
-    background: var(--panel-2);
-  }
-  .fold svg {
-    width: 16px;
-    height: 16px;
-    fill: none;
-    stroke: currentColor;
-    stroke-width: 2.4;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-  }
+
   .hidden {
     display: none;
   }
@@ -414,10 +384,66 @@
     font-weight: 600;
     box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
   }
-  .panel {
+  /* The flights list, floating over the map under its menus. */
+  .flights-card {
+    position: absolute;
+    z-index: 5;
+    top: 74px;
+    right: 16px;
+    max-height: calc(100% - 90px);
+    width: 380px;
+    max-width: calc(100% - 32px);
     overflow-y: auto;
-    padding: 22px 20px 28px;
-    background: var(--panel);
-    border-left: 1px solid var(--rule);
+    scrollbar-width: thin;
+    padding: 18px 18px 24px;
+    background: rgba(28, 30, 33, 0.97);
+    border: 1px solid var(--rule);
+    border-radius: 14px;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+  }
+  .tuck {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    z-index: 2;
+    display: grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--ink-dim);
+  }
+  .tuck:hover {
+    color: var(--ink);
+    background: var(--panel-2);
+  }
+  .tuck svg,
+  .flights-pill svg {
+    width: 18px;
+    height: 18px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .flights-pill {
+    position: absolute;
+    z-index: 5;
+    top: 74px;
+    right: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 14px;
+    border-radius: 10px;
+    border: 1px solid var(--rule);
+    background: rgba(28, 30, 33, 0.95);
+    color: var(--amber);
+    font-weight: 600;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
   }
 </style>

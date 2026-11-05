@@ -325,7 +325,7 @@
       {/if}
     </div>
     <div class="stage">
-      <Book bind:this={book} bind:spread pageCount={pages.length} pageWidth={W} pageHeight={H} page={pageView} cover={coverView} label="Passport" />
+      <Book bind:this={book} bind:spread pageCount={pages.length} pageWidth={W} pageHeight={H} page={pageView} cover={coverView} label="Passport" corner={22} />
     </div>
   {/if}
 </section>
@@ -351,7 +351,7 @@
     width: 100%;
     height: 100%;
     border: none;
-    border-radius: 6px 14px 14px 6px;
+    border-radius: 6px 22px 22px 6px;
     display: flex;
     flex-direction: column;
     align-items: center;

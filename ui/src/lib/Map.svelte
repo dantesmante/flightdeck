@@ -9,7 +9,7 @@
   import WxCard, { CATEGORY, WX_GROUP } from "./WxCard.svelte";
   import type { WxAdvisoryProps } from "./api";
   import type { Net, NetworkData } from "./api";
-  import { C as BASE, STYLE, addAirportLayout, addRegionLines, offlineStyle, setBorders, showAirportLayout, showSatellite, showTerrain, tintMap } from "./mapStyle";
+  import { C as BASE, STYLE, addAirportLayout, addRegionLines, offlineStyle, runwayEnds, setBorders, showAirportLayout, showSatellite, showTerrain, tintMap } from "./mapStyle";
   import MapLayers from "./MapLayers.svelte";
   import { WindParticles } from "./wind/particles";
   import { addWindIcons, windIconExpr, windText } from "./wind/arrows";
@@ -149,6 +149,15 @@
   const DEFAULT_LAYERS = "routes,airports";
   /** Layers on for this map only (initialOn), until switched off here. */
   let localOn = $state(new Set(untrack(() => initialOn)));
+  // A new set (as when the app moves to the Flights page) starts over.
+  let lastInitial = untrack(() => initialOn.join(","));
+  $effect(() => {
+    const k = initialOn.join(",");
+    if (k !== lastInitial) {
+      lastInitial = k;
+      localOn = new Set(initialOn);
+    }
+  });
   const layers = $derived(new Set([...(prefs.s.map_layers ?? DEFAULT_LAYERS).split(",").filter(Boolean), ...localOn]));
   function toggleLayer(key: string) {
     if (localOn.has(key)) {
@@ -1165,6 +1174,11 @@
       if (windFocus && map!.getZoom() < 8) windFocus = null;
     });
     map.on("mousemove", windUnder);
+    // Runway numbers at the runway ends, for the runways in view.
+    map.on("idle", () => {
+      if (!map || map.getZoom() < 12 || layers.has("aeroway-off")) return;
+      (map.getSource("fd-runway-ends") as GeoJSONSource | undefined)?.setData(runwayEnds(map));
+    });
     map.on("mouseout", () => (windAt = null));
     // Stop drawing while the window is hidden.
     const vis = () => (document.hidden ? map?.stop() : map?.triggerRepaint());

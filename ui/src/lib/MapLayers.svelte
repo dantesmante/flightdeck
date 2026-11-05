@@ -1,6 +1,6 @@
 <script lang="ts">
-  // The map's Layers panel: picture cards you switch on and off, grouped
-  // into the view, your own flights and weather.
+  // The map's menus beside 2D/3D: Airports & Flights, Weather and Layers,
+  // each a panel of picture cards you switch on and off.
   import type { Snippet } from "svelte";
   import { WIND_LEVELS } from "./wind/wind";
 
@@ -24,7 +24,22 @@
   let { three, on, onthree, ontoggle, radarTime, radarError, parkedLayer = false, airportDetail = 1, ondetail, windLevel = "auto", onwindlevel }: Props = $props();
   const DETAIL = ["Major airports only", "Major and regional airports", "All airports and airstrips"];
 
-  let open = $state(false);
+  /** Which menu is open: airports and flights, weather, or the map's own layers. */
+  type Menu = "traffic" | "weather" | "map";
+  let open = $state<Menu | null>(null);
+  const MENUS: { id: Menu; label: string; title: string; icon: string }[] = [
+    {
+      id: "traffic",
+      label: "Airports & Flights",
+      title: "Airports and flights",
+      icon: "M2.5 13.5l7-1.5 5-8h2.5l-2.5 8 5.5-.5 1.8-2.5H23l-1.2 4 1.2 4h-1.2L20 14.5l-5.5-.5 2.5 8h-2.5l-5-8-7-1.5z",
+    },
+    { id: "weather", label: "Weather", title: "Weather", icon: "M7 18h10a4 4 0 0 0 .6-7.96A6 6 0 0 0 6.1 9.1 4.5 4.5 0 0 0 7 18z" },
+    { id: "map", label: "Layers", title: "Map layers", icon: "M12 3l9 5-9 5-9-5 9-5zM3 13l9 5 9-5" },
+  ];
+  function toggleMenu(m: Menu) {
+    open = open === m ? null : m;
+  }
 
   const zulu = (s: number) => {
     const d = new Date(s * 1000);
@@ -175,21 +190,24 @@
     <button role="radio" aria-checked={!three} class:on={!three} onclick={() => onthree(false)}>2D</button>
     <button role="radio" aria-checked={three} class:on={three} onclick={() => onthree(true)}>3D</button>
   </div>
-  <button class="layers-btn" class:open aria-expanded={open} onclick={() => (open = !open)}>
-    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l9 5-9 5-9-5 9-5z" /><path d="M3 13l9 5 9-5" /></svg>
-    <span>Layers</span>
-  </button>
+  {#each MENUS as m (m.id)}
+    <button class="layers-btn" class:open={open === m.id} aria-expanded={open === m.id} onclick={() => toggleMenu(m.id)}>
+      <svg viewBox="0 0 24 24" aria-hidden="true" class:fill={m.id === "traffic"}><path d={m.icon} /></svg>
+      <span>{m.label}</span>
+    </button>
+  {/each}
 </div>
 
 {#if open}
-  <div class="panel" role="dialog" aria-label="Map layers">
+  {@const menu = MENUS.find((m) => m.id === open)!}
+  <div class="panel" role="dialog" aria-label={menu.title}>
     <header>
-      <h3>Map layers</h3>
-      <button class="x" aria-label="Close" onclick={() => (open = false)}>
+      <h3>{menu.title}</h3>
+      <button class="x" aria-label="Close" onclick={() => (open = null)}>
         <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" /></svg>
       </button>
     </header>
-    <h4>Map</h4>
+    {#if open === "map"}
     <div class="grid">
       {@render card("3d", "3D flight", three, () => onthree(!three))}
       {@render card("night", "Day / night", on.has("night"), () => ontoggle("night"))}
@@ -197,7 +215,8 @@
       {@render card("terrain", "Topographic", on.has("terrain"), () => ontoggle("terrain"))}
       {@render card("borders", "Strong borders", on.has("borders"), () => ontoggle("borders"))}
     </div>
-    <h4>Weather</h4>
+    <p class="credit">Satellite Esri · Terrain AWS Terrain Tiles · Map OpenFreeMap, OpenStreetMap</p>
+    {:else if open === "weather"}
     <div class="grid">
       {@render card("radar", "Rain radar", on.has("radar"), () => ontoggle("radar"), radarNote)}
       {@render card("wx-cat", "Flight category", on.has("wx-cat"), () => ontoggle("wx-cat"))}
@@ -217,7 +236,11 @@
         <span style:--c="#2fbf71">VFR</span><span style:--c="#4f8fe8">MVFR</span><span style:--c="#e2453c">IFR</span><span style:--c="#cf5bd6">LIFR</span>
       </p>
     {/if}
-    <h4>Airports and flights</h4>
+      <p class="credit">
+        Radar RainViewer · METARs, SIGMETs and AIRMETs NOAA Aviation Weather Center (every 10 min while on) · Wind
+        forecast NOAA GFS (one level, about 100 KB, every 3 h while on; drawn on the processor, not the graphics card)
+      </p>
+    {:else}
     <div class="grid">
       {@render card("world", "World airports", on.has("world"), () => ontoggle("world"))}
       {@render card("airports", "Your airports", on.has("airports"), () => ontoggle("airports"))}
@@ -248,11 +271,10 @@
       {@render netCard("ivao", "IVAO")}
     </div>
     <p class="credit">
-      Radar RainViewer · METARs, SIGMETs and AIRMETs NOAA Aviation Weather Center (every 10 min while on) · Wind
-      forecast NOAA GFS (one level, about 100 KB, every 3 h while on; drawn on the processor, not the graphics card) · Satellite Esri ·
-      Terrain AWS Terrain Tiles · Live traffic VATSIM and IVAO (every 30 s while on) · ATC
-      areas VAT-Spy Data Project (CC BY-SA 4.0)
+      Airports OurAirports · Runways and taxiways OpenStreetMap · Live traffic VATSIM and IVAO (every 30 s while on) ·
+      ATC areas VAT-Spy Data Project (CC BY-SA 4.0)
     </p>
+    {/if}
   </div>
 {/if}
 
@@ -326,6 +348,10 @@
     font-family: var(--cond);
     font-weight: 600;
     font-size: 15px;
+  }
+  .layers-btn svg.fill {
+    fill: currentColor;
+    stroke: none;
   }
   .layers-btn svg {
     width: 18px;

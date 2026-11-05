@@ -92,10 +92,20 @@ MIT licensed.
   OpenStreetMap: runways with their numbers and dashed centrelines,
   taxiways as yellow lines with their letters, aprons, and gate numbers
   close in. It comes with the map tiles already used, so it costs nothing
-  extra; how complete it is depends on OpenStreetMap (very good at large
+  extra. Each runway end carries its own number (10L at the west end of
+  10L/28R, 28R at the east), worked out from the runways in view. How
+  complete it is depends on OpenStreetMap (very good at large
   airports, patchy at small fields) and it shows the real airport, which
   may differ from the sim's scenery.
-- **Map layers** panel: 3D flight, a live day/night line, **satellite**
+- **Map menus**, beside 2D/3D: **Airports & Flights** (world airports,
+  your airports, past routes, runways and taxiways, parked aircraft,
+  VATSIM and IVAO), **Weather** (radar, flight category, SIGMETs and
+  AIRMETs, wind, airport wind) and **Layers** (the map itself: 3D flight,
+  day/night, satellite, topographic, borders).
+- **Flights** page: the list of flights is a card floating over the map
+  (put it away with its arrow to see the whole map), and the map shows
+  your past routes and airports there whatever the map's own setting.
+- **Map layers**: 3D flight, a live day/night line, **satellite**
   imagery (Esri World Imagery), **topographic** relief shading with
   contour lines in feet (from open elevation data, AWS Terrain Tiles;
   contours from zoom 9, worked out in the background only for what is on
@@ -209,6 +219,8 @@ MIT licensed.
   the most complete of each, and deletes them only after you review the
   list.
 - **Hangar**: a card for every aircraft you have flown, favorites first
+  (hover a favorite and it tilts under brushed gold; other cards simply
+  lighten)
   and then by hours flown; show all or only favorites. Each card shows the
   registration, a photo (your own: hover the picture and upload one;
   otherwise the latest photo of that registration from Planespotters.net,

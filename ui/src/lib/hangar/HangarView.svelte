@@ -46,11 +46,13 @@
   const hours = (min: number) => (min / 60).toLocaleString("en-US", { maximumFractionDigits: 1, minimumFractionDigits: 1 });
   const name = (it: HangarItem) => modelName(it);
 
-  // Hover: the card tilts towards the pointer, with a holographic sheen and
-  // a glare that follow it. Only CSS transforms, and only while hovered.
+  // Hover: a favorite tilts towards the pointer under gold brushed metal and
+  // a glare that follow it; any other card simply lightens. Only CSS, and
+  // only while hovered.
   const still = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
   function tilt(e: PointerEvent) {
     const el = e.currentTarget as HTMLElement;
+    if (!el.classList.contains("fav")) return;
     // Over the picture (where a photo is changed) or the edit button: no effect.
     const calm = !!(e.target as HTMLElement | null)?.closest?.(".picture, .edit");
     el.classList.toggle("calm", calm);
@@ -161,6 +163,7 @@
           <article
             class="card"
             class:airline={!!look}
+            class:fav={it.favorite}
             style:--a={look?.colors[0]}
             style:--b={look?.colors[1]}
             style:--c={look?.colors[2] ?? look?.colors[1]}
@@ -344,13 +347,18 @@
       transform 0.5s cubic-bezier(0.2, 0.8, 0.2, 1),
       box-shadow 0.3s;
   }
-  .card:hover {
+  /* Not a favorite: the card just lightens a few shades. */
+  .card:not(.fav):hover {
+    background: #313439;
+    transition: background 0.2s;
+  }
+  .card.fav:hover {
     transform: perspective(900px) rotateX(var(--rx)) rotateY(var(--ry)) scale(1.02);
     transition:
       transform 0.12s ease-out,
       box-shadow 0.3s;
     box-shadow:
-      0 0 0 1px rgba(240, 178, 58, 0.18),
+      0 0 0 1px rgba(232, 190, 92, 0.45),
       0 18px 40px rgba(0, 0, 0, 0.5);
   }
   /* The holographic film and the glare, over everything, never in the way. */
@@ -364,20 +372,20 @@
     transition: opacity 0.35s;
     border-radius: inherit;
   }
-  /* Brushed metal: fine horizontal grain, with a band of silver light that
-     moves with the pointer, and a soft glare where it is. */
+  /* Favorites only. Brushed gold: fine horizontal grain, with a band of
+     gold light that moves with the pointer, and a warm glare where it is. */
   .holo {
     background:
-      repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.05) 0 1px, rgba(0, 0, 0, 0.04) 1px 2px, transparent 2px 3px),
+      repeating-linear-gradient(0deg, rgba(255, 236, 180, 0.06) 0 1px, rgba(60, 40, 0, 0.05) 1px 2px, transparent 2px 3px),
       linear-gradient(
         105deg,
-        transparent 20%,
-        rgba(200, 206, 214, 0.25) 34%,
-        rgba(255, 255, 255, 0.55) 44%,
-        rgba(176, 184, 194, 0.3) 50%,
-        rgba(240, 243, 247, 0.5) 57%,
-        rgba(160, 168, 178, 0.2) 66%,
-        transparent 80%
+        transparent 18%,
+        rgba(196, 150, 52, 0.35) 32%,
+        rgba(255, 222, 140, 0.7) 43%,
+        rgba(184, 134, 40, 0.4) 50%,
+        rgba(255, 236, 170, 0.65) 57%,
+        rgba(170, 122, 34, 0.3) 66%,
+        transparent 82%
       );
     background-size:
       100% 100%,
@@ -388,13 +396,13 @@
     mix-blend-mode: soft-light;
   }
   .glare {
-    background: radial-gradient(circle at var(--mx) var(--my), rgba(255, 255, 255, 0.3) 0%, rgba(255, 255, 255, 0.06) 32%, transparent 55%);
+    background: radial-gradient(circle at var(--mx) var(--my), rgba(255, 240, 200, 0.32) 0%, rgba(255, 220, 150, 0.07) 32%, transparent 55%);
     mix-blend-mode: overlay;
   }
-  .card:hover .holo {
+  .card.fav:hover .holo {
     opacity: 0.9;
   }
-  .card:hover .glare {
+  .card.fav:hover .glare {
     opacity: 1;
   }
   .card:global(.calm) .holo,
