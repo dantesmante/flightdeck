@@ -8,6 +8,7 @@
   import { fly } from "./flyStore.svelte";
   import LivePanel from "./LivePanel.svelte";
   import Logo from "./Logo.svelte";
+  import { screen } from "./phone.svelte";
   import type { Pt } from "./track";
 
   interface Props {
@@ -51,7 +52,9 @@
   });
 
   $effect(() => {
-    oninset?.(shown ? 380 : 0, shown ? 0 : 66);
+    // On a phone the card is a sheet across the bottom instead.
+    if (screen.phone) oninset?.(0, shown ? Math.round(window.innerHeight * 0.4) : 66);
+    else oninset?.(shown ? 380 : 0, shown ? 0 : 66);
   });
 
   function close() {
@@ -202,5 +205,23 @@
     background: rgba(28, 30, 33, 0.95);
     color: var(--amber);
     border: 1px solid var(--rule);
+  }
+  /* Phones: the card is a sheet across the bottom of the screen. */
+  @media (max-width: 640px) {
+    .card {
+      left: 10px;
+      right: 10px;
+      bottom: 10px;
+      width: auto;
+      max-width: none;
+      max-height: 55%;
+    }
+    .start {
+      right: 10px;
+      bottom: 12px;
+      min-width: 0;
+      padding: 10px 18px;
+      font-size: 17px;
+    }
   }
 </style>

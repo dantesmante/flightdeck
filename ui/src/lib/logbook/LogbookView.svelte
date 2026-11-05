@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import { api, type LogRow } from "../api";
   import Book from "../Book.svelte";
+  import { logbookPaper } from "../passport/paper";
   import { prefs, setPref } from "../prefs.svelte";
   import { groups, LAYOUTS, LIST_COLS, printValue, type Col, type Layout } from "./columns";
   import EntryCard from "./EntryCard.svelte";
@@ -109,7 +110,7 @@
   {@const list = pageRows(s)}
   {@const firstNum = side.findIndex((c) => c.kind !== "text")}
   {@const labelSpan = firstNum < 0 ? side.length : firstNum}
-  <div class="page" class:lp={i % 2 === 0} class:hand class:dark>
+  <div class="page" class:lp={i % 2 === 0} class:hand class:dark style:background-image={dark ? null : logbookPaper()}>
     <div class="top">
       {#if i % 2 === 0}
         <span>Pilot logbook</span><span></span>
@@ -429,15 +430,17 @@
   /* The paper ---------------------------------------------------------- */
   .page {
     --rule-ink: #9cb9a9;
-    --head: #e1ebe2;
+    --head: rgba(150, 186, 164, 0.3);
     --print: #3d5a4b;
-    --paper: #f7f4e8;
+    --paper: #eee3c9;
     --pen: #1f3a8a;
     --type: #222;
-    --line: #d3dfd6;
+    --line: rgba(116, 146, 126, 0.36);
     position: relative;
     height: 100%;
-    background: var(--paper);
+    background-color: var(--paper);
+    background-size: 300px 300px, 100% 100%;
+    background-repeat: repeat, no-repeat;
     color: var(--pen);
     padding: 10px 14px 0 18px;
     font-family: "Source Serif 4", Georgia, serif;

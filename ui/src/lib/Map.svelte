@@ -1861,4 +1861,18 @@
     color: var(--ink-dim);
     font-size: 13px;
   }
+  /* Phones: pinch to zoom instead of the zoom buttons; keys sit above the
+     Start a flight button. */
+  @media (max-width: 640px) {
+    .map :global(.maplibregl-ctrl-group) {
+      display: none;
+    }
+    .keys {
+      bottom: 76px;
+      left: 10px !important;
+    }
+    .keys > * {
+      width: 170px;
+    }
+  }
 </style>

@@ -26,7 +26,8 @@ const MIGRATE_V7: &str = include_str!("migrate_v7.sql");
 const MIGRATE_V8: &str = include_str!("migrate_v8.sql");
 const MIGRATE_V9: &str = include_str!("migrate_v9.sql");
 const MIGRATE_V10: &str = include_str!("migrate_v10.sql");
-const SCHEMA_VERSION: i64 = 10;
+const MIGRATE_V11: &str = include_str!("migrate_v11.sql");
+const SCHEMA_VERSION: i64 = 11;
 
 /// The hangar aircraft with this registration (as the pilot sees it), if any.
 pub(crate) fn aircraft_by_reg(conn: &Connection, reg: &str) -> Result<Option<i64>> {
@@ -291,6 +292,9 @@ impl Store {
         }
         if version < 10 {
             conn.execute_batch(&format!("BEGIN; {MIGRATE_V10} PRAGMA user_version = 10; COMMIT;"))?;
+        }
+        if version < 11 {
+            conn.execute_batch(&format!("BEGIN; {MIGRATE_V11} PRAGMA user_version = 11; COMMIT;"))?;
         }
         merge_duplicate_aircraft(&conn)?;
         reclassify_aircraft(&conn)?;
@@ -622,8 +626,8 @@ impl StoreTx<'_> {
 
         // Logbook line. IFR, approaches and role are left for the pilot.
         let total = f.total_minutes().round() as i64;
-        let night = night::night_minutes(&f.track, f.block_out_ms.or(Some(f.start_ms)), f.block_in_ms.or(Some(f.end_ms)))
-            .min(total);
+        let (span_a, span_b) = f.counted_span();
+        let night = night::night_minutes(&f.track, Some(span_a), Some(span_b)).min(total);
         let (day_ldg, night_ldg) = night::landing_split(f.landings.iter().map(|l| (l.t_ms, l.lat, l.lon)));
         let direct = geo::distance_nm(f.dep_lat, f.dep_lon, f.arr_lat, f.arr_lon);
         let xc = if direct > 50.0 { total } else { 0 };

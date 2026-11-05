@@ -201,3 +201,22 @@ export function holoPage(): string {
   return pageCached;
 }
 
+
+let logCached: string | null = null;
+/** The light logbook pages: the passport's rough paper grain, fainter, with
+ * a gentle darkening towards the edges. Over a pale beige (the page's CSS). */
+export function logbookPaper(): string {
+  if (logCached) return logCached;
+  const svg =
+    `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="300">` +
+    `<filter id="f"><feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="3" seed="11" stitchTiles="stitch"/>` +
+    `<feColorMatrix values="0 0 0 0 0.36  0 0 0 0 0.27  0 0 0 0 0.16  0 0 0 0.34 -0.11"/></filter>` +
+    `<filter id="b"><feTurbulence type="fractalNoise" baseFrequency="0.014" numOctaves="3" seed="5" stitchTiles="stitch"/>` +
+    `<feColorMatrix values="0 0 0 0 0.42  0 0 0 0 0.31  0 0 0 0 0.18  0 0 0 0.5 -0.24"/></filter>` +
+    `<rect width="100%" height="100%" filter="url(#b)"/><rect width="100%" height="100%" filter="url(#f)"/></svg>`;
+  logCached = [
+    `url("data:image/svg+xml;utf8,${encodeURIComponent(svg)}")`,
+    "radial-gradient(ellipse at 50% 45%, rgba(255, 250, 236, 0.25) 0%, transparent 60%, rgba(110, 80, 44, 0.14) 100%)",
+  ].join(", ");
+  return logCached;
+}

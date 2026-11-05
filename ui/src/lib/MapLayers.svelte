@@ -573,4 +573,28 @@
     line-height: 1.4;
     color: var(--ink-faint);
   }
+  /* Phones: the menu buttons show their icons only, and a menu opens the
+     full width of the screen. */
+  @media (max-width: 640px) {
+    .rail {
+      top: 10px;
+      right: 10px;
+      left: 10px;
+      justify-content: flex-end;
+      gap: 6px;
+    }
+    .layers-btn span {
+      display: none;
+    }
+    .layers-btn {
+      padding: 0 11px;
+    }
+    .panel {
+      top: 58px;
+      right: 10px;
+      left: 10px;
+      width: auto;
+      max-height: calc(100% - 140px);
+    }
+  }
 </style>

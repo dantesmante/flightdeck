@@ -6,6 +6,7 @@
   import FlightsPanel from "./lib/FlightsPanel.svelte";
   import HangarView from "./lib/hangar/HangarView.svelte";
   import MapDock from "./lib/MapDock.svelte";
+  import { screen } from "./lib/phone.svelte";
   import LogbookView from "./lib/logbook/LogbookView.svelte";
   import Map from "./lib/Map.svelte";
   import PassportView from "./lib/passport/PassportView.svelte";
@@ -145,6 +146,7 @@
   function go(v: View) {
     if ((v === "live" || v === "flights") && view !== "live" && view !== "flights") loadRoutes();
     if (v === "live") selectedFlight = null;
+    menuOpen = false;
     // The flights list is a card over the map: bring it out if put away.
     if (v === "flights" && collapsed) togglePanel();
     view = v;
@@ -178,6 +180,8 @@
     }
   }
 
+  /** Phones: the page menu is hidden until the menu button opens it. */
+  let menuOpen = $state(false);
   const FLIGHTS_LAYERS = ["routes", "airports"];
   const NO_LAYERS: string[] = [];
 
@@ -191,8 +195,9 @@
 </script>
 
 <div class="app">
-<TitleBar {linkText} link={status?.link ?? "waiting"} />
-<div class="shell" class:full>
+<TitleBar {linkText} link={status?.link ?? "waiting"} onmenu={() => (menuOpen = !menuOpen)} {menuOpen} />
+<div class="shell" class:full class:menu-open={menuOpen}>
+  {#if menuOpen}<button class="scrim" aria-label="Close menu" onclick={() => (menuOpen = false)}></button>{/if}
   <nav class="rail" aria-label="Main">
     {#each NAV as item (item.id)}
       <button class:on={view === item.id} onclick={() => go(item.id)} aria-current={view === item.id ? "page" : undefined}>
@@ -212,7 +217,7 @@
   </nav>
 
   <main class="stage" class:hidden={full}>
-    <Map live={liveTrack} {aircraft} {origin} {history} {routes} parked={parkedShown} highlight={view === "flights" ? hoverFlight : null} onfly={status?.live ? undefined : flyThis} selected={selectedFlight} onroute={showFlight} plan={history ? historyPlan : (status?.plan ?? null)} draft={draftRoute} insetRight={view === "live" ? inset.r : view === "flights" && !collapsed ? 396 : 0} insetBottom={view === "live" ? inset.b : 0} initialOn={view === "flights" ? FLIGHTS_LAYERS : NO_LAYERS} />
+    <Map live={liveTrack} {aircraft} {origin} {history} {routes} parked={parkedShown} highlight={view === "flights" ? hoverFlight : null} onfly={status?.live ? undefined : flyThis} selected={selectedFlight} onroute={showFlight} plan={history ? historyPlan : (status?.plan ?? null)} draft={draftRoute} insetRight={view === "live" ? inset.r : view === "flights" && !collapsed && !screen.phone ? 396 : 0} insetBottom={view === "live" ? inset.b : 0} initialOn={view === "flights" ? FLIGHTS_LAYERS : NO_LAYERS} />
     {#if view === "live"}
       <MapDock {status} {completed} track={liveTrack} ondismiss={dismiss} onsettings={() => go("settings")} oninset={(r, b) => (inset = { r, b })} />
     {:else if view === "flights"}
@@ -286,6 +291,11 @@
   .hidden {
     display: none;
   }
+  .scrim {
+    display: none;
+  }
+
+
   .fullview {
     min-width: 0;
     min-height: 0;
@@ -445,5 +455,52 @@
     color: var(--amber);
     font-weight: 600;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  }
+  /* Phones: the page menu slides in over the page from the menu button, and
+     the map's own cards take the full width. */
+  @media (max-width: 640px) {
+    .shell {
+      grid-template-columns: 1fr;
+    }
+    .rail {
+      position: absolute;
+      z-index: 40;
+      top: 0;
+      bottom: 0;
+      left: 0;
+      width: 92px;
+      overflow-y: auto;
+      transform: translateX(-102%);
+      transition: transform 0.22s ease;
+      box-shadow: 8px 0 24px rgba(0, 0, 0, 0.45);
+    }
+    .shell.menu-open .rail {
+      transform: none;
+    }
+    .scrim {
+      display: block;
+      position: absolute;
+      inset: 0;
+      z-index: 39;
+      border: none;
+      padding: 0;
+      background: rgba(0, 0, 0, 0.45);
+    }
+    .status-line {
+      display: none;
+    }
+    .flights-card {
+      top: 62px;
+      left: 10px;
+      right: 10px;
+      width: auto;
+      max-width: none;
+      max-height: 60%;
+      padding: 14px 14px 20px;
+    }
+    .flights-pill {
+      top: 62px;
+      right: 10px;
+    }
   }
 </style>

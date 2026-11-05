@@ -97,6 +97,12 @@ MIT licensed.
   complete it is depends on OpenStreetMap (very good at large
   airports, patchy at small fields) and it shows the real airport, which
   may differ from the sim's scenery.
+- **Flight time**: the logbook counts block out to block in. When the
+  aircraft was not seen taxiing (it started on the runway, or the flight
+  ended on it), it counts from the takeoff roll or to the end of the
+  landing rollout instead, so time sitting on the ground is not logged.
+  Flights recorded before this are corrected once, unless you changed
+  their time yourself.
 - **Map menus**, beside 2D/3D: **Airports & Flights** (world airports,
   your airports, past routes, runways and taxiways, parked aircraft,
   VATSIM and IVAO), **Weather** (radar, flight category, SIGMETs and
@@ -294,7 +300,9 @@ MIT licensed.
   laptop, tablet or phone on the same home Wi-Fi, in its web browser, while
   the app keeps running on the flight sim PC. Turn on **Allow access from
   other devices**, open the address shown (or scan the QR code) and enter
-  the 6-digit pairing code. Each device pairs once; **Forget all devices**
+  the 6-digit pairing code. On a phone the pages open from the menu
+  button at the top left, the map's menus show as icons and its cards
+  run across the screen. Each device pairs once; **Forget all devices**
   signs them all out. Other devices can only view unless **Other devices
   can edit** is on. Exports, diagnostics, updates and the access settings
   themselves stay on the PC. FlightDeck answers only devices on the same

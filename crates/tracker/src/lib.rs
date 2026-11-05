@@ -166,10 +166,30 @@ impl FlightSummary {
         Some(((b - a).max(0)) as f64 / 60_000.0)
     }
 
-    /// Best available duration for the logbook: block time, else start to end.
+    /// The span the logbook counts: block out to block in. When one is
+    /// missing (the aircraft was not seen taxiing, say it started on the
+    /// runway or the flight ended on it), the takeoff roll or the landing
+    /// rollout stands in, so time sitting on the ground before or after is
+    /// not counted. Without a takeoff it is the whole recording.
+    pub fn counted_span(&self) -> (i64, i64) {
+        const ROLL_MS: i64 = 2 * 60_000;
+        const ROLLOUT_MS: i64 = 5 * 60_000;
+        let out = self.block_out_ms.or(self.takeoff_ms.map(|t| (t - ROLL_MS).max(self.start_ms))).unwrap_or(self.start_ms);
+        let inn = self.block_in_ms.or(self.landing_ms.map(|l| (l + ROLLOUT_MS).min(self.end_ms))).unwrap_or(self.end_ms);
+        (out, inn.max(out))
+    }
+
+    /// Best available duration for the logbook: block time, else the
+    /// counted span (see counted_span), without time paused.
     pub fn total_minutes(&self) -> f64 {
-        self.block_minutes()
-            .unwrap_or_else(|| ((self.end_ms - self.start_ms - self.paused_ms).max(0)) as f64 / 60_000.0)
+        if let Some(m) = self.block_minutes() {
+            return m;
+        }
+        let (a, b) = self.counted_span();
+        // Pauses are only known for the whole recording: take them off only
+        // when the whole recording is counted.
+        let paused = if (a, b) == (self.start_ms, self.end_ms) { self.paused_ms } else { 0 };
+        ((b - a - paused).max(0)) as f64 / 60_000.0
     }
 }
 

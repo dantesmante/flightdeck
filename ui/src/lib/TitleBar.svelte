@@ -8,7 +8,7 @@
   import { inTauri } from "./api";
   import { inRemote, session } from "./remote.svelte";
 
-  let { linkText, link }: { linkText: string; link: string } = $props();
+  let { linkText, link, onmenu, menuOpen = false }: { linkText: string; link: string; onmenu?: () => void; menuOpen?: boolean } = $props();
 
   let now = $state(new Date());
   let maximized = $state(false);
@@ -53,6 +53,12 @@
 </script>
 
 <header class="bar" data-tauri-drag-region>
+  {#if onmenu}
+    <!-- Phones only: opens the menu of pages. -->
+    <button class="menu" aria-label={menuOpen ? "Close menu" : "Menu"} aria-expanded={menuOpen} onclick={onmenu}>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d={menuOpen ? "M6 6l12 12M18 6L6 18" : "M4 7h16M4 12h16M4 17h16"} /></svg>
+    </button>
+  {/if}
   <div class="brand" data-tauri-drag-region>
     <Logo size={30} />
     <div class="name" data-tauri-drag-region>
@@ -93,6 +99,9 @@
 </header>
 
 <style>
+  .menu {
+    display: none;
+  }
   .bar {
     height: 46px;
     flex: none;
@@ -208,5 +217,47 @@
   .name *,
   .clock * {
     pointer-events: none;
+  }
+  /* Phones: a menu button opens the pages; the bar keeps to the essentials. */
+  @media (max-width: 640px) {
+    .menu {
+      display: grid;
+      place-items: center;
+      flex: none;
+      width: 38px;
+      height: 38px;
+      margin-right: 2px;
+      padding: 0;
+      border: none;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--ink);
+    }
+    .menu svg {
+      width: 22px;
+      height: 22px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2;
+      stroke-linecap: round;
+    }
+    .bar {
+      padding-left: 6px !important;
+      gap: 8px;
+    }
+    .brand :global(svg) {
+      display: none;
+    }
+    .mode {
+      font-size: 11px !important;
+      padding: 2px 8px !important;
+      white-space: nowrap;
+    }
+    .name span {
+      max-width: 150px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
   }
 </style>
