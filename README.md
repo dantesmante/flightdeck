@@ -65,16 +65,28 @@ MIT licensed.
 - **Altitude & speed graph** for the live flight, every saved flight and
   each logbook entry: altitude as a filled profile in the same colors,
   ground speed as a yellow line. Hover for exact values at any moment.
-- **Volanta import and export**: Settings, Volanta. Import any number of
+- **Volanta import**: Settings, Import / export. Import any number of
   Volanta flight files (.json); each becomes a FlightDeck flight (map,
   logbook, passport, hangar) with Volanta's block times, distance, fuel
   and landing record, and the original file is kept so exporting it gives
-  back the identical file. Re-importing is skipped. Export opens a list of
-  every flight: tick the ones you want and they are saved as
-  Volanta-format files into Downloads\FlightDeck export.
-- **Elevatex import**: Settings, Elevatex. Import any number of Elevatex
-  flight files (.json); each becomes a FlightDeck flight with its track,
-  landing and times. Re-importing is skipped.
+  back the identical file.
+- **Elevatex import**: Settings, Import / export. Import any number of
+  Elevatex flight files (.json); each becomes a FlightDeck flight with its
+  track, landing and times.
+- **Import review**: before a bulk import saves anything, a list shows
+  every flight found in the chosen files with its route, date, time and
+  aircraft, ticked to import. Flights FlightDeck seems to have already
+  (the same file imported before, a flight on the same day between the
+  same airports, or the same flight twice in this import) are shown in red
+  and left unticked; tick one to import it anyway. Files that cannot be
+  read are listed with the reason.
+- **Export**: Settings, Import / export. **Export** opens a list of every
+  flight: tick the ones you want and each is saved as a flight file
+  (.json, the common flight-tracker format) in Downloads\FlightDeck
+  export. **CSV export** saves the ticked flights as one CSV table with
+  the usual flight-tracker CSV columns: Origin, Destination, DepartureTime,
+  Duration, Airline, Callsign, FlightNumber, AircraftType,
+  AircraftRegistration, Route, ArrivalTime, Distance and Fuel.
 - **Map layers** panel: 3D flight, a live day/night line, **satellite**
   imagery (Esri World Imagery), **topographic** relief shading with
   contour lines in feet (from open elevation data, AWS Terrain Tiles;
@@ -203,8 +215,10 @@ MIT licensed.
   registration: giving a flight or an aircraft a registration already in
   the hangar merges them. Delete an aircraft from its Edit screen, either
   with its flights or moving them to another aircraft. Click a card to open
-  the aircraft with its statistics and every flight, searchable, drawn on
-  a map.
+  the aircraft on a full map with its past routes and airports shown, and
+  its card floating over it: the picture, where it is parked, flights,
+  hours and average landing, then its statistics and every flight,
+  searchable; pick a flight to draw its track.
 - **Pilot profile** (Pilot, above Settings): a cover picture and your
   photo (click either to change it), your Pilot Rating with its history,
   your rank on a shoulder board with XP to the next one, average scores

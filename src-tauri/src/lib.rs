@@ -205,14 +205,88 @@ struct ImportReport {
 /// original file is kept so it can be exported again unchanged. Files
 /// already imported are skipped.
 #[tauri::command]
-fn import_volanta(app: tauri::AppHandle, state: tauri::State<AppState>, files: Vec<ImportFile>) -> ImportReport {
-    import_files(&app, &state, files, volanta::SOURCE, volanta::parse)
+fn import_volanta(app: tauri::AppHandle, state: tauri::State<AppState>, files: Vec<ImportFile>, force: Option<Vec<String>>) -> ImportReport {
+    import_files(&app, &state, files, volanta::SOURCE, volanta::parse, &force.unwrap_or_default())
 }
 
 /// Import Elevatex flight files, like Volanta's.
 #[tauri::command]
-fn import_elevatex(app: tauri::AppHandle, state: tauri::State<AppState>, files: Vec<ImportFile>) -> ImportReport {
-    import_files(&app, &state, files, elevatex::SOURCE, elevatex::parse)
+fn import_elevatex(app: tauri::AppHandle, state: tauri::State<AppState>, files: Vec<ImportFile>, force: Option<Vec<String>>) -> ImportReport {
+    import_files(&app, &state, files, elevatex::SOURCE, elevatex::parse, &force.unwrap_or_default())
+}
+
+/// One flight file as it would be imported, for the pilot to confirm.
+#[derive(serde::Serialize)]
+struct ImportPreview {
+    name: String,
+    dep: Option<String>,
+    arr: Option<String>,
+    start_ms: i64,
+    minutes: i64,
+    icao_type: String,
+    registration: String,
+    callsign: String,
+    /// Why this looks like a flight FlightDeck has already, if it does.
+    duplicate: Option<String>,
+    /// Why the file cannot be imported, if it cannot.
+    error: Option<String>,
+}
+
+/// Read flight files without saving anything: what each holds, and which
+/// look like flights already in FlightDeck (the same file imported before,
+/// or a flight on the same day between the same airports) or appear twice
+/// in this import.
+#[tauri::command]
+fn preview_import(state: tauri::State<AppState>, kind: String, files: Vec<ImportFile>) -> Vec<ImportPreview> {
+    let (source, parse): (&str, Parser) = if kind == "elevatex" { (elevatex::SOURCE, elevatex::parse) } else { (volanta::SOURCE, volanta::parse) };
+    let mut seen: HashMap<String, String> = HashMap::new();
+    files
+        .into_iter()
+        .map(|file| match parse(&file.text, &state.refdata) {
+            Err(e) => ImportPreview {
+                name: file.name,
+                dep: None,
+                arr: None,
+                start_ms: 0,
+                minutes: 0,
+                icao_type: String::new(),
+                registration: String::new(),
+                callsign: String::new(),
+                duplicate: None,
+                error: Some(e),
+            },
+            Ok(p) => {
+                let f = &p.summary;
+                let dep = p.ctx.dep.as_ref().map(|x| x.icao.clone());
+                let arr = p.ctx.arr.as_ref().map(|x| x.icao.clone());
+                let out = f.block_out_ms.or(f.takeoff_ms).unwrap_or(f.start_ms);
+                let end = f.block_in_ms.or(f.landing_ms).unwrap_or(f.end_ms);
+                let day = out.div_euclid(86_400_000);
+                let key = format!("{day}|{}|{}", dep.as_deref().unwrap_or(""), arr.as_deref().unwrap_or(""));
+                let db = state.db.lock().unwrap();
+                let duplicate = if matches!(db.find_imported(source, &p.id), Ok(Some(_))) {
+                    Some("Already imported".to_string())
+                } else if matches!(db.similar_flight(day, dep.as_deref().unwrap_or(""), arr.as_deref().unwrap_or("")), Ok(Some(_))) {
+                    Some("Same day and airports as a flight in FlightDeck".to_string())
+                } else {
+                    seen.get(&key).map(|other| format!("Same flight as {other} in this import"))
+                };
+                seen.entry(key).or_insert_with(|| file.name.clone());
+                ImportPreview {
+                    name: file.name,
+                    dep,
+                    arr,
+                    start_ms: out,
+                    minutes: ((end - out).max(0) / 60_000),
+                    icao_type: f.aircraft.icao_type.clone(),
+                    registration: f.aircraft.registration.clone(),
+                    callsign: p.ctx.callsign.clone(),
+                    duplicate,
+                    error: None,
+                }
+            }
+        })
+        .collect()
 }
 
 /// The airport an aircraft at this position is at (within a few miles),
@@ -280,7 +354,7 @@ async fn airport_weather(state: tauri::State<'_, AppState>, ident: String) -> Cm
 
 type Parser = fn(&str, &refdata::RefData) -> Result<volanta::ImportedFlight, String>;
 
-fn import_files(app: &tauri::AppHandle, state: &AppState, files: Vec<ImportFile>, source: &str, parse: Parser) -> ImportReport {
+fn import_files(app: &tauri::AppHandle, state: &AppState, files: Vec<ImportFile>, source: &str, parse: Parser, force: &[String]) -> ImportReport {
     let mut report = ImportReport::default();
     for file in files {
         let parsed = match parse(&file.text, &state.refdata) {
@@ -291,7 +365,8 @@ fn import_files(app: &tauri::AppHandle, state: &AppState, files: Vec<ImportFile>
             }
         };
         let mut db = state.db.lock().unwrap();
-        if matches!(db.find_imported(source, &parsed.id), Ok(Some(_))) {
+        // Already imported: skipped, unless the pilot chose it anyway.
+        if !force.contains(&file.name) && matches!(db.find_imported(source, &parsed.id), Ok(Some(_))) {
             report.duplicates.push(file.name);
             continue;
         }
@@ -388,6 +463,82 @@ fn export_all_volanta(app: tauri::AppHandle, state: tauri::State<AppState>, ids:
         std::fs::write(dir.join(name), text).map_err(err)?;
     }
     Ok(ExportAll { folder: dir.display().to_string(), count: ids.len() })
+}
+
+/// One field of a CSV line, quoted when it needs to be.
+fn csv_field(v: &str) -> String {
+    if v.contains([',', '"', '\n', '\r']) {
+        format!("\"{}\"", v.replace('"', "\"\""))
+    } else {
+        v.to_string()
+    }
+}
+
+/// The chosen flights (all if none) as one CSV file, in the column layout
+/// flight trackers use for CSV import: origin, destination, departure time,
+/// duration, then airline, callsign, flight number, aircraft, route,
+/// arrival time, distance and fuel.
+fn flights_csv(state: &AppState, ids: &[i64]) -> CmdResult<String> {
+    let t = |ms: i64| {
+        let s = volanta::format_time(ms, false);
+        format!("{} {}", &s[0..10], &s[11..16])
+    };
+    let mut out = String::from(
+        "Origin,Destination,DepartureTime,Duration,Airline,Callsign,FlightNumber,AircraftType,AircraftRegistration,Route,ArrivalTime,Distance,Fuel\r\n",
+    );
+    let db = state.db.lock().unwrap();
+    for id in ids {
+        let Some(f) = db.get_flight(*id).map_err(err)? else { continue };
+        let plan: Option<simbrief::FlightPlan> = db.get_plan(*id).map_err(err)?.and_then(|j| serde_json::from_str(&j).ok());
+        let flight_no = db.flight_no(*id).map_err(err)?;
+        let dep_ms = f.block_out.or(f.takeoff).unwrap_or(f.start_ms);
+        let arr_ms = f.block_in.or(f.landing).unwrap_or(f.end_ms);
+        // The airline: from the plan, else an airline-style callsign (three letters, then the number).
+        let cs = f.callsign.trim().to_uppercase();
+        let from_callsign = (cs.len() > 3 && cs[..3].chars().all(|c| c.is_ascii_alphabetic()) && cs[3..].starts_with(|c: char| c.is_ascii_digit()))
+            .then(|| cs[..3].to_string());
+        let airline = plan.as_ref().map(|p| p.airline.clone()).filter(|a| !a.is_empty()).or(from_callsign).unwrap_or_default();
+        let number = if !flight_no.is_empty() {
+            flight_no
+        } else {
+            plan.as_ref().map(|p| format!("{}{}", p.airline, p.flight_number)).filter(|n| !n.is_empty()).unwrap_or_default()
+        };
+        let row = [
+            f.dep_icao.clone().unwrap_or_default(),
+            f.arr_icao.clone().unwrap_or_default(),
+            t(dep_ms),
+            ((arr_ms - dep_ms).max(0) / 60_000).to_string(),
+            airline,
+            f.callsign.clone(),
+            number,
+            f.icao_type.clone(),
+            f.registration.clone(),
+            plan.as_ref().map(|p| p.route.clone()).unwrap_or_default(),
+            t(arr_ms),
+            format!("{:.0}", f.distance_nm),
+            format!("{:.0}", f.fuel_used_kg),
+        ];
+        out.push_str(&row.iter().map(|v| csv_field(v)).collect::<Vec<_>>().join(","));
+        out.push_str("\r\n");
+    }
+    Ok(out)
+}
+
+/// Save the chosen flights (all if none) as one CSV file in Downloads.
+#[tauri::command]
+fn export_csv(app: tauri::AppHandle, state: tauri::State<AppState>, ids: Option<Vec<i64>>) -> CmdResult<ExportAll> {
+    let ids = match ids {
+        Some(ids) if !ids.is_empty() => ids,
+        _ => state.db.lock().unwrap().all_flight_ids().map_err(err)?,
+    };
+    let stamp = volanta::format_time(
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0),
+        false,
+    );
+    let dir = export_dir(&app, None)?;
+    let path = dir.join(format!("FlightDeck flights {} {}{}.csv", &stamp[0..10], &stamp[11..13], &stamp[14..16]));
+    std::fs::write(&path, flights_csv(&state, &ids)?).map_err(err)?;
+    Ok(ExportAll { folder: path.display().to_string(), count: ids.len() })
 }
 
 /// A plain-text report for diagnosing problems: what FlightDeck sees now,
@@ -1095,8 +1246,9 @@ pub(crate) async fn dispatch(app: &tauri::AppHandle, cmd: &str, a: serde_json::V
         "start_flight" => ok(to_value(start_flight(st(), arg(&a, "plan")?, arg(&a, "aircraftId")?)?)),
         "set_plan" => ok(to_value(set_plan(st(), arg(&a, "plan")?)?)),
         "current_briefing" => ok(to_value(current_briefing(st()))),
-        "import_volanta" => ok(to_value(import_volanta(app.clone(), st(), arg(&a, "files")?))),
-        "import_elevatex" => ok(to_value(import_elevatex(app.clone(), st(), arg(&a, "files")?))),
+        "import_volanta" => ok(to_value(import_volanta(app.clone(), st(), arg(&a, "files")?, arg(&a, "force")?))),
+        "preview_import" => ok(to_value(preview_import(st(), arg(&a, "kind")?, arg(&a, "files")?))),
+        "import_elevatex" => ok(to_value(import_elevatex(app.clone(), st(), arg(&a, "files")?, arg(&a, "force")?))),
         "demo_routes" => ok(to_value(demo_routes())),
         "airport_at" => ok(to_value(airport_at(st(), arg(&a, "lat")?, arg(&a, "lon")?))),
         "search_airports" => ok(to_value(search_airports(st(), arg(&a, "query")?))),
@@ -1186,6 +1338,8 @@ pub fn run() {
             set_plan,
             current_briefing,
             import_volanta,
+            preview_import,
+            export_csv,
             import_elevatex,
             export_flight_volanta,
             export_all_volanta,
@@ -1242,6 +1396,16 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running FlightDeck");
+}
+
+#[cfg(test)]
+mod csv {
+    #[test]
+    fn fields_are_quoted_when_needed() {
+        assert_eq!(super::csv_field("KSEA"), "KSEA");
+        assert_eq!(super::csv_field("A, B"), "\"A, B\"");
+        assert_eq!(super::csv_field("say \"hi\""), "\"say \"\"hi\"\"\"");
+    }
 }
 
 #[cfg(test)]

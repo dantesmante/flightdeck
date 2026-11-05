@@ -51,6 +51,11 @@
      * the map controls move clear of it and routes fit beside it. */
     insetRight?: number;
     insetBottom?: number;
+    /** Room taken by a card over the left of the map, in pixels. */
+    insetLeft?: number;
+    /** Layers this map shows from the start whatever the saved choice
+     * (they can still be switched off here, without changing it). */
+    initialOn?: string[];
   }
   let {
     live,
@@ -67,6 +72,8 @@
     draft = null,
     insetRight = 0,
     insetBottom = 0,
+    insetLeft = 0,
+    initialOn = [],
   }: Props = $props();
 
   /** The plan drawn: the real one, or the route being set up. */
@@ -140,8 +147,21 @@
   /** Optional layers, saved as a comma list. Past routes and airports are on
    * unless switched off. */
   const DEFAULT_LAYERS = "routes,airports";
-  const layers = $derived(new Set((prefs.s.map_layers ?? DEFAULT_LAYERS).split(",").filter(Boolean)));
+  /** Layers on for this map only (initialOn), until switched off here. */
+  let localOn = $state(new Set(untrack(() => initialOn)));
+  const layers = $derived(new Set([...(prefs.s.map_layers ?? DEFAULT_LAYERS).split(",").filter(Boolean), ...localOn]));
   function toggleLayer(key: string) {
+    if (localOn.has(key)) {
+      const next = new Set(localOn);
+      next.delete(key);
+      localOn = next;
+      const saved = new Set((prefs.s.map_layers ?? DEFAULT_LAYERS).split(",").filter(Boolean));
+      if (saved.has(key)) {
+        saved.delete(key);
+        setPref("map_layers", [...saved].join(","));
+      }
+      return;
+    }
     const next = new Set(layers);
     if (next.has(key)) next.delete(key);
     else next.add(key);
@@ -1301,7 +1321,8 @@
       padding: (() => {
         const r = untrack(() => insetRight);
         const bt = untrack(() => insetBottom);
-        return tilted ? { top: 160, bottom: 60 + bt, left: 80, right: 80 + r } : { top: 80, bottom: 80 + bt, left: 80, right: 80 + r };
+        const l = untrack(() => insetLeft);
+        return tilted ? { top: 160, bottom: 60 + bt, left: 80 + l, right: 80 + r } : { top: 80, bottom: 80 + bt, left: 80 + l, right: 80 + r };
       })(),
       maxZoom,
       duration: 600,
@@ -1533,7 +1554,7 @@
       : undefined}
   />
 {/if}
-<div class="keys">
+<div class="keys" style:left="{12 + insetLeft}px">
 {#if layers.has("wind")}
   <div class="wind-key" aria-label="Wind speed colours">
     <span class="t">

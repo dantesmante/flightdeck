@@ -543,6 +543,12 @@ fn duplicate_flights_are_found_and_deleted() {
     assert_eq!(ids, vec![a, b], "the older complete record first");
     assert_eq!(db.delete_flights(&[b]).unwrap(), 1);
     assert!(db.duplicate_flights().unwrap().is_empty());
+    // The import check finds the same flight by day and airports.
+    let f = db.get_flight(a).unwrap().unwrap();
+    let day = f.block_out.or(f.takeoff).unwrap_or(f.start_ms) / 86_400_000;
+    assert_eq!(db.similar_flight(day, "KSEA", "KPDX").unwrap(), Some(a));
+    assert_eq!(db.similar_flight(day, "KSEA", "KLAX").unwrap(), None);
+    assert_eq!(db.similar_flight(day + 1, "KSEA", "KPDX").unwrap(), None);
 }
 
 #[test]

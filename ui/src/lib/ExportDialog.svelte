@@ -1,10 +1,11 @@
 <script lang="ts">
-  // Export: pick which flights to save as Volanta-format files.
+  // Export: pick which flights to save, as one flight file (.json) per
+  // flight in the common flight-tracker format, or as one CSV table.
   import { onMount } from "svelte";
   import { api, type FlightRow } from "./api";
   import { day, hhmm } from "./format";
 
-  let { onclose }: { onclose: () => void } = $props();
+  let { onclose, format = "json" }: { onclose: () => void; format?: "json" | "csv" } = $props();
 
   let flights = $state<FlightRow[]>([]);
   let loaded = $state(false);
@@ -50,7 +51,7 @@
     busy = true;
     error = null;
     try {
-      const r = await api.exportAllVolanta([...picked]);
+      const r = format === "csv" ? await api.exportCsv([...picked]) : await api.exportAllVolanta([...picked]);
       done = `Saved ${r.count} ${r.count === 1 ? "flight" : "flights"} to ${r.folder}`;
     } catch (e) {
       error = String(e);
@@ -70,8 +71,12 @@
   <div class="sheet" role="dialog" aria-modal="true" aria-label="Export flights">
     <header>
       <div>
-        <h3>Export flights</h3>
-        <p>Choose the flights to save as Volanta-format files (.json), one per flight, in Downloads\FlightDeck export.</p>
+        <h3>{format === "csv" ? "CSV export" : "Export flights"}</h3>
+        {#if format === "csv"}
+          <p>Choose the flights to save as one CSV table (origin, destination, departure time, duration, airline, callsign, flight number, aircraft, registration, route, arrival time, distance and fuel), in Downloads\FlightDeck export.</p>
+        {:else}
+          <p>Choose the flights to save as flight files (.json), one per flight, in Downloads\FlightDeck export. Other flight trackers can import them.</p>
+        {/if}
       </div>
       <button class="x" aria-label="Close" onclick={onclose}><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" /></svg></button>
     </header>

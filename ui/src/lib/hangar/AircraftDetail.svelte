@@ -31,6 +31,7 @@
   let history = $state<Pt[] | null>(null);
   let query = $state("");
   let newestFirst = $state(true);
+  let cardW = $state(380);
 
   onMount(async () => {
     flights = (await api.aircraftFlights(item.id)) ?? [];
@@ -75,37 +76,78 @@
 </script>
 
 <div class="detail">
-  <aside class="side">
-    <div class="hero">
-      <AircraftPicture {item} own={photo} variant="hero" credit={false} />
-      <div class="shade"></div>
-      <button class="back" onclick={onback}>
+  <Map
+    live={[]}
+    aircraft={null}
+    origin={null}
+    {history}
+    {routes}
+    {selected}
+    initialOn={["routes", "airports"]}
+    insetLeft={cardW + 16}
+    onroute={(id) => {
+      const f = flights.find((x) => x.id === id);
+      if (f) {
+        tab = "flights";
+        pick(f);
+      }
+    }}
+  />
+
+  <!-- The aircraft, as its hangar card, floating over the map with its
+       statistics and flights. -->
+  <article
+    class="card"
+    class:airline={!!look}
+    style:--a={look?.colors[0]}
+    style:--b={look?.colors[1]}
+    style:--c={look?.colors[2] ?? look?.colors[1]}
+    bind:clientWidth={cardW}
+    aria-label="Aircraft {item.registration || displayName}"
+  >
+    <div class="banner">
+      <button class="back" onclick={onback} title="Back to Hangar" aria-label="Back to Hangar">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg>
-        Back to Hangar
       </button>
-      <div class="tools-top">
+      <h2>{displayName}{item.icao_type ? ` · ${item.icao_type}` : ""}</h2>
+      {#if look}
+        <span class="al">{look.name}</span>
+        <svg class="swoosh" viewBox="0 0 30 40" preserveAspectRatio="none" aria-hidden="true">
+          <path d="M30 4 C 28 18, 25 30, 20 40 L 30 40 Z" fill={look.colors[1]} />
+          <path d="M21 0 L30 0 L30 4 C 28 18, 25 30, 20 40 L0 40 C 10 33, 18 20, 21 0 Z" fill={look.colors[2] ?? look.colors[1]} />
+        </svg>
+      {/if}
+    </div>
+    <div class="picture">
+      <AircraftPicture {item} own={photo} variant="hero" credit={false} />
+      <span class="reg num">{item.registration || item.icao_type || "No reg."}</span>
+      <div class="pic-tools">
         {#if onedit}
-          <button class="change" onclick={onedit} title="Edit registration, model and airline">
+          <button class="chip" onclick={onedit} title="Edit registration, model and airline">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4zM13.5 6.5l4 4" /></svg>
             Edit
           </button>
         {/if}
-      <label class="change">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 18h10a4 4 0 0 0 .6-7.96A6 6 0 0 0 6.1 9.1 4.5 4.5 0 0 0 7 18zM12 16v-6M9.5 12.5 12 10l2.5 2.5" /></svg>
-        {photo ? "Change image" : "Upload image"}
-        <input type="file" accept="image/*" onchange={onupload} />
-      </label>
-      </div>
-      <div class="title">
-        <h2 class="num">{item.registration || item.icao_type || "Unregistered"}</h2>
-        <p>{displayName}{item.icao_type ? ` · ${item.icao_type}` : ""}</p>
-        {#if look}<span class="airline" style:--a={look.colors[0]} style:--b={look.colors[1]} style:--c={look.colors[2] ?? look.colors[1]}>{look.name}</span>{/if}
+        <label class="chip">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 18h10a4 4 0 0 0 .6-7.96A6 6 0 0 0 6.1 9.1 4.5 4.5 0 0 0 7 18zM12 16v-6M9.5 12.5 12 10l2.5 2.5" /></svg>
+          {photo ? "Change image" : "Upload image"}
+          <input type="file" accept="image/*" onchange={onupload} />
+        </label>
       </div>
     </div>
-
     {#if spot}
       <a class="credit" href={spot.link} onclick={(e) => { e.preventDefault(); openExternal(spot.link); }}>Photo © {spot.photographer || "Photographer"} · Planespotters.net</a>
     {/if}
+    <div class="where">
+      <span class="lbl">Current aircraft location</span>
+      <span class="icao num">{item.last_icao ?? "—"}</span>
+      <span class="apt">{item.last_name ?? (item.flights ? "Last position unknown" : "Not flown yet")}{item.last_country_name ? `, ${item.last_country_name}` : ""}</span>
+    </div>
+    <dl class="foot">
+      <div><dt>Flights</dt><dd class="num">{item.flights}</dd></div>
+      <div><dt>Hours</dt><dd class="num">{hoursMinutes(item.minutes)}</dd></div>
+      <div><dt>Avg. landing</dt><dd class="num {gradeTone(grade(item.avg_landing_fpm))}">{item.avg_landing_fpm != null ? `${int(item.avg_landing_fpm)} fpm` : "–"}</dd></div>
+    </dl>
 
     <div class="tabs" role="tablist">
       <button role="tab" aria-selected={tab === "stats"} class:on={tab === "stats"} onclick={() => (tab = "stats")}>Statistics</button>
@@ -114,19 +156,12 @@
 
     {#if tab === "stats"}
       <dl class="stats">
-        <div><dt>Flights</dt><dd class="num">{item.flights}</dd></div>
-        <div><dt>Hours</dt><dd class="num">{hoursMinutes(item.minutes)}</dd></div>
         <div><dt>Distance</dt><dd class="num">{dist.value} <small>{dist.unit}</small></dd></div>
         <div><dt>Landings</dt><dd class="num">{item.landings}</dd></div>
-        <div><dt>Average landing</dt><dd class="num {gradeTone(grade(item.avg_landing_fpm))}">{item.avg_landing_fpm != null ? `${int(item.avg_landing_fpm)} fpm` : "–"}</dd></div>
         <div><dt>Best landing</dt><dd class="num {gradeTone(grade(item.best_landing_fpm))}">{item.best_landing_fpm != null ? `${int(item.best_landing_fpm)} fpm` : "–"}</dd></div>
         <div><dt>First flown</dt><dd class="num">{day(item.first_flight_ms)}</dd></div>
         <div><dt>Last flown</dt><dd class="num">{day(item.last_flight_ms)}</dd></div>
-        <div class="wide">
-          <dt>Current location</dt>
-          <dd><span class="num">{item.last_icao ?? "Unknown"}</span> {item.last_name ?? ""}{item.last_country_name ? `, ${item.last_country_name}` : ""}</dd>
-        </div>
-        <div class="wide"><dt>Aircraft</dt><dd>{item.title || "–"}</dd></div>
+        <div class="wide"><dt>Aircraft in the sim</dt><dd>{item.title || "–"}</dd></div>
       </dl>
     {:else}
       <div class="tools">
@@ -156,46 +191,163 @@
             {/if}
           </li>
         {:else}
-          <li class="none">{flights.length ? "No flights match." : "Loading flights…"}</li>
+          <li class="none">{flights.length ? "No flights match." : item.flights ? "Loading flights…" : "No flights yet."}</li>
         {/each}
       </ul>
     {/if}
-  </aside>
-  <div class="mapwrap">
-    <Map live={[]} aircraft={null} origin={null} {history} {routes} {selected} onroute={(id) => { const f = flights.find((x) => x.id === id); if (f) { tab = "flights"; pick(f); } }} />
-  </div>
+  </article>
 </div>
 
 <style>
   .detail {
-    display: grid;
-    grid-template-columns: 400px 1fr;
+    position: relative;
     height: 100%;
     min-height: 0;
+    overflow: hidden;
   }
-  .side {
+  .card {
+    position: absolute;
+    z-index: 3;
+    top: 16px;
+    left: 16px;
+    max-height: calc(100% - 32px);
+    width: 380px;
+    max-width: calc(100% - 32px);
     display: flex;
     flex-direction: column;
-    min-height: 0;
     overflow-y: auto;
     overflow-x: hidden;
-    background: var(--panel);
-    border-right: 1px solid var(--rule);
+    scrollbar-width: thin;
+    border-radius: 12px;
+    background: rgba(38, 40, 44, 0.97);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+    color: var(--ink);
   }
-  .mapwrap {
+  /* The banner, as on the hangar card: the model and the airline's colours. */
+  .banner {
     position: relative;
-    min-width: 0;
-  }
-  .hero {
-    position: relative;
-    height: 230px;
     flex: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 44px;
+    padding: 0 12px 0 6px;
+    background: #2b2e32;
+  }
+  .card.airline .banner {
+    background: var(--a);
+    color: #fff;
+    padding-right: 36px;
+  }
+  .banner h2 {
+    flex: 1;
+    min-width: 0;
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .card.airline .banner h2 {
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+  }
+  .back {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    border: none;
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.18);
+    color: inherit;
+    cursor: pointer;
+  }
+  .back:hover {
+    background: rgba(0, 0, 0, 0.35);
+  }
+  .back svg,
+  .chip svg {
+    width: 16px;
+    height: 16px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .al {
+    flex: none;
+    max-width: 40%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 11px;
+    font-weight: 700;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+  }
+  .swoosh {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 30px;
+    height: 100%;
+  }
+  .picture {
+    position: relative;
+    flex: none;
+    aspect-ratio: 2 / 1;
     overflow: hidden;
     background: #222428;
   }
+  .reg {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    padding: 3px 12px;
+    border-radius: 999px;
+    background: #4a4d52;
+    color: #fff;
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+  }
+  .card.airline .reg {
+    background: var(--a);
+  }
+  .pic-tools {
+    position: absolute;
+    left: 8px;
+    bottom: 8px;
+    display: flex;
+    gap: 6px;
+  }
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 9px;
+    border-radius: 6px;
+    border: none;
+    background: rgba(0, 0, 0, 0.45);
+    color: #fff;
+    font-size: 12.5px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .chip:hover {
+    background: rgba(0, 0, 0, 0.65);
+  }
+  .chip input {
+    display: none;
+  }
   .credit {
     display: block;
-    padding: 5px 16px 0;
+    padding: 4px 12px 0;
     font-size: 11px;
     color: var(--ink-dim);
     text-decoration: none;
@@ -207,101 +359,50 @@
     color: var(--ink);
     text-decoration: underline;
   }
-  .shade {
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(180deg, rgba(0, 0, 0, 0.35), transparent 30%, transparent 55%, rgba(0, 0, 0, 0.65));
-    pointer-events: none;
-  }
-  .back,
-  .change {
-    position: absolute;
-    top: 10px;
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    padding: 5px 10px;
-    border-radius: 6px;
-    border: none;
-    background: rgba(0, 0, 0, 0.35);
-    color: #fff;
-    font-size: 13px;
-    font-weight: 600;
-    cursor: pointer;
-  }
-  .back {
-    left: 10px;
-  }
-  .tools-top {
-    position: absolute;
-    top: 10px;
-    right: 10px;
+  .where {
     display: flex;
-    gap: 6px;
+    flex-direction: column;
+    padding: 9px 12px 8px;
+    border-bottom: 1px solid var(--rule);
   }
-  .tools-top .change {
-    position: static;
+  .lbl,
+  dt {
+    font-size: 10px;
+    white-space: nowrap;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--ink-dim);
   }
-  .change {
-    opacity: 0.85;
+  .icao {
+    font-size: 19px;
+    font-weight: 600;
+    line-height: 1.2;
   }
-  .airline {
-    display: inline-block;
-    margin-top: 5px;
-    padding: 2px 10px;
-    border-radius: 999px;
+  .apt {
     font-size: 12px;
-    font-weight: 600;
-    color: #fff;
-    background: var(--a);
-    box-shadow:
-      inset 3px 0 0 var(--c),
-      inset 6px 0 0 var(--b);
-    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+    color: var(--ink-dim);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
-  .change:hover,
-  .back:hover {
-    background: rgba(0, 0, 0, 0.55);
-    opacity: 1;
-  }
-  .back svg,
-  .change svg {
-    width: 16px;
-    height: 16px;
-    fill: none;
-    stroke: currentColor;
-    stroke-width: 2;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-  }
-  .change input {
-    display: none;
-  }
-  .title {
-    position: absolute;
-    left: 0;
-    right: 0;
-    bottom: 10px;
+  .foot {
+    margin: 0;
+    display: grid;
+    grid-template-columns: 0.8fr 0.8fr 1.3fr;
+    padding: 8px 4px 9px;
     text-align: center;
-    color: #fff;
-    pointer-events: none;
+    border-bottom: 1px solid var(--rule);
   }
-  .title h2 {
-    margin: 0;
-    font-family: "IBM Plex Mono", ui-monospace, monospace;
-    font-size: 30px;
+  .foot dd {
+    margin: 2px 0 0;
+    font-size: 15px;
     font-weight: 600;
-    text-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
-  }
-  .title p {
-    margin: 0;
-    font-size: 14px;
-    opacity: 0.9;
   }
   .tabs {
+    flex: none;
     display: flex;
     gap: 4px;
-    margin: 14px 16px 10px;
+    margin: 12px 12px 10px;
     padding: 4px;
     border-radius: 8px;
     background: var(--panel-2);
@@ -322,7 +423,7 @@
   }
   .stats {
     margin: 0;
-    padding: 4px 16px 20px;
+    padding: 4px 14px 18px;
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 12px 16px;
@@ -330,18 +431,14 @@
   .stats .wide {
     grid-column: 1 / -1;
   }
-  dt {
-    font-size: 12px;
-    color: var(--ink-dim);
-  }
-  dd {
+  .stats dd {
     margin: 2px 0 0;
     font-size: 17px;
   }
   .tools {
     display: flex;
     gap: 8px;
-    margin: 0 16px 10px;
+    margin: 0 12px 10px;
   }
   .search {
     flex: 1;
@@ -371,11 +468,11 @@
     background: transparent;
     color: var(--ink);
     font: inherit;
-    padding: 9px 0;
+    padding: 8px 0;
     outline: none;
   }
   .sort {
-    width: 42px;
+    width: 40px;
     border-radius: 8px;
     border: 1px solid var(--rule);
     background: var(--panel-2);
@@ -385,18 +482,18 @@
   .list {
     list-style: none;
     margin: 0;
-    padding: 0 16px 20px;
+    padding: 0 12px 16px;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 7px;
   }
   .list li > button:first-child {
     width: 100%;
     text-align: left;
     display: flex;
     flex-direction: column;
-    gap: 6px;
-    padding: 12px 14px;
+    gap: 5px;
+    padding: 10px 12px;
     border-radius: 8px;
     border: 1px solid var(--rule);
     background: var(--panel-2);
@@ -416,15 +513,15 @@
     gap: 10px;
   }
   .r1 strong {
-    font-size: 18px;
+    font-size: 16px;
   }
   .when {
-    font-size: 12px;
+    font-size: 11.5px;
     color: var(--ink-dim);
     white-space: nowrap;
   }
   .r2 {
-    font-size: 13px;
+    font-size: 12.5px;
     color: var(--ink-dim);
   }
   .more {

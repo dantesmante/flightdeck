@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { api, inRemote, type FlightPlan, type Pilot, type RemoteInfo, type EfbInfo } from "./api";
+  import { api, inRemote, type FlightPlan, type ImportPreview, type Pilot, type RemoteInfo, type EfbInfo } from "./api";
+  import ImportReview from "./ImportReview.svelte";
   import { shrinkImage } from "./image";
   import { prefs, setPref } from "./prefs.svelte";
   import ExportDialog from "./ExportDialog.svelte";
@@ -88,6 +89,9 @@
   let vFailed = $state<[string, string][]>([]);
   /** Which import the messages belong to. */
   let vKind = $state<"volanta" | "elevatex">("volanta");
+  /** Flights read from the chosen files, waiting for the pilot to confirm. */
+  let review = $state<{ kind: "volanta" | "elevatex"; files: { name: string; text: string }[]; items: ImportPreview[] } | null>(null);
+
   async function importFiles(e: Event, kind: "volanta" | "elevatex" = "volanta") {
     vKind = kind;
     const input = e.currentTarget as HTMLInputElement;
@@ -97,20 +101,50 @@
     vBusy = true;
     vMsg = vErr = null;
     vFailed = [];
+    try {
+      const files = await Promise.all(list.map(async (f) => ({ name: f.name, text: await f.text() })));
+      // Read in batches, so hundreds of flights do not arrive at once.
+      let items: ImportPreview[] = [];
+      for (let i = 0; i < files.length; i += 50) {
+        vMsg = `Reading… ${Math.min(i + 50, files.length)} of ${files.length}`;
+        items = [...items, ...(await api.previewImport(kind, files.slice(i, i + 50)))];
+      }
+      vMsg = null;
+      review = { kind, files, items };
+    } catch (e) {
+      vErr = String(e);
+    } finally {
+      vBusy = false;
+    }
+  }
+
+  async function importPicked(names: string[]) {
+    const r0 = review;
+    review = null;
+    if (!r0) return;
+    const want = new Set(names);
+    const files = r0.files.filter((f) => want.has(f.name));
+    // Picked although already imported: the pilot wants them anyway.
+    const force = r0.items.filter((i) => want.has(i.name) && i.duplicate).map((i) => i.name);
+    vBusy = true;
+    vMsg = vErr = null;
+    vFailed = [];
     let imported = 0;
     let dupes = 0;
     try {
-      // A few files at a time, so hundreds of flights do not arrive at once.
-      for (let i = 0; i < list.length; i += 20) {
-        const batch = await Promise.all(list.slice(i, i + 20).map(async (f) => ({ name: f.name, text: await f.text() })));
-        const r = kind === "elevatex" ? await api.importElevatex(batch) : await api.importVolanta(batch);
+      for (let i = 0; i < files.length; i += 20) {
+        const batch = files.slice(i, i + 20);
+        const f = force.filter((n) => batch.some((b) => b.name === n));
+        const r = r0.kind === "elevatex" ? await api.importElevatex(batch, f) : await api.importVolanta(batch, f);
         imported += r.imported.length;
         dupes += r.duplicates.length;
         vFailed = [...vFailed, ...r.failed];
-        vMsg = `Importing… ${Math.min(i + 20, list.length)} of ${list.length}`;
+        vMsg = `Importing… ${Math.min(i + 20, files.length)} of ${files.length}`;
       }
+      const left = r0.items.filter((i) => !i.error).length - files.length;
       vMsg =
         `Imported ${imported} ${imported === 1 ? "flight" : "flights"}.` +
+        (left > 0 ? ` ${left} left out.` : "") +
         (dupes ? ` ${dupes} already in FlightDeck, skipped.` : "") +
         (vFailed.length ? ` ${vFailed.length} could not be read.` : "");
     } catch (e) {
@@ -119,6 +153,7 @@
       vBusy = false;
     }
   }
+  let exportFormat = $state<"json" | "csv">("json");
   let exporting = $state(false);
 
 
@@ -329,16 +364,15 @@
   <div class="group">
     <h3>Volanta</h3>
     <p class="help">
-      Bring your Volanta history across: select Volanta flight files (.json), one or many at once. Each becomes a
-      FlightDeck flight on the map, in the logbook, passport and hangar, and the original file is kept so it can be
-      exported again unchanged. Export lets you choose flights and saves them as Volanta-format files in your Downloads folder.
+      Bring your Volanta history across: select Volanta flight files (.json), one or many at once. You see the flights
+      found before anything is saved, with any you already have marked. Each becomes a FlightDeck flight on the map, in the
+      logbook, passport and hangar, and the original file is kept with it.
     </p>
     <div class="row">
       <label class="primary file" class:disabled={vBusy}>
         Import Volanta flights
         <input type="file" accept=".json,application/json" multiple onchange={(e) => importFiles(e, "volanta")} disabled={vBusy} />
       </label>
-      {#if !inRemote}<button class="ghost" onclick={() => (exporting = true)} disabled={vBusy}>Export…</button>{/if}
     </div>
     {#if vKind === "volanta"}{@render importStatus()}{/if}
   </div>
@@ -346,8 +380,9 @@
   <div class="group">
     <h3>Elevatex</h3>
     <p class="help">
-      Bring your Elevatex history across: select Elevatex flight files (.json), one or many at once. Each becomes a
-      FlightDeck flight with its track, landing and times, and the original file is kept with it.
+      Bring your Elevatex history across: select Elevatex flight files (.json), one or many at once. You see the flights
+      found first, with any you already have marked. Each becomes a FlightDeck flight with its track, landing and times,
+      and the original file is kept with it.
     </p>
     <div class="row">
       <label class="primary file" class:disabled={vBusy}>
@@ -357,6 +392,22 @@
     </div>
     {#if vKind === "elevatex"}{@render importStatus()}{/if}
   </div>
+
+  {#if !inRemote}
+    <div class="group">
+      <h3>Export</h3>
+      <p class="help">
+        Save your flights to keep or to bring into another flight tracker. <b>Export</b> saves one flight file (.json) per
+        flight, with its track, landings and times. <b>CSV export</b> saves one table for spreadsheets and CSV imports:
+        origin, destination, departure time, duration, airline, callsign, flight number, aircraft type and registration,
+        route, arrival time, distance and fuel. Both let you choose the flights and save to Downloads\FlightDeck export.
+      </p>
+      <div class="row">
+        <button class="primary" onclick={() => ((exportFormat = "json"), (exporting = true))} disabled={vBusy}>Export…</button>
+        <button class="ghost" onclick={() => ((exportFormat = "csv"), (exporting = true))} disabled={vBusy}>CSV export…</button>
+      </div>
+    </div>
+  {/if}
 
   {:else if tab === "efb"}
   {#if !inRemote && efb}
@@ -498,8 +549,17 @@
   </div>
 </section>
 
+{#if review}
+  <ImportReview
+    title={review.kind === "elevatex" ? "Import Elevatex flights" : "Import Volanta flights"}
+    items={review.items}
+    onimport={importPicked}
+    onclose={() => (review = null)}
+  />
+{/if}
+
 {#if exporting}
-  <ExportDialog onclose={() => (exporting = false)} />
+  <ExportDialog format={exportFormat} onclose={() => (exporting = false)} />
 {/if}
 
 <style>

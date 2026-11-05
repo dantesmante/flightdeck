@@ -351,6 +351,31 @@ impl Store {
             .optional()?)
     }
 
+    /// A flight already saved for the same UTC day between the same airports
+    /// (as the duplicate finder groups them), if any.
+    pub fn similar_flight(&self, day: i64, dep: &str, arr: &str) -> Result<Option<i64>> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT id FROM flight
+                 WHERE COALESCE(block_out, takeoff, start_ms) / 86400000 = ?1
+                   AND COALESCE(dep_icao, '') = ?2 AND COALESCE(arr_icao, '') = ?3
+                 LIMIT 1",
+                params![day, dep, arr],
+                |r| r.get(0),
+            )
+            .optional()?)
+    }
+
+    /// The flight number given when the flight was set up ("" if none).
+    pub fn flight_no(&self, id: i64) -> Result<String> {
+        Ok(self
+            .conn
+            .query_row("SELECT COALESCE(flight_no, '') FROM flight WHERE id = ?1", params![id], |r| r.get(0))
+            .optional()?
+            .unwrap_or_default())
+    }
+
     /// Where an imported flight came from, and its original file.
     pub fn get_imported(&self, id: i64) -> Result<Option<Imported>> {
         let row = self

@@ -294,6 +294,27 @@ export async function mockCall<T>(cmd: string, _args?: Record<string, unknown>):
     setTimeout(pushStatus, 50);
     return null as T;
   }
+  if (cmd === "preview_import") {
+    const files = (_args?.files as { name: string }[]) ?? [];
+    const routes = [["KSEA", "KPDX"], ["KPDX", "KSFO"], ["KSFO", "KLAX"], ["KSEA", "KPDX"], ["EGLL", "LFPG"]];
+    return files.map((f, i) => {
+      const [dep, arr] = routes[i % routes.length];
+      const bad = f.name.includes("broken");
+      return {
+        name: f.name, dep: bad ? null : dep, arr: bad ? null : arr, start_ms: now - (i + 1) * 86_400_000, minutes: 45 + i * 7,
+        icao_type: "A20N", registration: "N320FD", callsign: i % 2 ? "DAL864" : "",
+        duplicate: bad ? null : i === 1 ? "Already imported" : i === 3 ? `Same flight as ${files[0].name} in this import` : i === 4 ? "Same day and airports as a flight in FlightDeck" : null,
+        error: bad ? "Not a Volanta flight file" : null,
+      };
+    }) as T;
+  }
+  if (cmd === "import_volanta" || cmd === "import_elevatex") {
+    const files = (_args?.files as { name: string }[]) ?? [];
+    return { imported: files.map((f) => f.name), duplicates: [], failed: [] } as T;
+  }
+  if (cmd === "export_csv" || cmd === "export_all_volanta") {
+    return { folder: cmd === "export_csv" ? "C:\\Users\\you\\Downloads\\FlightDeck export\\FlightDeck flights.csv" : "C:\\Users\\you\\Downloads\\FlightDeck export", count: 3 } as T;
+  }
   if (cmd === "wx_categories") {
     return {
       updated_ms: now,

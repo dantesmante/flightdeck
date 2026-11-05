@@ -7,6 +7,7 @@
   import type { FlightDetail, Status } from "./api";
   import { fly } from "./flyStore.svelte";
   import LivePanel from "./LivePanel.svelte";
+  import Logo from "./Logo.svelte";
   import type { Pt } from "./track";
 
   interface Props {
@@ -88,7 +89,7 @@
     {#if busy}
       <svg viewBox="0 0 24 24" aria-hidden="true" class="chev"><path d="M6 15l6-6 6 6" /></svg>
     {:else}
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 13.5l7-1.5 5-8h2.5l-2.5 8 5.5-.5 1.8-2.5H23l-1.2 4 1.2 4h-1.2L20 14.5l-5.5-.5 2.5 8h-2.5l-5-8-7-1.5z" /></svg>
+      <Logo size={30} color="#1b1406" />
     {/if}
     {label}
   </button>
@@ -165,13 +166,13 @@
     z-index: 5;
     right: 16px;
     bottom: 16px;
-    width: 340px;
+    min-width: 210px;
     max-width: calc(100% - 32px);
     display: flex;
     align-items: center;
     justify-content: center;
     gap: 10px;
-    padding: 12px 16px;
+    padding: 11px 24px;
     border: none;
     border-radius: 10px;
     background: var(--amber);
@@ -186,10 +187,9 @@
     transform: translateY(-1px);
     box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45), 0 10px 26px rgba(240, 178, 58, 0.28);
   }
-  .start svg {
+  .start .chev {
     width: 22px;
     height: 22px;
-    fill: currentColor;
   }
   .start .chev {
     fill: none;

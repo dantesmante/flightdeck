@@ -224,6 +224,22 @@ export interface FlightRow {
 }
 
 /** One of a set of flights that look like the same flight logged twice. */
+/** One flight file as it would be imported (nothing saved yet). */
+export interface ImportPreview {
+  name: string;
+  dep: string | null;
+  arr: string | null;
+  start_ms: number;
+  minutes: number;
+  icao_type: string;
+  registration: string;
+  callsign: string;
+  /** Why it looks like a flight FlightDeck already has. */
+  duplicate: string | null;
+  /** Why it cannot be imported. */
+  error: string | null;
+}
+
 export interface DuplicateFlight extends FlightRow {
   has_track: boolean;
   /** "" (recorded by FlightDeck), "manual", "volanta" or "elevatex". */
@@ -783,10 +799,13 @@ export const api = {
     call<void>("start_flight", { plan, aircraftId }),
   setPlan: (plan: FlightPlan | null) => call<void>("set_plan", { plan }),
   currentBriefing: () => call<Ofp | null>("current_briefing"),
-  importVolanta: (files: { name: string; text: string }[]) =>
-    call<{ imported: string[]; duplicates: string[]; failed: [string, string][] }>("import_volanta", { files }),
-  importElevatex: (files: { name: string; text: string }[]) =>
-    call<{ imported: string[]; duplicates: string[]; failed: [string, string][] }>("import_elevatex", { files }),
+  importVolanta: (files: { name: string; text: string }[], force: string[] = []) =>
+    call<{ imported: string[]; duplicates: string[]; failed: [string, string][] }>("import_volanta", { files, force }),
+  importElevatex: (files: { name: string; text: string }[], force: string[] = []) =>
+    call<{ imported: string[]; duplicates: string[]; failed: [string, string][] }>("import_elevatex", { files, force }),
+  previewImport: (kind: "volanta" | "elevatex", files: { name: string; text: string }[]) =>
+    call<ImportPreview[]>("preview_import", { kind, files }),
+  exportCsv: (ids: number[] | null) => call<{ folder: string; count: number }>("export_csv", { ids }),
 
   diagnostics: () => call<string>("get_diagnostics"),
   saveDiagnostics: () => call<string>("save_diagnostics"),
