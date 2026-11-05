@@ -9,7 +9,7 @@
   import WxCard, { CATEGORY, WX_GROUP } from "./WxCard.svelte";
   import type { WxAdvisoryProps } from "./api";
   import type { Net, NetworkData } from "./api";
-  import { C as BASE, STYLE, addRegionLines, offlineStyle, setBorders, showSatellite, showTerrain, tintMap } from "./mapStyle";
+  import { C as BASE, STYLE, addAirportLayout, addRegionLines, offlineStyle, setBorders, showAirportLayout, showSatellite, showTerrain, tintMap } from "./mapStyle";
   import MapLayers from "./MapLayers.svelte";
   import { WindParticles } from "./wind/particles";
   import { addWindIcons, windIconExpr, windText } from "./wind/arrows";
@@ -603,6 +603,7 @@
 
   function addOverlays() {
     if (!map) return;
+    addAirportLayout(map);
     // Night side of the Earth, under everything else.
     map.addSource("night", { type: "geojson", data: nightShade() });
     map.addLayer({
@@ -1237,6 +1238,8 @@
     showSatellite(map, on.has("satellite") && !offline);
     showTerrain(map, on.has("terrain") && !offline, on.has("satellite"));
     setBorders(map, on.has("borders"), on.has("satellite") && !offline);
+    // On unless switched off ("aeroway-off"), so it shows for everyone.
+    showAirportLayout(map, !on.has("aeroway-off"));
     showRadar(on.has("radar"));
   });
 

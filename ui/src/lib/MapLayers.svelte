@@ -71,6 +71,13 @@
       {#each [[12, 50], [104, 30], [60, 44], [34, 18], [86, 54]] as [x, y] (x)}
         <circle cx={x} cy={y} r="3.4" fill="#f0b23a" stroke="#1b1c1e" stroke-width="1.4" />
       {/each}
+    {:else if kind === "aeroway"}
+      <rect x="0" y="0" width="120" height="64" fill="#26282c" />
+      <path d="M-4 48 L124 18" stroke="#5d6168" stroke-width="12" />
+      <path d="M-4 48 L124 18" stroke="#e8eaed" stroke-width="1" stroke-dasharray="5 4" />
+      <path d="M20 58 C 30 40, 40 36, 52 34 M70 64 C 76 46, 86 30, 96 6" fill="none" stroke="#d4b24a" stroke-width="1.6" />
+      <text x="44" y="47" font-size="8" font-weight="700" fill="#1b1406" stroke="#e2c15a" stroke-width="2.4" paint-order="stroke">B</text>
+      <text x="82" y="26" font-size="8" font-weight="700" fill="#1b1406" stroke="#e2c15a" stroke-width="2.4" paint-order="stroke">A</text>
     {:else if kind === "world"}
       {#each [[18, 16, 4], [70, 40, 4], [100, 14, 3], [40, 50, 2.4], [56, 22, 2.4], [88, 54, 2.4], [24, 36, 1.8], [108, 38, 1.8], [64, 8, 1.8], [10, 56, 1.8]] as [x, y, r] (`${x},${y}`)}
         <circle cx={x} cy={y} r={r} fill={r > 3 ? "#4f9cf0" : r > 2 ? "#5cc08a" : "#a98be0"} stroke="#111214" stroke-width="1" />
@@ -149,6 +156,10 @@
   </div>
 {/snippet}
 
+{#snippet aerowayNote()}
+  <span class="note">Zoom in on an airport</span>
+{/snippet}
+
 {#snippet windNote()}
   <span class="note">{on.has("wind") ? (WIND_LEVELS.find((l) => l.id === windLevel)?.label ?? "Auto") : "Moving flow"}</span>
 {/snippet}
@@ -211,6 +222,7 @@
       {@render card("world", "World airports", on.has("world"), () => ontoggle("world"))}
       {@render card("airports", "Your airports", on.has("airports"), () => ontoggle("airports"))}
       {@render card("routes", "Past routes", on.has("routes"), () => ontoggle("routes"))}
+      {@render card("aeroway", "Runways and taxiways", !on.has("aeroway-off"), () => ontoggle("aeroway-off"), aerowayNote)}
       {#if parkedLayer}
         {@render card("parked", "Parked aircraft", on.has("parked"), () => ontoggle("parked"))}
       {/if}

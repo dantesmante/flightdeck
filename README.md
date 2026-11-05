@@ -87,6 +87,14 @@ MIT licensed.
   the usual flight-tracker CSV columns: Origin, Destination, DepartureTime,
   Duration, Airline, Callsign, FlightNumber, AircraftType,
   AircraftRegistration, Route, ArrivalTime, Distance and Fuel.
+- **Runways and taxiways** (Map layers, Airports and flights; on unless
+  switched off): zoomed in on an airport the map draws its layout from
+  OpenStreetMap: runways with their numbers and dashed centrelines,
+  taxiways as yellow lines with their letters, aprons, and gate numbers
+  close in. It comes with the map tiles already used, so it costs nothing
+  extra; how complete it is depends on OpenStreetMap (very good at large
+  airports, patchy at small fields) and it shows the real airport, which
+  may differ from the sim's scenery.
 - **Map layers** panel: 3D flight, a live day/night line, **satellite**
   imagery (Esri World Imagery), **topographic** relief shading with
   contour lines in feet (from open elevation data, AWS Terrain Tiles;

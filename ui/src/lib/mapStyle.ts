@@ -281,3 +281,109 @@ export function setBorders(map: maplibregl.Map, strong: boolean, satellite = fal
     );
   }
 }
+
+/** Base map layers the airport layout replaces while it is on. */
+const BASE_AEROWAY = ["aeroway-taxiway", "aeroway-runway-casing", "aeroway-area", "aeroway-runway"];
+
+/**
+ * Airport layout from the base map's OpenStreetMap aeroway data: aprons,
+ * runways with their numbers, taxiways as yellow centrelines with their
+ * letters, and gate numbers, once zoomed in on an airport. It costs no
+ * extra download: it is already in the map tiles.
+ */
+export function addAirportLayout(map: maplibregl.Map) {
+  if (!map.getSource("openmaptiles") || map.getLayer("fd-apron")) return;
+  const layers = map.getStyle().layers ?? [];
+  const before = layers.find((l) => l.type === "symbol")?.id;
+  const glyphs = !!map.getStyle().glyphs;
+  const cls = (...c: string[]) => ["match", ["get", "class"], c, true, false] as maplibregl.ExpressionSpecification;
+  const poly = ["match", ["geometry-type"], ["Polygon", "MultiPolygon"], true, false] as maplibregl.ExpressionSpecification;
+  const line = ["match", ["geometry-type"], ["LineString", "MultiLineString"], true, false] as maplibregl.ExpressionSpecification;
+  const src = { source: "openmaptiles", "source-layer": "aeroway" } as const;
+  const add = (l: maplibregl.LayerSpecification, at = before) => map.addLayer({ ...l, layout: { ...(l.layout ?? {}), visibility: "none" } } as maplibregl.LayerSpecification, at);
+  add({ id: "fd-apron", type: "fill", ...src, minzoom: 12, filter: ["all", poly, cls("apron")], paint: { "fill-color": "#2a2c30", "fill-opacity": 0.9 } });
+  add({ id: "fd-taxiway-area", type: "fill", ...src, minzoom: 12, filter: ["all", poly, cls("taxiway")], paint: { "fill-color": "#34373b" } });
+  add({ id: "fd-runway-area", type: "fill", ...src, minzoom: 11, filter: ["all", poly, cls("runway")], paint: { "fill-color": "#55595f" } });
+  add({
+    id: "fd-taxiway",
+    type: "line",
+    ...src,
+    minzoom: 12,
+    filter: ["all", line, cls("taxiway")],
+    layout: { "line-cap": "round", "line-join": "round" },
+    paint: {
+      "line-color": "#d4b24a",
+      "line-opacity": ["interpolate", ["linear"], ["zoom"], 12, 0.5, 14, 0.9],
+      "line-width": ["interpolate", ["exponential", 1.6], ["zoom"], 12, 0.7, 15, 2, 18, 6],
+    },
+  });
+  add({
+    id: "fd-runway",
+    type: "line",
+    ...src,
+    minzoom: 10,
+    filter: ["all", line, cls("runway")],
+    layout: { "line-cap": "butt", "line-join": "round" },
+    paint: { "line-color": "#5d6168", "line-width": ["interpolate", ["exponential", 1.5], ["zoom"], 10, 2, 13, 9, 16, 46, 18, 150] },
+  });
+  add({
+    id: "fd-runway-centre",
+    type: "line",
+    ...src,
+    minzoom: 13,
+    filter: ["all", line, cls("runway")],
+    paint: { "line-color": "#e8eaed", "line-width": ["interpolate", ["linear"], ["zoom"], 13, 0.6, 16, 1.4, 18, 3], "line-dasharray": [6, 5] },
+  });
+  if (!glyphs) return;
+  const font = ["Noto Sans Bold"];
+  add({
+    id: "fd-taxiway-label",
+    type: "symbol",
+    ...src,
+    minzoom: 14,
+    filter: ["all", line, cls("taxiway"), ["has", "ref"]],
+    layout: {
+      "symbol-placement": "line",
+      "symbol-spacing": 220,
+      "text-field": ["get", "ref"],
+      "text-font": font,
+      "text-size": ["interpolate", ["linear"], ["zoom"], 14, 10, 17, 14],
+      "text-rotation-alignment": "viewport",
+      "text-keep-upright": true,
+    },
+    paint: { "text-color": "#1b1406", "text-halo-color": "#e2c15a", "text-halo-width": 3 },
+  });
+  add({
+    id: "fd-runway-label",
+    type: "symbol",
+    ...src,
+    minzoom: 12,
+    filter: ["all", line, cls("runway"), ["has", "ref"]],
+    layout: {
+      "symbol-placement": "line-center",
+      "text-field": ["get", "ref"],
+      "text-font": font,
+      "text-size": ["interpolate", ["linear"], ["zoom"], 12, 11, 16, 16],
+      "text-rotation-alignment": "viewport",
+      "text-allow-overlap": false,
+    },
+    paint: { "text-color": "#ffffff", "text-halo-color": "#16171a", "text-halo-width": 2.4 },
+  });
+  add({
+    id: "fd-gate-label",
+    type: "symbol",
+    ...src,
+    minzoom: 16,
+    filter: ["all", cls("gate"), ["has", "ref"]],
+    layout: { "text-field": ["get", "ref"], "text-font": ["Noto Sans Regular"], "text-size": 11 },
+    paint: { "text-color": "#c9ccd1", "text-halo-color": "#16171a", "text-halo-width": 1.6 },
+  });
+}
+
+/** Show or hide the airport layout (the base map's plain aeroways otherwise). */
+export function showAirportLayout(map: maplibregl.Map, on: boolean) {
+  for (const id of ["fd-apron", "fd-taxiway-area", "fd-runway-area", "fd-taxiway", "fd-runway", "fd-runway-centre", "fd-taxiway-label", "fd-runway-label", "fd-gate-label"]) {
+    if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", on ? "visible" : "none");
+  }
+  for (const id of BASE_AEROWAY) if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", on ? "none" : "visible");
+}
