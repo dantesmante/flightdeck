@@ -479,6 +479,19 @@ fn restart_app(app: tauri::AppHandle) {
     app.restart();
 }
 
+/// Every screenshot, newest first, placed on its flight (the Photos tab).
+#[tauri::command]
+fn photos(state: tauri::State<AppState>) -> CmdResult<Vec<store::Photo>> {
+    state.db.lock().unwrap().photos().map_err(err)
+}
+
+/// Delete a screenshot: to the Recycle Bin (file_too), or only forgotten.
+#[tauri::command]
+async fn delete_screenshot(state: tauri::State<'_, AppState>, id: i64, file_too: bool) -> CmdResult<()> {
+    let db = state.db.clone();
+    tauri::async_runtime::spawn_blocking(move || screenshots::delete(&db, id, file_too)).await.map_err(err)?
+}
+
 /// A saved flight's screenshots, in the order taken.
 #[tauri::command]
 fn flight_screenshots(state: tauri::State<AppState>, id: i64) -> CmdResult<Vec<store::Screenshot>> {
@@ -1450,6 +1463,8 @@ pub(crate) async fn dispatch(app: &tauri::AppHandle, cmd: &str, a: serde_json::V
         "wx_advisories" => ok(to_value(wx_advisories().await?)),
         "online_pilot" => ok(to_value(online_pilot(arg(&a, "net")?, arg(&a, "callsign")?))),
         "flight_screenshots" => ok(to_value(flight_screenshots(st(), arg(&a, "id")?)?)),
+        "photos" => ok(to_value(photos(st())?)),
+        "delete_screenshot" => ok(to_value(delete_screenshot(st(), arg(&a, "id")?, arg(&a, "file_too")?).await?)),
         "screenshots_since" => ok(to_value(screenshots_since(st(), arg(&a, "sinceMs")?)?)),
         "divert" => ok(to_value(divert(st(), arg(&a, "icao")?)?)),
         "divert_options" => ok(to_value(divert_options(st(), arg(&a, "lat")?, arg(&a, "lon")?, arg(&a, "skip")?))),
@@ -1505,9 +1520,15 @@ pub fn run() {
         // only pictures FlightDeck noted can be reached this way.
         .register_asynchronous_uri_scheme_protocol("fdshot", |ctx, request, responder| {
             let db = ctx.app_handle().state::<AppState>().db.clone();
-            let id: Option<i64> = request.uri().path().trim_matches('/').parse().ok();
+            // "/<id>" the picture, "/<id>/thumb" its small copy.
+            let path = request.uri().path().trim_matches('/').to_string();
+            let (id, small) = match path.strip_suffix("/thumb") {
+                Some(i) => (i.parse::<i64>().ok(), true),
+                None => (path.parse::<i64>().ok(), false),
+            };
             std::thread::spawn(move || {
-                let res = match id.and_then(|id| screenshots::read(&db, id)) {
+                let found = id.and_then(|id| if small { screenshots::thumb(&db, id).map(|t| (t.to_vec(), "image/jpeg")) } else { screenshots::read(&db, id) });
+                let res = match found {
                     Some((bytes, kind)) => tauri::http::Response::builder()
                         .header("Content-Type", kind)
                         .header("Cache-Control", "max-age=3600")
@@ -1617,6 +1638,8 @@ pub fn run() {
             divert_options,
             divert,
             flight_screenshots,
+            photos,
+            delete_screenshot,
             screenshots_since,
             pick_screenshot_folder,
             backup_save,

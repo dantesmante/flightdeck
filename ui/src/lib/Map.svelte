@@ -63,6 +63,10 @@
     /** Right-click on an airport can send it to the flight planner (the
      * Map tab, where Start a flight is). */
     planner?: boolean;
+    /** The Photos tab: the map shows nothing but the screenshot pins. */
+    bare?: boolean;
+    /** A screenshot pin to bring out (its thumbnail is under the pointer). */
+    shotAccent?: number | null;
   }
   let {
     live,
@@ -83,6 +87,8 @@
     initialOn = [],
     shots: shotList = [],
     planner = false,
+    bare = false,
+    shotAccent = null,
   }: Props = $props();
 
   /** The plan drawn: the real one, or the route being set up. */
@@ -139,7 +145,7 @@
 
   const shown = $derived(history ?? live);
   /** 3D view: the map tilts and the track stands up as a wall. */
-  const three = $derived(prefs.s.map_3d === "1");
+  const three = $derived(!bare && prefs.s.map_3d === "1");
   const stretch = $derived(three && shown.length > 1 ? wallScale(shown) : 1);
   const range = $derived(altRange(shown));
   // The key runs from the lowest to the highest point actually flown, in
@@ -167,7 +173,12 @@
       localOn = new Set(initialOn);
     }
   });
-  const layers = $derived(new Set([...(prefs.s.map_layers ?? DEFAULT_LAYERS).split(",").filter(Boolean), ...localOn]));
+  /** How the map itself looks (kept in the Photos tab, where nothing else shows). */
+  const LOOKS = ["night", "satellite", "terrain", "borders"];
+  const layers = $derived.by(() => {
+    const all = new Set([...(prefs.s.map_layers ?? DEFAULT_LAYERS).split(",").filter(Boolean), ...localOn]);
+    return bare ? new Set([...LOOKS.filter((k) => all.has(k)), "aeroway-off"]) : all;
+  });
   function toggleLayer(key: string) {
     if (localOn.has(key)) {
       const next = new Set(localOn);
@@ -253,10 +264,23 @@
 
   // --- Screenshots: a small camera where each was taken ----------------------
   let shotMarkers: maplibregl.Marker[] = [];
+  let shotEls = new globalThis.Map<number, HTMLElement>();
+  /** The Photos tab fits its pins once each time it opens. */
+  let bareFitted = false;
+  $effect(() => {
+    if (!bare) bareFitted = false;
+  });
   $effect(() => {
     const list = shotList.filter((s) => s.lon != null && s.lat != null);
     if (!loaded || !map) return;
     for (const m of shotMarkers) m.remove();
+    shotEls = new globalThis.Map();
+    if (bare && list.length && !untrack(() => bareFitted)) {
+      bareFitted = true;
+      const b = new maplibregl.LngLatBounds();
+      for (const s of list) b.extend([s.lon!, s.lat!]);
+      map.fitBounds(b, { padding: { top: 80, bottom: 60, left: 60 + insetLeft, right: 60 + insetRight }, maxZoom: 9, duration: 0 });
+    }
     shotMarkers = list.map((s) => {
       const el = document.createElement("button");
       el.className = "shot-pin";
@@ -268,12 +292,23 @@
         e.stopPropagation();
         shotStore.viewer = { list: shotList, index: shotList.indexOf(s) };
       });
+      shotEls.set(s.id, el);
       return new maplibregl.Marker({ element: el, anchor: "bottom" }).setLngLat([s.lon!, s.lat!]).addTo(map!);
     });
     return () => {
       for (const m of shotMarkers) m.remove();
       shotMarkers = [];
     };
+  });
+
+  // The pin of the thumbnail under the pointer stands out, and on top.
+  $effect(() => {
+    const id = shotAccent;
+    void shotList;
+    for (const [sid, el] of shotEls) {
+      el.classList.toggle("hot", sid === id);
+      el.style.zIndex = sid === id ? "5" : "";
+    }
   });
 
   // --- Wind -----------------------------------------------------------------
@@ -2012,6 +2047,7 @@
 {#if aircraft && !follow && !history}
   <button class="follow" style:left="{16 + insetLeft}px" onclick={() => (follow = true)}>Follow aircraft</button>
 {/if}
+{#if !bare}
 <MapLayers
   {three}
   on={layers}
@@ -2029,6 +2065,7 @@
   onmeasure={() => setMeasuring(!measuring)}
   airspaceState={aspState}
 />
+{/if}
 {#if wxPick && !openAirport && !netPick}
   <WxCard item={wxPick} onclose={() => (wxPick = null)} />
 {/if}
@@ -2588,6 +2625,13 @@
     background: var(--amber);
     box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
     cursor: pointer;
+  }
+  .map :global(.shot-pin.hot) {
+    background: #fff;
+    border-color: var(--amber);
+    box-shadow:
+      0 0 0 4px rgba(240, 178, 58, 0.45),
+      0 4px 12px rgba(0, 0, 0, 0.6);
   }
   .map :global(.shot-pin svg) {
     width: 14px;

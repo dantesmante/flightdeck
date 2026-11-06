@@ -1,7 +1,7 @@
 <script lang="ts">
   // A flight's screenshots as a row of small pictures; one click opens the
   // viewer. Shown only when the flight has some.
-  import { shotUrl, shots, type PlacedShot } from "./shots.svelte";
+  import { shots, thumbUrl, type PlacedShot } from "./shots.svelte";
 
   let { list, title = "Screenshots" }: { list: PlacedShot[]; title?: string } = $props();
   let broken = $state(new Set<number>());
@@ -16,7 +16,7 @@
           {#if broken.has(s.id)}
             <span class="gone">Moved or deleted</span>
           {:else}
-            <img src={shotUrl(s.id)} alt="Screenshot {i + 1}" loading="lazy" decoding="async" onerror={() => (broken = new Set([...broken, s.id]))} />
+            <img src={thumbUrl(s.id)} alt="Screenshot {i + 1}" loading="lazy" decoding="async" onerror={() => (broken = new Set([...broken, s.id]))} />
           {/if}
         </button>
       {/each}

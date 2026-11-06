@@ -346,6 +346,7 @@ fn start(app: AppHandle, all: bool) {
         .route("/api/call/{cmd}", post(call))
         .route("/api/events", get(events_ws))
         .route("/api/shot/{id}", get(shot))
+        .route("/api/shot/{id}/thumb", get(shot_thumb))
         .layer(DefaultBodyLimit::max(64 * 1024 * 1024));
     let router = Router::new()
         .merge(api)
@@ -551,6 +552,17 @@ async fn shot(State(ctx): State<Ctx>, Path(id): Path<i64>, Query(q): Query<WsQue
     }
 }
 
+async fn shot_thumb(State(ctx): State<Ctx>, Path(id): Path<i64>, Query(q): Query<WsQuery>) -> Response {
+    if !paired(&ctx.app, q.token.as_deref()) {
+        return StatusCode::UNAUTHORIZED.into_response();
+    }
+    let db = ctx.app.state::<crate::AppState>().db.clone();
+    match tauri::async_runtime::spawn_blocking(move || crate::screenshots::thumb(&db, id)).await.ok().flatten() {
+        Some(t) => ([(header::CONTENT_TYPE, "image/jpeg"), (header::CACHE_CONTROL, "private, max-age=3600")], t.to_vec()).into_response(),
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
 async fn forward(mut socket: WebSocket, mut rx: broadcast::Receiver<String>) {
     loop {
         tokio::select! {
@@ -576,7 +588,7 @@ const VIEW: &[&str] = &[
     "get_status", "list_flights", "get_totals", "get_flight", "current_briefing", "demo_routes", "get_settings",
     "get_pilot", "get_logbook", "find_duplicates", "aircraft_with_registration", "get_passport", "get_hangar",
     "get_routes", "spotter_photo", "aircraft_flights", "get_aircraft_photo", "app_version", "simbrief_latest",
-    "search_airports", "get_pilot_profile", "airport_at", "map_airports", "airport_card", "divert_options", "flight_screenshots", "screenshots_since", "airport_weather", "online_network", "online_pilot", "wx_categories", "wx_advisories", "wind_grid", "us_airspace", "pln_text",
+    "search_airports", "get_pilot_profile", "airport_at", "map_airports", "airport_card", "divert_options", "flight_screenshots", "screenshots_since", "photos", "airport_weather", "online_network", "online_pilot", "wx_categories", "wx_advisories", "wind_grid", "us_airspace", "pln_text",
 ];
 /// Commands that change something: only when editing is allowed.
 const EDIT: &[&str] = &[
@@ -584,6 +596,7 @@ const EDIT: &[&str] = &[
     "set_pilot", "update_log_entry", "update_flight", "add_manual_entry", "update_aircraft", "add_aircraft",
     "delete_aircraft", "delete_flights", "set_aircraft_favorite", "set_aircraft_photo", "import_volanta",
     "import_elevatex", "preview_import", "add_sample_flights", "remove_sample_flights", "set_banner", "set_pilot_photo",
+    "delete_screenshot",
 ];
 
 fn fail(code: StatusCode, msg: &str) -> Response {

@@ -1,7 +1,7 @@
 // Screenshots: where to load each picture from, where it was taken, and
 // which ones are open in the viewer.
 import type { Screenshot } from "./api";
-import { inTauri } from "./api";
+import { api, inTauri } from "./api";
 import { inRemote, remoteToken } from "./remote.svelte";
 import type { Pt } from "./track";
 
@@ -10,6 +10,13 @@ export function shotUrl(id: number): string {
   if (inRemote) return `/api/shot/${id}?token=${encodeURIComponent(remoteToken() ?? "")}`;
   if (inTauri) return /Windows/i.test(navigator.userAgent) ? `http://fdshot.localhost/${id}` : `fdshot://localhost/${id}`;
   // The browser preview has no PC to read from: a stand-in picture.
+  return mockPicture(id);
+}
+
+/** A screenshot's small copy (made on the PC, kept in memory there). */
+export function thumbUrl(id: number): string {
+  if (inRemote) return `/api/shot/${id}/thumb?token=${encodeURIComponent(remoteToken() ?? "")}`;
+  if (inTauri) return /Windows/i.test(navigator.userAgent) ? `http://fdshot.localhost/${id}/thumb` : `fdshot://localhost/${id}/thumb`;
   return mockPicture(id);
 }
 
@@ -50,7 +57,22 @@ export const shots = $state<{
   flight: Screenshot[];
   live: Screenshot[];
   viewer: { list: PlacedShot[]; index: number } | null;
-}>({ flight: [], live: [], viewer: null });
+  /** Counts deletions, so lists of screenshots read themselves again. */
+  deleted: number;
+}>({ flight: [], live: [], viewer: null, deleted: 0 });
+
+/** Delete a screenshot everywhere it is shown. */
+export async function deleteShot(id: number, fileToo: boolean) {
+  await api.deleteScreenshot(id, fileToo);
+  shots.flight = shots.flight.filter((s) => s.id !== id);
+  shots.live = shots.live.filter((s) => s.id !== id);
+  const v = shots.viewer;
+  if (v) {
+    const list = v.list.filter((s) => s.id !== id);
+    shots.viewer = list.length ? { list, index: Math.min(v.index, list.length - 1) } : null;
+  }
+  shots.deleted++;
+}
 
 export function place(list: Screenshot[], track: Pt[]): PlacedShot[] {
   return list.map((s) => {

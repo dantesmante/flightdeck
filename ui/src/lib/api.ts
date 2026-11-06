@@ -170,6 +170,16 @@ export interface Screenshot {
   taken_ms: number;
 }
 
+/** A screenshot in the Photos tab: its flight, and where it was taken. */
+export interface Photo extends Screenshot {
+  flight_id: number | null;
+  dep: string | null;
+  arr: string | null;
+  lat: number | null;
+  lon: number | null;
+  alt_ft: number | null;
+}
+
 /** An airport to divert to. */
 export interface DivertOption {
   ident: string;
@@ -857,6 +867,10 @@ export const api = {
   restartApp: () => call<void>("restart_app"),
   flightScreenshots: (id: number) => call<Screenshot[]>("flight_screenshots", { id }),
   screenshotsSince: (sinceMs: number) => call<Screenshot[]>("screenshots_since", { sinceMs }),
+  /** Every screenshot, newest first, placed on its flight. */
+  photos: () => call<Photo[]>("photos"),
+  /** Delete a screenshot: to the Recycle Bin (fileToo), or only forgotten by FlightDeck. */
+  deleteScreenshot: (id: number, fileToo: boolean) => call<void>("delete_screenshot", { id, fileToo }),
   pickScreenshotFolder: () => call<string | null>("pick_screenshot_folder"),
   setScreenshotFolder: (path: string | null) => call<void>("set_screenshot_folder", { path }),
   currentBriefing: () => call<Ofp | null>("current_briefing"),

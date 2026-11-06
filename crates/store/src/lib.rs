@@ -167,6 +167,38 @@ pub struct Screenshot {
     pub taken_ms: i64,
 }
 
+/// A screenshot in the Photos tab: with its flight (if any) and where it
+/// was taken, from the flight's track.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct Photo {
+    pub id: i64,
+    pub path: String,
+    pub taken_ms: i64,
+    pub flight_id: Option<i64>,
+    pub dep: Option<String>,
+    pub arr: Option<String>,
+    pub lat: Option<f64>,
+    pub lon: Option<f64>,
+    pub alt_ft: Option<f64>,
+}
+
+/// Where on a track a moment was: latitude, longitude, altitude (feet),
+/// between the points either side.
+pub fn place_on(track: &[telemetry::TrackPoint], t: i64) -> Option<(f64, f64, f64)> {
+    let first = track.first()?;
+    let last = track.last()?;
+    if t <= first.t_ms {
+        return Some((first.lat, first.lon, first.alt_ft as f64));
+    }
+    if t >= last.t_ms {
+        return Some((last.lat, last.lon, last.alt_ft as f64));
+    }
+    let i = track.partition_point(|p| p.t_ms <= t).max(1);
+    let (a, b) = (&track[i - 1], &track[i]);
+    let f = if b.t_ms > a.t_ms { (t - a.t_ms) as f64 / (b.t_ms - a.t_ms) as f64 } else { 0.0 };
+    Some((a.lat + (b.lat - a.lat) * f, a.lon + (b.lon - a.lon) * f, a.alt_ft as f64 + (b.alt_ft - a.alt_ft) as f64 * f))
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct Imported {
     pub source: String,
@@ -434,6 +466,62 @@ impl Store {
     /// Where a screenshot's file is.
     pub fn screenshot_path(&self, id: i64) -> Result<Option<String>> {
         Ok(self.conn.query_row("SELECT path FROM screenshot WHERE id = ?1", params![id], |r| r.get(0)).optional()?)
+    }
+
+    /// Every screenshot FlightDeck knows, newest first, placed on its
+    /// flight's track (screenshots not in a flight have no place).
+    pub fn photos(&self) -> Result<Vec<Photo>> {
+        let mut st = self.conn.prepare(
+            "SELECT s.id, s.path, s.taken_ms, s.flight_id, f.dep_icao, f.arr_icao
+             FROM screenshot s LEFT JOIN flight f ON f.id = s.flight_id
+             ORDER BY s.taken_ms DESC",
+        )?;
+        let mut out: Vec<Photo> = st
+            .query_map([], |r| {
+                Ok(Photo { id: r.get(0)?, path: r.get(1)?, taken_ms: r.get(2)?, flight_id: r.get(3)?, dep: r.get(4)?, arr: r.get(5)?, lat: None, lon: None, alt_ft: None })
+            })?
+            .collect::<std::result::Result<_, _>>()?;
+        // Each flight's track is read once.
+        let mut tracks: std::collections::HashMap<i64, Vec<telemetry::TrackPoint>> = std::collections::HashMap::new();
+        for p in &mut out {
+            let Some(fid) = p.flight_id else { continue };
+            let track = tracks.entry(fid).or_insert_with(|| {
+                self.conn
+                    .query_row("SELECT points FROM track WHERE flight_id = ?1", params![fid], |r| r.get::<_, Vec<u8>>(0))
+                    .ok()
+                    .and_then(|b| codec::decode(&b).ok())
+                    .unwrap_or_default()
+            });
+            if let Some((lat, lon, alt)) = place_on(track, p.taken_ms) {
+                p.lat = Some(lat);
+                p.lon = Some(lon);
+                p.alt_ft = Some(alt);
+            }
+        }
+        Ok(out)
+    }
+
+    /// Forget a screenshot (its file is the caller's business). Returns its path.
+    pub fn forget_screenshot(&self, id: i64) -> Result<Option<String>> {
+        let path = self.screenshot_path(id)?;
+        self.conn.execute("DELETE FROM screenshot WHERE id = ?1", params![id])?;
+        Ok(path)
+    }
+
+    /// Forget screenshots noted from folders that hold other programs'
+    /// small copies (Steam's "thumbnails", say), noted before those were
+    /// left out.
+    pub fn forget_screenshots_in(&self, folder_names: &[&str]) -> Result<usize> {
+        let mut st = self.conn.prepare("SELECT id, path FROM screenshot")?;
+        let rows: Vec<(i64, String)> = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<std::result::Result<_, _>>()?;
+        let mut n = 0;
+        for (id, path) in rows {
+            let parts: Vec<String> = path.split(['/', '\\']).map(|p| p.to_ascii_lowercase()).collect();
+            if parts.len() > 1 && parts[..parts.len() - 1].iter().any(|p| folder_names.contains(&p.as_str())) {
+                n += self.conn.execute("DELETE FROM screenshot WHERE id = ?1", params![id])?;
+            }
+        }
+        Ok(n)
     }
 
     /// Forget screenshots never part of a flight once they are a few days old.

@@ -112,7 +112,15 @@ MIT licensed.
   flight's track at that moment). Click one to see it full size. The
   pictures are never copied: FlightDeck links to each file where it is, so
   moving, renaming or deleting one breaks its link. Other devices see them
-  too, read from the PC.
+  too, read from the PC. Folders named "thumbnails" (where Steam keeps a
+  small copy of each screenshot) are skipped.
+- **Photos** (left bar): every screenshot, two to a row, grouped by flight,
+  newest first, beside a map that shows nothing but their pins. Pointing at
+  a picture brings out its pin; clicking a picture or a pin opens it full
+  size, with **Delete** (to the Recycle Bin, or only removed from
+  FlightDeck, leaving the file) and **Close**. The small pictures are made
+  on the PC when first shown and kept in memory only, never written to
+  disk. Devices need permission to make changes to delete.
 - **Backup data** (Settings): **Save a backup** writes one .fdbackup file
   with everything FlightDeck keeps (flights and tracks, logbook, hangar
   and its pictures, pilot, passport, settings). A **backup folder** (a

@@ -691,6 +691,27 @@ fn screenshots_join_the_flight_they_were_taken_in() {
 }
 
 #[test]
+fn photos_are_placed_on_their_flight_and_can_be_forgotten() {
+    let mut db = Store::open_in_memory().unwrap();
+    let f = fly(1);
+    let mid = (f.start_ms + f.end_ms) / 2;
+    let a = db.add_screenshot("C:\\Steam\\760\\remote\\2537590\\screenshots\\one.jpg", mid).unwrap().unwrap();
+    db.add_screenshot("C:\\Steam\\760\\remote\\2537590\\screenshots\\thumbnails\\one.jpg", mid + 1).unwrap();
+    let id = db.save_flight(&f, &SaveContext { dep: place("EGLL", "GB"), arr: place("LFPG", "FR"), ..Default::default() }).unwrap();
+    let all = db.photos().unwrap();
+    assert_eq!(all.len(), 2);
+    let p = all.iter().find(|p| p.id == a).unwrap();
+    assert_eq!(p.flight_id, Some(id));
+    assert_eq!(p.dep.as_deref(), Some("EGLL"));
+    assert!(p.lat.is_some() && p.lon.is_some());
+    // Steam's small copies are forgotten; the real picture stays.
+    assert_eq!(db.forget_screenshots_in(&["thumbnails"]).unwrap(), 1);
+    assert_eq!(db.photos().unwrap().len(), 1);
+    assert!(db.forget_screenshot(a).unwrap().unwrap().ends_with("one.jpg"));
+    assert!(db.photos().unwrap().is_empty());
+}
+
+#[test]
 fn backup_holds_everything_and_opens_again() {
     let dir = std::env::temp_dir().join(format!("fd-backup-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();

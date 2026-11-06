@@ -12,6 +12,9 @@ const track: [number, number, number, number, number][] = Array.from({ length: 4
   now - (40 - i) * 30_000,
 ]);
 
+/** Screenshots deleted in this preview. */
+const deletedShots = new Set<number>();
+
 /** A sample SimBrief plan (Nice to Florence), for previews. */
 export const samplePlan: FlightPlan = {
   source: "simbrief", id: "1", generated_ms: now - 25 * 60_000, callsign: "AUA11", airline: "AUA", flight_number: "11",
@@ -298,6 +301,27 @@ export async function mockCall<T>(cmd: string, _args?: Record<string, unknown>):
     const f = Number(_args?.id ?? 0);
     const base = now - 86_400_000 * 2;
     return (f % 2 ? [] : [0, 1, 2].map((i) => ({ id: f * 10 + i, path: `C:\\Users\\you\\Pictures\\Screenshots\\Flight ${f} ${i + 1}.png`, taken_ms: base + (i + 1) * 900_000 }))) as unknown as T;
+  }
+  if (cmd === "photos") {
+    // Three flights' worth around the Pacific Northwest, and one not in a flight.
+    const at: [number, number, number, string, string][] = [
+      [47.6, -122.9, 8500, "KSEA", "KPDX"], [46.9, -122.7, 11000, "KSEA", "KPDX"], [46.1, -122.8, 9000, "KSEA", "KPDX"],
+      [45.9, -121.6, 13000, "KPDX", "KBOI"], [44.6, -118.4, 35000, "KPDX", "KBOI"],
+      [48.5, -123.0, 2500, "KBFI", "KFHR"], [48.52, -122.98, 1500, "KBFI", "KFHR"], [48.4, -122.7, 3500, "KBFI", "KFHR"],
+    ];
+    const list = at.map(([lat, lon, alt, dep, arr], i) => ({
+      id: 500 + i,
+      path: `C:\\Program Files (x86)\\Steam\\userdata\\1234\\760\\remote\\2537590\\screenshots\\2026110${7 - Math.floor(i / 3)}_1${i}2233_1.jpg`,
+      taken_ms: now - (Math.floor(i / 3) * 86_400_000 + (3 - (i % 3)) * 900_000),
+      flight_id: 40 - Math.floor(i / 3),
+      dep, arr, lat, lon, alt_ft: alt,
+    }));
+    list.unshift({ id: 499, path: "C:\\Users\\you\\Pictures\\Screenshots\\Menu.png", taken_ms: now - 300_000, flight_id: null as unknown as number, dep: null as unknown as string, arr: null as unknown as string, lat: null as unknown as number, lon: null as unknown as number, alt_ft: null as unknown as number });
+    return list.filter((p) => !deletedShots.has(p.id)) as unknown as T;
+  }
+  if (cmd === "delete_screenshot") {
+    deletedShots.add(Number(_args?.id));
+    return null as T;
   }
   if (cmd === "screenshots_since") {
     return [{ id: 901, path: "C:\\Users\\you\\Pictures\\Screenshots\\Climb out.png", taken_ms: now - 600_000 }] as T;
