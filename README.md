@@ -18,7 +18,8 @@ MIT licensed.
   aircraft is spawned in the world and sits on the ground for a few
   seconds, unpaused, and you are in it (battery or main bus on, or an
   engine running). The menus never start one, whatever position the sim
-  reports there. It is logged from block out to block in with no clicks.
+  reports there. It is logged with no clicks; flight time counts from wheels
+  up to touchdown.
 - **Start a flight**: on the map, press the amber **Start a flight** button
   at the bottom right; a card slides up over the map with a simple flight
   plan: callsign and flight number, the aircraft (the one in
@@ -125,12 +126,22 @@ MIT licensed.
   (zoom 10 and in), each runway gets a white dashed line carried 10 nm out
   along its approach, labelled with the runway it leads to. Runways come
   from OpenStreetMap, so they show where OpenStreetMap has them.
-- **Flight time**: the logbook counts block out to block in. When the
-  aircraft was not seen taxiing (it started on the runway, or the flight
-  ended on it), it counts from the takeoff roll or to the end of the
-  landing rollout instead, so time sitting on the ground is not logged.
-  Flights recorded before this are corrected once, unless you changed
-  their time yourself.
+- **Flight time**: the logbook, flights, passport and pilot totals count
+  from wheels up to touchdown (the final landing), less time paused in the
+  air. Time taxiing or parked is not logged; block out and block in are
+  still shown. A flight that started in the air counts from its first
+  moment. Flights recorded before this are counted again once, unless you
+  changed their time yourself.
+- **Airports on the map**: pointing at an airport shows its code, name and,
+  when its latest METAR is already known, its flight category (VFR, MVFR,
+  IFR, LIFR); airports without one show none rather than wait.
+  **Right-click** an airport for **Set as origin**, **Set as destination**
+  (they fill in Start a flight on the Map tab) and **Zoom to fit**. The
+  airport clicked is marked by a pulsing amber ring until you zoom right in.
+- **Measure** (left of Airports & Flights): click points on the map to
+  measure a route, leg by leg, in nautical miles with the course of each
+  leg, and the total in miles and kilometres too. Great-circle distances.
+  Backspace or right-click takes back the last point; Escape or Done ends.
 - **Map menus**, beside 2D/3D: **Airports & Flights** (world airports,
   your airports, past routes, runways and taxiways, parked aircraft,
   VATSIM and IVAO), **Weather** (radar, flight category, SIGMETs and

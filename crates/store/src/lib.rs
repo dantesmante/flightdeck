@@ -28,7 +28,7 @@ const MIGRATE_V9: &str = include_str!("migrate_v9.sql");
 const MIGRATE_V10: &str = include_str!("migrate_v10.sql");
 const MIGRATE_V11: &str = include_str!("migrate_v11.sql");
 const MIGRATE_V12: &str = include_str!("migrate_v12.sql");
-const SCHEMA_VERSION: i64 = 12;
+const SCHEMA_VERSION: i64 = 13;
 
 /// The hangar aircraft with this registration (as the pilot sees it), if any.
 pub(crate) fn aircraft_by_reg(conn: &Connection, reg: &str) -> Result<Option<i64>> {
@@ -318,6 +318,11 @@ impl Store {
         }
         if version < 12 {
             conn.execute_batch(&format!("BEGIN; {MIGRATE_V12} PRAGMA user_version = 12; COMMIT;"))?;
+        }
+        if version < 13 {
+            conn.execute_batch("BEGIN;")?;
+            air_time_v13(&conn)?;
+            conn.execute_batch("PRAGMA user_version = 13; COMMIT;")?;
         }
         merge_duplicate_aircraft(&conn)?;
         reclassify_aircraft(&conn)?;
@@ -815,6 +820,57 @@ fn backfill_v2(conn: &Connection) -> Result<()> {
         conn.execute(
             "UPDATE flight SET dep_lat = ?2, dep_lon = ?3, arr_lat = ?4, arr_lon = ?5 WHERE id = ?1",
             params![id, first.map(|p| p.lat), first.map(|p| p.lon), last.map(|p| p.0), last.map(|p| p.1)],
+        )?;
+    }
+    Ok(())
+}
+
+/// Version 13 counts flight time from wheels up to touchdown only. Logbook
+/// lines saved before it counted block out to block in (or the takeoff roll
+/// to the end of the rollout): count them again, unless the pilot changed
+/// the time. Night time follows the shorter span.
+pub(crate) fn air_time_v13(conn: &Connection) -> Result<()> {
+    // (id, start, end, block out, block in, takeoff, landing, paused, total, night, pic, xc)
+    type Row = (i64, i64, i64, Option<i64>, Option<i64>, Option<i64>, Option<i64>, i64, i64, i64, i64, i64);
+    let mut st = conn.prepare(
+        "SELECT f.id, f.start_ms, f.end_ms, f.block_out, f.block_in, f.takeoff, f.landing, f.paused_ms,
+                l.total_min, l.night_min, l.pic_min, l.xc_min
+         FROM flight f JOIN log_entry l ON l.flight_id = f.id
+         WHERE (f.takeoff IS NOT NULL OR f.landing IS NOT NULL) AND l.locked = 0",
+    )?;
+    let rows: Vec<Row> = st
+        .query_map([], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?, r.get(8)?, r.get(9)?, r.get(10)?, r.get(11)?))
+        })?
+        .collect::<std::result::Result<_, _>>()?;
+    let min = |ms: i64| (ms.max(0) as f64 / 60_000.0).round() as i64;
+    for (id, start, end, out, inn, takeoff, landing, paused, total, night, pic, xc) in rows {
+        // What was counted before.
+        let old = match (out, inn) {
+            (Some(o), Some(i)) => min(i - o - paused),
+            _ => {
+                let a = out.or(takeoff.map(|t| (t - 120_000).max(start))).unwrap_or(start);
+                let b = inn.or(landing.map(|l| (l + 300_000).min(end))).unwrap_or(end).max(a);
+                min(b - a - if (a, b) == (start, end) { paused } else { 0 })
+            }
+        };
+        if (total - old).abs() > 1 {
+            continue; // changed by the pilot
+        }
+        let a = takeoff.unwrap_or(start).max(start);
+        let b = landing.unwrap_or(end).min(end).max(a);
+        let mut ev = conn.prepare("SELECT t, kind FROM flight_event WHERE flight_id = ?1 AND kind IN ('paused', 'resumed') ORDER BY t")?;
+        let events: Vec<(i64, String)> = ev.query_map(params![id], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<std::result::Result<_, _>>()?;
+        let new = min(b - a - tracker::paused_within(events.iter().map(|(t, k)| (*t, k.as_str())), a, b));
+        if new == total {
+            continue;
+        }
+        let blob: Option<Vec<u8>> = conn.query_row("SELECT points FROM track WHERE flight_id = ?1", params![id], |r| r.get(0)).optional()?;
+        let track = blob.and_then(|b| codec::decode(&b).ok()).unwrap_or_default();
+        let new_night = if track.is_empty() { night.min(new) } else { night::night_minutes(&track, Some(a), Some(b)).min(night).min(new) };
+        conn.execute(
+            "UPDATE log_entry SET total_min = ?2, night_min = ?3, pic_min = ?4, xc_min = ?5 WHERE flight_id = ?1",
+            params![id, new, new_night, if pic == total { new } else { pic.min(new) }, if xc == total { new } else { xc.min(new) }],
         )?;
     }
     Ok(())

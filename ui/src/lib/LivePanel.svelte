@@ -2,7 +2,7 @@
   import { api, on, type FlightDetail, type Status } from "./api";
   import AltSpeedGraph from "./AltSpeedGraph.svelte";
   import PlanCard from "./PlanCard.svelte";
-  import { fly } from "./flyStore.svelte";
+  import { fly, pick } from "./flyStore.svelte";
   import DivertPanel from "./DivertPanel.svelte";
   import { fromTrack, type Pt } from "./track";
   import { hhmm } from "./format";
@@ -80,6 +80,10 @@
 
   /** A plan is loaded already (from SimBrief or the EFB): fly it. */
   let otherPlan = $state(false);
+  // An airport sent from the map replaces a loaded plan with a new one.
+  $effect(() => {
+    if (pick.spot && status?.plan && !status.armed && !status.live) otherPlan = true;
+  });
   /** The divert list is open. */
   let diverting = $state(false);
   async function startWithPlan() {

@@ -163,7 +163,7 @@
   }
 
   const NAV: { id: View; label: string; icon: string }[] = [
-    { id: "live", label: "Map", icon: "M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2zM9 4v14M15 6v14" },
+    { id: "live", label: "Map", icon: "M4 5.5A2.5 2.5 0 016.5 3H19a2 2 0 012 2v14a2 2 0 01-2 2H6.5A2.5 2.5 0 014 18.5zM4 18.5A2.5 2.5 0 016.5 16H7V3M11.4 7.6a1.3 1.3 0 11-2.6 0 1.3 1.3 0 012.6 0zM10.3 10.5v.01M11.4 12.5v.01M13.1 14v.01M15 15v.01M16.6 16.6l2 2M18.6 16.6l-2 2M15 3c.2 1.6-1 2.6.4 4S19 8.2 21 9.4" },
     { id: "flights", label: "Flights", icon: "M5 4h14v16H5zM8 8h8M8 12h8M8 16h5" },
     { id: "logbook", label: "Logbook", icon: "M4 5h7a2 2 0 012 2v13a2 2 0 00-2-2H4zM20 5h-7a2 2 0 00-2 2v13a2 2 0 012-2h7z" },
     { id: "hangar", label: "Hangar", icon: "M3 20V9l9-5 9 5v11M7 20v-6h10v6M3 20h18" },
@@ -230,7 +230,7 @@
   </nav>
 
   <main class="stage" class:hidden={full}>
-    <Map live={liveTrack} {aircraft} {origin} {history} {routes} parked={parkedShown} highlight={view === "flights" ? hoverFlight : null} onfly={status?.live ? undefined : flyThis} selected={selectedFlight} onroute={showFlight} plan={history ? historyPlan : (status?.plan ?? null)} draft={draftRoute} insetLeft={view === "live" ? inset.l : view === "flights" && !collapsed && !screen.phone ? 396 : 0} insetBottom={view === "live" ? inset.b : 0} initialOn={view === "flights" ? FLIGHTS_LAYERS : NO_LAYERS} shots={mapShots} />
+    <Map live={liveTrack} {aircraft} {origin} {history} {routes} parked={parkedShown} highlight={view === "flights" ? hoverFlight : null} onfly={status?.live ? undefined : flyThis} selected={selectedFlight} onroute={showFlight} plan={history ? historyPlan : (status?.plan ?? null)} draft={draftRoute} insetLeft={view === "live" ? inset.l : view === "flights" && !collapsed && !screen.phone ? 396 : 0} insetBottom={view === "live" ? inset.b : 0} initialOn={view === "flights" ? FLIGHTS_LAYERS : NO_LAYERS} shots={mapShots} planner={view === "live"} />
     {#if view === "live"}
       <MapDock {status} {completed} track={liveTrack} ondismiss={dismiss} onsettings={() => go("settings")} oninset={(l, b) => (inset = { l, b })} />
     {:else if view === "flights"}

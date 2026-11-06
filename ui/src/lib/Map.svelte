@@ -20,6 +20,7 @@
   import { day } from "./format";
   import { modelName } from "./hangar/names";
   import { prefs, setPref } from "./prefs.svelte";
+  import { pick } from "./flyStore.svelte";
   import { altColor, altGradient, altLabel, altRange, lonLat, sideOnBearing, wallFeatures, wallScale, type Pt } from "./track";
 
   interface Props {
@@ -59,6 +60,9 @@
     /** Layers this map shows from the start whatever the saved choice
      * (they can still be switched off here, without changing it). */
     initialOn?: string[];
+    /** Right-click on an airport can send it to the flight planner (the
+     * Map tab, where Start a flight is). */
+    planner?: boolean;
   }
   let {
     live,
@@ -78,6 +82,7 @@
     insetLeft = 0,
     initialOn = [],
     shots: shotList = [],
+    planner = false,
   }: Props = $props();
 
   /** The plan drawn: the real one, or the route being set up. */
@@ -325,6 +330,199 @@
       focusWx = { station: w.station, dir: w.wind_dir, kt: w.wind_kt, gust: w.gust_kt ?? 0, nm: w.distance_nm };
     });
   });
+
+
+  // --- Flight categories for the airport tip -------------------------------
+  // Known ahead (every 10 minutes, from FlightDeck's own METAR cache), so the
+  // tip shows VFR or IFR at once; an airport not in it shows nothing.
+  let cats = new globalThis.Map<string, number>();
+  function loadCats() {
+    if (document.hidden) return;
+    api.wxCategories().then((d) => {
+      if (d?.stations?.length) cats = new globalThis.Map(d.stations.map(([id, , , c]) => [id, c]));
+    }).catch(() => {});
+  }
+
+  // --- Right-click on an airport ------------------------------------------
+  let ctx = $state<{ x: number; y: number; ident: string; name: string; at: [number, number] } | null>(null);
+  async function sendToPlanner(which: "origin" | "dest") {
+    if (!ctx || pick.locked) return;
+    const c = ctx;
+    ctx = null;
+    // The full name and the airport's own position, as the planner's search gives them.
+    const hit = ((await api.searchAirports(c.ident).catch(() => [])) ?? []).find((h) => h.icao === c.ident);
+    pick.which = which;
+    pick.spot = hit ? { icao: hit.icao, name: hit.name, lat: hit.lat, lon: hit.lon } : { icao: c.ident, name: c.name, lat: c.at[1], lon: c.at[0] };
+  }
+  /** The whole airport in view: a box around it as long as its longest
+   * runway, clear of the cards over the map. */
+  async function fitAirport(ident: string, at: [number, number]) {
+    ctx = null;
+    if (!map) return;
+    const card = await api.airportCard(ident).catch(() => null);
+    const longest = Math.max(0, ...(card?.runways ?? []).map((r) => r.length_ft)) * 0.3048;
+    const r = Math.max(longest * 0.75, 700);
+    const lat = card?.lat ?? at[1];
+    const lon = card?.lon ?? at[0];
+    const dLat = r / 111_320;
+    const dLon = r / (111_320 * Math.max(0.2, Math.cos((lat * Math.PI) / 180)));
+    const right = (openAirport || netPick || wxPick ? 372 : 0) + 40;
+    map.fitBounds(
+      [
+        [lon - dLon, lat - dLat],
+        [lon + dLon, lat + dLat],
+      ],
+      { padding: { top: 70, bottom: 40 + insetBottom, left: 40 + insetLeft, right: Math.max(right, 40 + insetRight) }, maxZoom: 16.5, duration: 1200 },
+    );
+  }
+
+  // --- The airport clicked: a pulsing ring around it ----------------------
+  let ringAt = $state<[number, number] | null>(null);
+  let ringMarker: maplibregl.Marker | undefined;
+  /** Zoomed in this far, the airport fills the view and needs no ring. */
+  const RING_HIDE = 13.5;
+  let zoomNow = $state(2);
+  /** The airport the ring was placed for. */
+  let ringFor: string | null = null;
+  $effect(() => {
+    const at = openAirport ? ringAt : null;
+    if (!map || !loaded) return;
+    if (!at) {
+      ringMarker?.remove();
+      ringMarker = undefined;
+      return;
+    }
+    if (!ringMarker) {
+      const d = document.createElement("div");
+      d.className = "ap-ring";
+      d.innerHTML = "<span></span><span></span>";
+      ringMarker = new maplibregl.Marker({ element: d });
+    }
+    ringMarker.setLngLat(at).addTo(map);
+  });
+  $effect(() => {
+    ringMarker?.getElement().classList.toggle("hide", zoomNow >= RING_HIDE);
+  });
+  // A card opened from elsewhere (an online controller's airport): find
+  // where the airport is.
+  $effect(() => {
+    const id = openAirport;
+    if (!id) return;
+    untrack(() => {
+      if (ringFor === id) return;
+      ringAt = null;
+      api.searchAirports(id).then((hits) => {
+        const h = hits?.find((x) => x.icao === id);
+        if (h && openAirport === id && ringFor !== id) {
+          ringFor = id;
+          ringAt = [h.lon, h.lat];
+        }
+      }).catch(() => {});
+    });
+  });
+
+  // --- Measuring ----------------------------------------------------------
+  let measuring = $state(false);
+  let mPts = $state<[number, number][]>([]);
+  let mHover = $state<[number, number] | null>(null);
+  let legMarkers: maplibregl.Marker[] = [];
+  const R_NM = 3440.065;
+  function gcNm(a: [number, number], b: [number, number]) {
+    const rad = Math.PI / 180;
+    const dLat = (b[1] - a[1]) * rad;
+    const dLon = (b[0] - a[0]) * rad;
+    const h = Math.sin(dLat / 2) ** 2 + Math.cos(a[1] * rad) * Math.cos(b[1] * rad) * Math.sin(dLon / 2) ** 2;
+    return 2 * R_NM * Math.asin(Math.min(1, Math.sqrt(h)));
+  }
+  /** Initial true course from a to b, in degrees. */
+  function course(a: [number, number], b: [number, number]) {
+    const rad = Math.PI / 180;
+    const y = Math.sin((b[0] - a[0]) * rad) * Math.cos(b[1] * rad);
+    const x = Math.cos(a[1] * rad) * Math.sin(b[1] * rad) - Math.sin(a[1] * rad) * Math.cos(b[1] * rad) * Math.cos((b[0] - a[0]) * rad);
+    return ((Math.atan2(y, x) / rad + 360) % 360);
+  }
+  const legs = $derived(mPts.slice(1).map((b, i) => ({ nm: gcNm(mPts[i], b), crs: course(mPts[i], b) })));
+  const mTotal = $derived(legs.reduce((t, l) => t + l.nm, 0));
+  const mNext = $derived.by(() => {
+    if (!measuring || !mHover || !mPts.length) return null;
+    const nm = gcNm(mPts[mPts.length - 1], mHover);
+    return nm < 0.05 ? null : { nm, crs: course(mPts[mPts.length - 1], mHover) };
+  });
+  const fmt = (nm: number) => (nm < 10 ? nm.toFixed(1) : Math.round(nm).toLocaleString("en-US"));
+  const crs3 = (c: number) => String(Math.round(c) % 360 || 360).padStart(3, "0");
+  function measureData(): GeoJSON.FeatureCollection {
+    const features: GeoJSON.Feature[] = [];
+    if (mPts.length > 1) {
+      const line: [number, number][] = [mPts[0]];
+      for (let i = 1; i < mPts.length; i++) line.push(...greatCircle(line[line.length - 1], mPts[i], 32).slice(1));
+      features.push({ type: "Feature", properties: { kind: "line" }, geometry: { type: "LineString", coordinates: line } });
+    }
+    if (measuring && mHover && mPts.length && mNext) {
+      features.push({ type: "Feature", properties: { kind: "next" }, geometry: { type: "LineString", coordinates: greatCircle(mPts[mPts.length - 1], mHover, 24) } });
+    }
+    mPts.forEach((p, i) => features.push({ type: "Feature", properties: { kind: "pt", first: i === 0 }, geometry: { type: "Point", coordinates: p } }));
+    return { type: "FeatureCollection", features };
+  }
+  function addMeasureLayers() {
+    if (!map || map.getSource("fd-measure")) return;
+    map.addSource("fd-measure", { type: "geojson", data: measureData() });
+    map.addLayer({ id: "fd-measure-casing", type: "line", source: "fd-measure", filter: ["==", ["get", "kind"], "line"], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#111214", "line-width": 5, "line-opacity": 0.7 } });
+    map.addLayer({ id: "fd-measure-line", type: "line", source: "fd-measure", filter: ["==", ["get", "kind"], "line"], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#f0b23a", "line-width": 2.5 } });
+    map.addLayer({ id: "fd-measure-next", type: "line", source: "fd-measure", filter: ["==", ["get", "kind"], "next"], paint: { "line-color": "#f0b23a", "line-width": 2, "line-dasharray": [2, 2], "line-opacity": 0.8 } });
+    map.addLayer({
+      id: "fd-measure-pts",
+      type: "circle",
+      source: "fd-measure",
+      filter: ["==", ["get", "kind"], "pt"],
+      paint: { "circle-radius": 5, "circle-color": ["case", ["get", "first"], "#f0b23a", "#111214"], "circle-stroke-color": "#f0b23a", "circle-stroke-width": 2 },
+    });
+  }
+  // Redraw the line, and a label on each leg.
+  $effect(() => {
+    const data = measureData();
+    if (!map || !loaded) return;
+    (map.getSource("fd-measure") as GeoJSONSource | undefined)?.setData(data);
+  });
+  $effect(() => {
+    const ls = legs;
+    const pts = mPts;
+    if (!map || !loaded) return;
+    for (const m of legMarkers) m.remove();
+    legMarkers = ls.map((l, i) => {
+      const mid = greatCircle(pts[i], pts[i + 1], 2)[1];
+      const d = document.createElement("div");
+      d.className = "leg-label";
+      d.textContent = `${fmt(l.nm)} nm · ${crs3(l.crs)}°`;
+      return new maplibregl.Marker({ element: d }).setLngLat(mid).addTo(map!);
+    });
+  });
+  function setMeasuring(on: boolean) {
+    measuring = on;
+    mHover = null;
+    if (on) {
+      ctx = null;
+      hoverTip = null;
+    }
+    if (!map) return;
+    map.getCanvas().style.cursor = on ? "crosshair" : "";
+    if (on) map.doubleClickZoom.disable();
+    else map.doubleClickZoom.enable();
+  }
+  function clearMeasure() {
+    mPts = [];
+    mHover = null;
+  }
+  function measureKey(e: KeyboardEvent) {
+    if (ctx && e.key === "Escape") ctx = null;
+    if (!measuring) return;
+    const t = e.target as HTMLElement | null;
+    if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+    if (e.key === "Escape") setMeasuring(false);
+    else if (e.key === "Backspace" || (e.key === "z" && (e.ctrlKey || e.metaKey))) {
+      e.preventDefault();
+      mPts = mPts.slice(0, -1);
+    }
+  }
 
   /** "Zoom to" in an airport's card. */
   function zoomToAirport(a: { ident: string; lon: number; lat: number }) {
@@ -1098,7 +1296,9 @@
     map.on("style.load", () => {
       tint();
       addOverlays();
+      addMeasureLayers();
       loaded = true;
+      if (!cats.size) loadCats();
       // The credits start folded to their (i) button: open, they run across the map.
       el.querySelector(".maplibregl-ctrl-attrib")?.classList.remove("maplibregl-compact-show");
     });
@@ -1133,7 +1333,7 @@
         map.getCanvas().style.cursor = "pointer";
         const p = f.properties as { label: string; sub: string };
         // An airport under the pointer has its own tip.
-        if (airportAt(e.point)) return;
+        if (measuring || airportAt(e.point)) return;
         hoverTip = { x: e.point.x, y: e.point.y, label: p.label, sub: p.sub, hint: "Click for flight details" };
       });
       map.on("mouseleave", layer, clearHover);
@@ -1141,7 +1341,7 @@
         const f = e.features?.[0];
         clearHover();
         // An airport or online pilot under the pointer wins over a route.
-        if (airportAt(e.point)) return;
+        if (measuring || airportAt(e.point)) return;
         const n = netAt(e.point);
         if (n && n.kind !== "area") return;
         if (f?.id != null) onroute?.(Number(f.id));
@@ -1153,13 +1353,45 @@
         const f = e.features?.[0];
         const p = f?.properties as { id?: string; name?: string; ident?: string } | undefined;
         const ident = p?.id ?? p?.ident;
-        if (!ident || !map) return;
+        if (!ident || !map || measuring) return;
         map.getCanvas().style.cursor = "pointer";
-        hoverTip = { x: e.point.x, y: e.point.y, label: ident, sub: p?.name ?? "", hint: "Click for airport info" };
+        hoverTip = { x: e.point.x, y: e.point.y, label: ident, sub: p?.name ?? "", hint: "Click for airport info", cat: cats.get(ident) ?? null, more: "Right-click for flight options" };
       });
-      map.on("mouseleave", layer, clearHover);
+      map.on("mouseleave", layer, () => {
+        clearHover();
+        if (measuring && map) map.getCanvas().style.cursor = "crosshair";
+      });
     }
+    // Right-click on an airport: send it to the planner, or fit it in view.
+    map.on("contextmenu", (e) => {
+      if (measuring) {
+        // While measuring, a right-click takes back the last point.
+        mPts = mPts.slice(0, -1);
+        return;
+      }
+      const hit = airportHit(e.point);
+      if (!hit) {
+        ctx = null;
+        return;
+      }
+      clearHover();
+      const f = map!.queryRenderedFeatures([[e.point.x - 5, e.point.y - 5], [e.point.x + 5, e.point.y + 5]], {
+        layers: AIRPORT_LAYERS.filter((l) => map!.getLayer(l)),
+      });
+      const name = f.map((x) => (x.properties as { name?: string }).name).find((n) => !!n) ?? "";
+      ctx = { x: e.point.x, y: e.point.y, ident: hit.ident, name, at: hit.at };
+    });
+    map.on("mousemove", (e) => {
+      if (measuring) mHover = [e.lngLat.lng, e.lngLat.lat];
+    });
+    map.on("mouseout", () => (mHover = null));
+    map.on("zoom", () => (zoomNow = map!.getZoom()));
     map.on("click", (e) => {
+      ctx = null;
+      if (measuring) {
+        mPts = [...mPts, [e.lngLat.lng, e.lngLat.lat]];
+        return;
+      }
       const hit = airportHit(e.point);
       if (!hit) {
         // Online network: a pilot, a staffed airport or a controlled area.
@@ -1187,6 +1419,8 @@
         netPick = null;
         wxPick = null;
         openAirport = hit.ident;
+        ringFor = hit.ident;
+        ringAt = hit.at;
         // Bring the airport to the middle of the part of the map the card
         // leaves free, a little closer in.
         // The card is 340 px wide, 16 px in from the left.
@@ -1203,7 +1437,10 @@
       map.on("mouseenter", layer, () => (map!.getCanvas().style.cursor = "pointer"));
       map.on("mouseleave", layer, () => (map!.getCanvas().style.cursor = ""));
     }
-    map.on("movestart", () => (hoverTip = null));
+    map.on("movestart", () => {
+      hoverTip = null;
+      ctx = null;
+    });
     map.on("zoomend", () => {
       if (windFocus && map!.getZoom() < 8) windFocus = null;
     });
@@ -1242,7 +1479,13 @@
     return () => document.removeEventListener("visibilitychange", vis);
   });
 
-  onDestroy(() => map?.remove());
+  const catTimer = setInterval(loadCats, 10 * 60_000);
+  onDestroy(() => {
+    clearInterval(catTimer);
+    for (const m of legMarkers) m.remove();
+    ringMarker?.remove();
+    map?.remove();
+  });
 
   function setLine(pts: Pt[]) {
     const src = map?.getSource("track") as GeoJSONSource | undefined;
@@ -1476,7 +1719,7 @@
   let parkedPopups: maplibregl.Popup[] = [];
   let parkedKey: string | null = null;
   /** The route under the pointer, for the hover tip. */
-  let hoverTip = $state<{ x: number; y: number; label: string; sub: string; hint: string } | null>(null);
+  let hoverTip = $state<{ x: number; y: number; label: string; sub: string; hint: string; cat?: number | null; more?: string } | null>(null);
   let mapW = $state(0);
   $effect(() => {
     const list = parked;
@@ -1579,10 +1822,69 @@
   style:top="{hoverTip?.y ?? 0}px"
   class:below={(hoverTip?.y ?? 100) < 90}
 >
-  <strong>{hoverTip?.label ?? ""}</strong>
+  <div class="tip-head">
+    <strong>{hoverTip?.label ?? ""}</strong>
+    {#if hoverTip?.cat != null && CATEGORY[hoverTip.cat]}
+      <b class="cat" style:--c={CATEGORY[hoverTip.cat].color}>{CATEGORY[hoverTip.cat].name}</b>
+    {/if}
+  </div>
   <span>{hoverTip?.sub ?? ""}</span>
   <em>{hoverTip?.hint ?? ""}</em>
+  {#if hoverTip?.more}<small>{hoverTip.more}</small>{/if}
 </div>
+<svelte:window onkeydown={measureKey} />
+{#if ctx}
+  <div
+    class="ctx"
+    role="menu"
+    aria-label="Flight options for {ctx.ident}"
+    style:left="{Math.min(ctx.x, mapW - 236)}px"
+    style:top="{ctx.y}px"
+  >
+    <header><strong>{ctx.ident}</strong>{#if ctx.name}<span>{ctx.name}</span>{/if}</header>
+    {#if planner}
+      <button role="menuitem" disabled={pick.locked} onclick={() => sendToPlanner("origin")}>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4" /><path d="M12 2v4M12 18v4M2 12h4M18 12h4" /></svg>Set as origin
+      </button>
+      <button role="menuitem" disabled={pick.locked} onclick={() => sendToPlanner("dest")}>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 21V4h11l-2 4 2 4H5" /></svg>Set as destination
+      </button>
+      {#if pick.locked}<p>A flight is under way: the plan is set.</p>{/if}
+    {/if}
+    <button role="menuitem" onclick={() => ctx && fitAirport(ctx.ident, ctx.at)}>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" /><circle cx="12" cy="12" r="2.5" /></svg>Zoom to fit
+    </button>
+  </div>
+{/if}
+{#if measuring || mPts.length > 1}
+  <div class="measure" style:--ml="{insetLeft}px" style:--mr="{openAirport || netPick || wxPick ? Math.max(372, insetRight) : insetRight}px" style:bottom="{16 + insetBottom}px">
+    <div class="m-total">
+      <span class="num big">{fmt(mTotal + (mNext?.nm ?? 0))}<small>nm</small></span>
+      <span class="num alt">{fmt((mTotal + (mNext?.nm ?? 0)) * 1.150779)} mi · {fmt((mTotal + (mNext?.nm ?? 0)) * 1.852)} km</span>
+    </div>
+    <div class="m-sub">
+      {#if !mPts.length}
+        Click the map to start measuring.
+      {:else if mNext}
+        {legs.length ? `${legs.length} leg${legs.length > 1 ? "s" : ""} + ` : ""}next {fmt(mNext.nm)} nm, course {crs3(mNext.crs)}°
+      {:else if measuring}
+        {legs.length} leg{legs.length === 1 ? "" : "s"}. Click to add a point; right-click takes one back.
+      {:else}
+        {legs.length} leg{legs.length === 1 ? "" : "s"}, great-circle distance
+      {/if}
+    </div>
+    <div class="m-act">
+      {#if mPts.length}<button onclick={() => (mPts = mPts.slice(0, -1))} title="Take back the last point (Backspace)">Undo</button>{/if}
+      {#if mPts.length}<button onclick={clearMeasure}>Clear</button>{/if}
+      {#if measuring}
+        <button class="done" onclick={() => setMeasuring(false)}>Done</button>
+      {:else}
+        <button onclick={() => setMeasuring(true)}>Add points</button>
+        <button class="done" onclick={clearMeasure}>Close</button>
+      {/if}
+    </div>
+  </div>
+{/if}
 {#if aircraft && !follow && !history}
   <button class="follow" style:left="{16 + insetLeft}px" onclick={() => (follow = true)}>Follow aircraft</button>
 {/if}
@@ -1598,6 +1900,9 @@
   ondetail={(d) => setPref("map_airport_detail", String(d))}
   windLevel={windPref}
   onwindlevel={(l) => setPref("map_wind_level", l)}
+  cardOpen={!!(openAirport || (netPick && !openAirport) || (wxPick && !openAirport && !netPick))}
+  {measuring}
+  onmeasure={() => setMeasuring(!measuring)}
 />
 {#if wxPick && !openAirport && !netPick}
   <WxCard item={wxPick} onclose={() => (wxPick = null)} />
@@ -1800,6 +2105,220 @@
     font-style: normal;
     font-size: 11px;
     color: var(--amber);
+  }
+  .tip-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .hover-tip .cat {
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-family: var(--cond);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: var(--c);
+    background: color-mix(in srgb, var(--c) 16%, transparent);
+    border: 1px solid color-mix(in srgb, var(--c) 55%, transparent);
+  }
+  .hover-tip small {
+    font-size: 10.5px;
+    color: var(--ink-faint);
+  }
+  @media (hover: none) {
+    .hover-tip small {
+      display: none;
+    }
+  }
+
+  /* Right-click menu on an airport. */
+  .ctx {
+    position: absolute;
+    z-index: 7;
+    width: 220px;
+    margin: 6px 0 0 6px;
+    padding: 6px;
+    border-radius: 10px;
+    background: rgba(28, 30, 33, 0.97);
+    border: 1px solid var(--rule);
+    box-shadow: 0 14px 34px rgba(0, 0, 0, 0.5);
+  }
+  .ctx header {
+    display: grid;
+    padding: 4px 8px 6px;
+    border-bottom: 1px solid var(--rule);
+    margin-bottom: 4px;
+  }
+  .ctx header strong {
+    font-family: var(--cond);
+    font-size: 17px;
+  }
+  .ctx header span {
+    font-size: 12px;
+    color: var(--ink-dim);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .ctx button {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    width: 100%;
+    padding: 8px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--ink);
+    font-size: 14px;
+    text-align: left;
+  }
+  .ctx button:hover:not(:disabled) {
+    background: rgba(240, 178, 58, 0.14);
+    color: var(--amber);
+  }
+  .ctx button:disabled {
+    color: var(--ink-faint);
+  }
+  .ctx svg {
+    width: 17px;
+    height: 17px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .ctx p {
+    margin: 2px 8px 6px;
+    font-size: 11.5px;
+    color: var(--ink-faint);
+  }
+
+  /* The airport clicked: an amber ring that pulses outward. Only opacity
+     and scale change, which the browser composites cheaply. */
+  .map :global(.ap-ring) {
+    width: 46px;
+    height: 46px;
+    pointer-events: none;
+    transition: opacity 0.3s;
+  }
+  .map :global(.ap-ring.hide) {
+    opacity: 0;
+  }
+  .map :global(.ap-ring span) {
+    position: absolute;
+    inset: 0;
+    border: 2.5px solid #f0b23a;
+    border-radius: 50%;
+    box-shadow: 0 0 8px rgba(240, 178, 58, 0.5);
+    animation: ap-pulse 1.8s ease-out infinite;
+  }
+  .map :global(.ap-ring span + span) {
+    animation-delay: 0.9s;
+  }
+  .map :global(.ap-ring.hide span) {
+    animation-play-state: paused;
+  }
+  @keyframes ap-pulse {
+    0% {
+      transform: scale(0.45);
+      opacity: 1;
+    }
+    100% {
+      transform: scale(1.5);
+      opacity: 0;
+    }
+  }
+
+  /* Measuring: a label on each leg and the total along the bottom. */
+  .map :global(.leg-label) {
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: rgba(17, 18, 20, 0.88);
+    border: 1px solid rgba(240, 178, 58, 0.6);
+    color: #f6d58f;
+    font-family: var(--cond);
+    font-size: 13px;
+    font-weight: 600;
+    white-space: nowrap;
+    pointer-events: none;
+  }
+  .measure {
+    position: absolute;
+    z-index: 5;
+    left: calc(var(--ml) + (100% - var(--ml) - var(--mr)) / 2);
+    transform: translateX(-50%);
+    display: grid;
+    grid-template-columns: auto auto;
+    align-items: center;
+    gap: 2px 18px;
+    width: max-content;
+    max-width: calc(100% - var(--ml) - var(--mr) - 24px);
+    padding: 10px 14px;
+    border-radius: 12px;
+    background: rgba(28, 30, 33, 0.94);
+    border: 1px solid var(--rule);
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
+  }
+  .m-total {
+    display: grid;
+  }
+  .m-total .big {
+    font-family: var(--cond);
+    font-size: 26px;
+    font-weight: 600;
+    color: var(--amber);
+    line-height: 1.1;
+  }
+  .m-total .big small {
+    margin-left: 4px;
+    font-size: 14px;
+    color: var(--ink-dim);
+  }
+  .m-total .alt {
+    font-size: 12px;
+    color: var(--ink-dim);
+  }
+  .m-sub {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    font-size: 12px;
+    color: var(--ink-faint);
+  }
+  .m-act {
+    display: flex;
+    gap: 6px;
+    justify-self: end;
+  }
+  .m-act button {
+    padding: 6px 11px;
+    border-radius: 7px;
+    border: 1px solid var(--rule);
+    background: transparent;
+    color: var(--ink-dim);
+    font-size: 13px;
+  }
+  .m-act button:hover {
+    color: var(--ink);
+    border-color: var(--ink-faint);
+  }
+  .m-act .done {
+    background: var(--amber);
+    border-color: var(--amber);
+    color: #1b1406;
+    font-weight: 600;
+  }
+  @media (max-width: 640px) {
+    .measure {
+      left: 10px;
+      right: 10px;
+      transform: none;
+      width: auto;
+      max-width: none;
+    }
   }
   .keys {
     position: absolute;

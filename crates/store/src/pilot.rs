@@ -258,10 +258,10 @@ impl Store {
         let by_month: HashMap<String, (i64, i64)> = {
             let mut st = c.prepare(
                 // Every flight counts, recorded or imported; one whose
-                // logbook line has no time uses its block (or start to end) time.
+                // logbook line has no time uses wheels up to touchdown (or start to end).
                 "SELECT strftime('%Y-%m', f.start_ms / 1000, 'unixepoch'),
                         COALESCE(SUM(CASE WHEN COALESCE(l.total_min, 0) > 0 THEN l.total_min
-                                          ELSE MAX(0, (COALESCE(f.block_in, f.end_ms) - COALESCE(f.block_out, f.start_ms)) / 60000) END), 0),
+                                          ELSE MAX(0, (COALESCE(f.landing, f.end_ms) - COALESCE(f.takeoff, f.start_ms)) / 60000) END), 0),
                         COUNT(*)
                  FROM flight f LEFT JOIN log_entry l ON l.flight_id = f.id
                  GROUP BY 1",

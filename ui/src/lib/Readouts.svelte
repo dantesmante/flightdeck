@@ -15,10 +15,13 @@
     return () => clearInterval(id);
   });
 
+  // Flight time counts wheels up to touchdown, as the logbook does;
+  // before takeoff, the time since block out.
   const elapsed = $derived.by(() => {
     if (!live) return "–";
-    const from = live.block_out_ms ?? live.start_ms;
-    return hhmm(((t?.t_ms ?? now) - from) / 60000);
+    const stop = live.last_landing && !live.last_landing.touch_and_go && live.takeoff_ms && live.last_landing.t_ms > live.takeoff_ms ? live.last_landing.t_ms : (t?.t_ms ?? now);
+    const from = live.takeoff_ms ?? live.block_out_ms ?? live.start_ms;
+    return hhmm((stop - from) / 60000);
   });
 
   const items = $derived([
@@ -27,7 +30,7 @@
     { label: "Vertical speed", value: t ? signed(Math.abs(t.vs_fpm) < 50 ? 0 : t.vs_fpm) : "–", unit: "fpm" },
     { label: "Heading", value: heading(t?.hdg_true_deg), unit: "°T" },
     { label: "Distance flown", value: distance(live?.distance_nm).value, unit: distance(live?.distance_nm).unit },
-    { label: live?.block_out_ms ? "Block time" : "Time", value: elapsed, unit: "" },
+    { label: live?.takeoff_ms ? "Flight time" : live?.block_out_ms ? "Since block out" : "Time", value: elapsed, unit: "" },
   ]);
 </script>
 

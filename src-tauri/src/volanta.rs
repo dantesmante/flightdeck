@@ -526,13 +526,14 @@ mod tests {
         let mut db = store::Store::open_in_memory().unwrap();
         db.save_flight(&p.summary, &p.ctx).unwrap();
         let stats = db.pilot_stats(t0 + 10 * 86_400_000).unwrap();
-        assert_eq!(stats.months.iter().map(|m| m.minutes).sum::<i64>(), 60, "{:?}", stats.months);
-        // A flight whose logbook line has no time still counts its block time.
-        let mut q = parse(&text.replace("\"id\":\"abc\"", "\"id\":\"def\""), &refdata).unwrap();
-        q.summary.paused_ms = 10 * 3_600_000;
-        db.save_flight(&q.summary, &q.ctx).unwrap();
+        // Wheels up (position 5) to touchdown (position 116): 55.5 minutes.
+        assert_eq!(stats.months.iter().map(|m| m.minutes).sum::<i64>(), 56, "{:?}", stats.months);
+        // A flight whose logbook line has no time still counts its time in the air.
+        let q = parse(&text.replace("\"id\":\"abc\"", "\"id\":\"def\""), &refdata).unwrap();
+        let id = db.save_flight(&q.summary, &q.ctx).unwrap();
+        db.update_log_entry(id, &store::book::LogPatch { total_min: Some(0), ..Default::default() }).unwrap();
         let stats = db.pilot_stats(t0 + 10 * 86_400_000).unwrap();
-        assert_eq!(stats.months.iter().map(|m| m.minutes).sum::<i64>(), 120);
+        assert_eq!(stats.months.iter().map(|m| m.minutes).sum::<i64>(), 56 + 55);
     }
 
     #[test]

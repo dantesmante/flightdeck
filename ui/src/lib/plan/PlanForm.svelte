@@ -2,8 +2,8 @@
   // A simple flight plan: callsign, aircraft, origin, destination and
   // alternate, typed in or imported from SimBrief. Used to start a flight,
   // and mid-flight to add a plan.
-  import { onDestroy, onMount } from "svelte";
-  import { draft } from "../flyStore.svelte";
+  import { onDestroy, onMount, untrack } from "svelte";
+  import { draft, pick } from "../flyStore.svelte";
   import { api, type FlightPlan, type HangarItem } from "../api";
   import { modelName } from "../hangar/names";
   import { distance, prefs } from "../prefs.svelte";
@@ -43,6 +43,20 @@
     if (mode !== "start") return;
     draft.origin = origin;
     draft.dest = dest;
+  });
+  // An airport sent from the map's right-click menu.
+  $effect(() => {
+    const spot = pick.spot;
+    const which = pick.which;
+    if (mode !== "start" || !spot || !which) return;
+    untrack(() => {
+      if (which === "origin") {
+        origin = spot;
+        originAuto = false;
+      } else dest = spot;
+      pick.spot = null;
+      pick.which = null;
+    });
   });
   onDestroy(() => {
     if (mode !== "start") return;

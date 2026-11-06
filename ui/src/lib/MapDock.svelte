@@ -5,7 +5,7 @@
   import { cubicOut } from "svelte/easing";
   import { fly as slide } from "svelte/transition";
   import type { FlightDetail, Status } from "./api";
-  import { fly } from "./flyStore.svelte";
+  import { fly, pick } from "./flyStore.svelte";
   import LivePanel from "./LivePanel.svelte";
   import Logo from "./Logo.svelte";
   import { screen } from "./phone.svelte";
@@ -34,6 +34,13 @@
   // "Fly this aircraft" on the map opens the card with that aircraft.
   $effect(() => {
     if (fly.item) open = true;
+  });
+  // An airport sent from the map's right-click menu opens the planner.
+  $effect(() => {
+    pick.locked = busy || !!status?.armed;
+  });
+  $effect(() => {
+    if (pick.spot && !pick.locked) open = true;
   });
   // A flight started (or a plan loaded) elsewhere, like the EFB or a phone:
   // show it.

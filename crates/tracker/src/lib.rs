@@ -166,31 +166,45 @@ impl FlightSummary {
         Some(((b - a).max(0)) as f64 / 60_000.0)
     }
 
-    /// The span the logbook counts: block out to block in. When one is
-    /// missing (the aircraft was not seen taxiing, say it started on the
-    /// runway or the flight ended on it), the takeoff roll or the landing
-    /// rollout stands in, so time sitting on the ground before or after is
-    /// not counted. Without a takeoff it is the whole recording.
+    /// The span the logbook counts: wheels up to touchdown (the final
+    /// landing). A flight that started in the air counts from the first
+    /// sample, one that ended in the air to the last. Time on the ground,
+    /// taxiing or parked, is never counted.
     pub fn counted_span(&self) -> (i64, i64) {
-        const ROLL_MS: i64 = 2 * 60_000;
-        const ROLLOUT_MS: i64 = 5 * 60_000;
-        let out = self.block_out_ms.or(self.takeoff_ms.map(|t| (t - ROLL_MS).max(self.start_ms))).unwrap_or(self.start_ms);
-        let inn = self.block_in_ms.or(self.landing_ms.map(|l| (l + ROLLOUT_MS).min(self.end_ms))).unwrap_or(self.end_ms);
-        (out, inn.max(out))
+        let a = self.takeoff_ms.unwrap_or(self.start_ms).max(self.start_ms);
+        let b = self.landing_ms.unwrap_or(self.end_ms).min(self.end_ms);
+        (a, b.max(a))
     }
 
-    /// Best available duration for the logbook: block time, else the
-    /// counted span (see counted_span), without time paused.
+    /// Flight time for the logbook in minutes: the counted span (see
+    /// counted_span) less time paused within it.
     pub fn total_minutes(&self) -> f64 {
-        if let Some(m) = self.block_minutes() {
-            return m;
-        }
         let (a, b) = self.counted_span();
-        // Pauses are only known for the whole recording: take them off only
-        // when the whole recording is counted.
-        let paused = if (a, b) == (self.start_ms, self.end_ms) { self.paused_ms } else { 0 };
+        let paused = paused_within(self.events.iter().map(|e| (e.t_ms, e.kind.as_str())), a, b);
         ((b - a - paused).max(0)) as f64 / 60_000.0
     }
+}
+
+/// Time paused between a and b, from a flight's "paused" and "resumed"
+/// events in time order. A pause still open at the end runs to b.
+pub fn paused_within<'a>(events: impl IntoIterator<Item = (i64, &'a str)>, a: i64, b: i64) -> i64 {
+    let mut total = 0;
+    let mut since: Option<i64> = None;
+    for (t, kind) in events {
+        match kind {
+            "paused" if since.is_none() => since = Some(t),
+            "resumed" => {
+                if let Some(p) = since.take() {
+                    total += (t.min(b) - p.max(a)).max(0);
+                }
+            }
+            _ => {}
+        }
+    }
+    if let Some(p) = since {
+        total += (b - p.max(a)).max(0);
+    }
+    total
 }
 
 /// What the tracker reports after each sample.

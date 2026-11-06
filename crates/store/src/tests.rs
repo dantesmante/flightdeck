@@ -632,33 +632,40 @@ fn cross_country_follows_the_definition() {
 }
 
 #[test]
-fn ground_time_without_block_times_is_not_counted() {
-    // Sat on the ground two hours before taking off from the runway, and the
-    // flight ended a while after landing, with no taxi seen either way.
+fn only_wheels_up_to_touchdown_is_counted() {
+    // Taxied out, sat at the hold, flew, landed and taxied in: only the
+    // flying counts, less a pause in the air.
     let mut f = fly(1);
     let takeoff = f.takeoff_ms.unwrap();
     let landing = f.landing_ms.unwrap();
-    f.block_out_ms = None;
-    f.block_in_ms = None;
+    f.block_out_ms = Some(takeoff - 40 * 60_000);
+    f.block_in_ms = Some(landing + 15 * 60_000);
     f.start_ms = takeoff - 2 * 3_600_000;
     f.end_ms = landing + 40 * 60_000;
-    f.paused_ms = 0;
-    let want = ((landing + 5 * 60_000) - (takeoff - 2 * 60_000)) as f64 / 60_000.0;
+    f.paused_ms = 25 * 60_000;
+    let ev = |t: i64, k: &str| tracker::FlightEvent { t_ms: t, kind: k.into(), data: serde_json::Value::Null };
+    f.events.retain(|e| e.kind != "paused" && e.kind != "resumed");
+    f.events.push(ev(takeoff - 30 * 60_000, "paused")); // on the ground: not counted anyway
+    f.events.push(ev(takeoff - 10 * 60_000, "resumed"));
+    f.events.push(ev(takeoff + 10 * 60_000, "paused")); // in the air: taken off
+    f.events.push(ev(takeoff + 15 * 60_000, "resumed"));
+    f.events.sort_by_key(|e| e.t_ms);
+    let want = (landing - takeoff - 5 * 60_000) as f64 / 60_000.0;
     assert!((f.total_minutes() - want).abs() < 0.01, "{} vs {want}", f.total_minutes());
 
-    // A flight saved before this was counted start to end; the upgrade fixes it.
+    // A flight saved before this counted block out to block in; the upgrade fixes it.
     let mut db = Store::open_in_memory().unwrap();
     let id = db.save_flight(&f, &SaveContext::default()).unwrap();
-    let whole = ((f.end_ms - f.start_ms) as f64 / 60_000.0).round() as i64;
-    db.conn.execute("UPDATE log_entry SET total_min = ?2, pic_min = ?2 WHERE flight_id = ?1", params![id, whole]).unwrap();
-    db.conn.execute_batch(MIGRATE_V11).unwrap();
+    let block = (((landing + 15 * 60_000) - (takeoff - 40 * 60_000) - f.paused_ms) as f64 / 60_000.0).round() as i64;
+    db.conn.execute("UPDATE log_entry SET total_min = ?2, pic_min = ?2 WHERE flight_id = ?1", params![id, block]).unwrap();
+    air_time_v13(&db.conn).unwrap();
     let (total, pic): (i64, i64) =
         db.conn.query_row("SELECT total_min, pic_min FROM log_entry WHERE flight_id = ?1", [id], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
     assert_eq!(total, want.round() as i64);
     assert_eq!(pic, total);
     // A line the pilot changed is left alone.
     db.conn.execute("UPDATE log_entry SET total_min = 999 WHERE flight_id = ?1", [id]).unwrap();
-    db.conn.execute_batch(MIGRATE_V11).unwrap();
+    air_time_v13(&db.conn).unwrap();
     let total: i64 = db.conn.query_row("SELECT total_min FROM log_entry WHERE flight_id = ?1", [id], |r| r.get(0)).unwrap();
     assert_eq!(total, 999);
 }
