@@ -79,11 +79,11 @@
 <style>
   .wc {
     position: absolute;
-    top: 16px;
-    left: 16px;
+    top: 74px;
+    right: 16px;
     width: 340px;
     max-width: calc(100% - 32px);
-    max-height: calc(100% - 32px);
+    max-height: calc(100% - 90px);
     overflow-y: auto;
     scrollbar-width: thin;
     z-index: 4;
@@ -166,5 +166,16 @@
     margin: 10px 0 0;
     color: var(--ink-faint);
     font-size: 11px;
+  }
+  /* Phones: across the screen, under the map's menus. */
+  @media (max-width: 640px) {
+    .wc {
+      top: 58px;
+      left: 10px;
+      right: 10px;
+      width: auto;
+      max-width: none;
+      max-height: calc(100% - 120px);
+    }
   }
 </style>

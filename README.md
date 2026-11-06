@@ -97,6 +97,21 @@ MIT licensed.
   complete it is depends on OpenStreetMap (very good at large
   airports, patchy at small fields) and it shows the real airport, which
   may differ from the sim's scenery.
+- **Divert**: during a flight with a plan (SimBrief or Start a flight),
+  **Divert flight** lists the three nearest airports fit to land at (large
+  and regional airports with a hard runway of at least 2,000 ft, so no
+  grass strips or short fields), with distance, direction and longest
+  runway, or takes any airport you type. The plan's destination becomes
+  that airport (the map's planned line follows) and the logbook line notes
+  "Diverted from" the airport first planned.
+- **Screenshots**: choose your screenshots folder in Settings, Preferences.
+  FlightDeck watches it (and its sub-folders) for new pictures; one taken
+  during a flight joins that flight, shows in the flight's card and the
+  live card, and is pinned on the map where it was taken (from the
+  flight's track at that moment). Click one to see it full size. The
+  pictures are never copied: FlightDeck links to each file where it is, so
+  moving, renaming or deleting one breaks its link. Other devices see them
+  too, read from the PC.
 - **Flight time**: the logbook counts block out to block in. When the
   aircraft was not seen taxiing (it started on the runway, or the flight
   ended on it), it counts from the takeoff roll or to the end of the
@@ -108,8 +123,10 @@ MIT licensed.
   VATSIM and IVAO), **Weather** (radar, flight category, SIGMETs and
   AIRMETs, wind, airport wind) and **Layers** (the map itself: 3D flight,
   day/night, satellite, topographic, borders).
-- **Flights** page: the list of flights is a card floating over the map
-  (put it away with its arrow to see the whole map), and the map shows
+- **Flights** page: the list of flights is a card floating over the left
+  of the map, a little see-through (put it away with its arrow to see the
+  whole map); it opens on the list whenever you come to it from another
+  page, and the map shows
   your past routes and airports there whatever the map's own setting.
 - **Map layers**: 3D flight, a live day/night line, **satellite**
   imagery (Esri World Imagery), **topographic** relief shading with

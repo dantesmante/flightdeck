@@ -171,10 +171,6 @@
   </div>
 {/snippet}
 
-{#snippet aerowayNote()}
-  <span class="note">Zoom in on an airport</span>
-{/snippet}
-
 {#snippet windNote()}
   <span class="note">{on.has("wind") ? (WIND_LEVELS.find((l) => l.id === windLevel)?.label ?? "Auto") : "Moving flow"}</span>
 {/snippet}
@@ -245,7 +241,7 @@
       {@render card("world", "World airports", on.has("world"), () => ontoggle("world"))}
       {@render card("airports", "Your airports", on.has("airports"), () => ontoggle("airports"))}
       {@render card("routes", "Past routes", on.has("routes"), () => ontoggle("routes"))}
-      {@render card("aeroway", "Runways and taxiways", !on.has("aeroway-off"), () => ontoggle("aeroway-off"), aerowayNote)}
+      {@render card("aeroway", "Runways", !on.has("aeroway-off"), () => ontoggle("aeroway-off"))}
       {#if parkedLayer}
         {@render card("parked", "Parked aircraft", on.has("parked"), () => ontoggle("parked"))}
       {/if}
@@ -572,6 +568,16 @@
     font-size: 10.5px;
     line-height: 1.4;
     color: var(--ink-faint);
+  }
+  /* Tablets and narrow windows: the menu buttons show their icons only, so
+     they stay clear of the cards on the left. */
+  @media (max-width: 1100px) {
+    .layers-btn span {
+      display: none;
+    }
+    .layers-btn {
+      padding: 0 11px;
+    }
   }
   /* Phones: the menu buttons show their icons only, and a menu opens the
      full width of the screen. */

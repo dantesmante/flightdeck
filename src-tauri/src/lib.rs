@@ -7,6 +7,7 @@ mod engine;
 mod photos;
 mod efb;
 mod networks;
+mod screenshots;
 mod winds;
 mod wx;
 mod remote;
@@ -28,8 +29,8 @@ use tauri::{Emitter, Manager};
 use telemetry::TrackPoint;
 use tracker::LandingReport;
 
-struct AppState {
-    db: Arc<Mutex<Store>>,
+pub(crate) struct AppState {
+    pub(crate) db: Arc<Mutex<Store>>,
     refdata: Arc<refdata::RefData>,
     shared: SharedState,
     tx: Mutex<Sender<Command>>,
@@ -343,6 +344,60 @@ fn online_pilot(net: String, callsign: String) -> Option<networks::Pilot> {
 fn airport_card(state: tauri::State<AppState>, ident: String) -> CmdResult<Option<airports::AirportCard>> {
     let flights = state.db.lock().unwrap().airport_flights(&ident.to_ascii_uppercase()).map_err(err)?;
     Ok(airports::card(&state.refdata, &flights, &ident))
+}
+
+/// A saved flight's screenshots, in the order taken.
+#[tauri::command]
+fn flight_screenshots(state: tauri::State<AppState>, id: i64) -> CmdResult<Vec<store::Screenshot>> {
+    state.db.lock().unwrap().screenshots_of(id).map_err(err)
+}
+
+/// Screenshots taken since a time and not yet part of a saved flight (the
+/// flight under way's).
+#[tauri::command]
+fn screenshots_since(state: tauri::State<AppState>, since_ms: i64) -> CmdResult<Vec<store::Screenshot>> {
+    state.db.lock().unwrap().screenshots_since(since_ms).map_err(err)
+}
+
+/// Choose the screenshots folder with Windows' folder picker. Returns the
+/// folder chosen, or None if the pilot closed the picker.
+#[tauri::command]
+async fn pick_screenshot_folder(app: tauri::AppHandle) -> CmdResult<Option<String>> {
+    use tauri_plugin_dialog::DialogExt;
+    let picked = tauri::async_runtime::spawn_blocking(move || {
+        app.dialog().file().set_title("Folder FlightDeck watches for screenshots").blocking_pick_folder()
+    })
+    .await
+    .map_err(err)?;
+    let Some(path) = picked.and_then(|p| p.into_path().ok()) else { return Ok(None) };
+    Ok(Some(path.display().to_string()))
+}
+
+/// Set (or with None, stop) the folder watched for screenshots.
+#[tauri::command]
+fn set_screenshot_folder(state: tauri::State<AppState>, path: Option<String>) -> CmdResult<()> {
+    let path = path.map(|p| p.trim().to_string()).unwrap_or_default();
+    if !path.is_empty() && !std::path::Path::new(&path).is_dir() {
+        return Err(format!("{path} is not a folder on this PC"));
+    }
+    state.db.lock().unwrap().set_setting(screenshots::KEY_DIR, &path).map_err(err)
+}
+
+/// Divert the flight under way to another airport (the plan's destination).
+#[tauri::command]
+fn divert(state: tauri::State<AppState>, icao: String) -> CmdResult<()> {
+    let icao = icao.trim().to_ascii_uppercase();
+    let a = state.refdata.airport(&icao).ok_or_else(|| format!("{icao} is not an airport FlightDeck knows"))?;
+    send(
+        &state,
+        Command::Divert(simbrief::PlanAirport { icao: a.ident.clone(), name: a.name.clone(), lat: a.lat, lon: a.lon, runway: String::new() }),
+    )
+}
+
+/// The nearest airports fit for a diversion from a position.
+#[tauri::command]
+fn divert_options(state: tauri::State<AppState>, lat: f64, lon: f64, skip: Option<String>) -> Vec<airports::DivertOption> {
+    airports::divert_options(&state.refdata, lat, lon, skip.as_deref().unwrap_or(""), 3)
 }
 
 /// The latest METAR and TAF at (or near) an airport.
@@ -1258,6 +1313,10 @@ pub(crate) async fn dispatch(app: &tauri::AppHandle, cmd: &str, a: serde_json::V
         "wind_grid" => ok(to_value(wind_grid(arg(&a, "level")?).await?)),
         "wx_advisories" => ok(to_value(wx_advisories().await?)),
         "online_pilot" => ok(to_value(online_pilot(arg(&a, "net")?, arg(&a, "callsign")?))),
+        "flight_screenshots" => ok(to_value(flight_screenshots(st(), arg(&a, "id")?)?)),
+        "screenshots_since" => ok(to_value(screenshots_since(st(), arg(&a, "sinceMs")?)?)),
+        "divert" => ok(to_value(divert(st(), arg(&a, "icao")?)?)),
+        "divert_options" => ok(to_value(divert_options(st(), arg(&a, "lat")?, arg(&a, "lon")?, arg(&a, "skip")?))),
         "airport_card" => ok(to_value(airport_card(st(), arg(&a, "ident")?)?)),
         "airport_weather" => ok(to_value(airport_weather(st(), arg(&a, "ident")?).await?)),
         "get_settings" => ok(to_value(get_settings(st())?)),
@@ -1297,6 +1356,23 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
+        // Screenshots are read from where they are on this PC, by their id:
+        // only pictures FlightDeck noted can be reached this way.
+        .register_asynchronous_uri_scheme_protocol("fdshot", |ctx, request, responder| {
+            let db = ctx.app_handle().state::<AppState>().db.clone();
+            let id: Option<i64> = request.uri().path().trim_matches('/').parse().ok();
+            std::thread::spawn(move || {
+                let res = match id.and_then(|id| screenshots::read(&db, id)) {
+                    Some((bytes, kind)) => tauri::http::Response::builder()
+                        .header("Content-Type", kind)
+                        .header("Cache-Control", "max-age=3600")
+                        .body(bytes),
+                    None => tauri::http::Response::builder().status(404).body(Vec::new()),
+                };
+                responder.respond(res.unwrap_or_default());
+            });
+        })
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&data_dir)?;
@@ -1316,6 +1392,7 @@ pub fn run() {
             let (tx, rx) = channel();
             let refdata_for_state = refdata.clone();
             engine::spawn(app.handle().clone(), shared.clone(), db.clone(), refdata, data_dir.clone(), rx);
+            screenshots::spawn(app.handle().clone(), db.clone());
             app.manage(AppState { db, refdata: refdata_for_state, shared, tx: Mutex::new(tx), data_dir, photos: Default::default() });
             app.manage(remote::Remote::default());
             remote::init(app.handle());
@@ -1389,6 +1466,12 @@ pub fn run() {
             wx_advisories,
             online_pilot,
             airport_card,
+            divert_options,
+            divert,
+            flight_screenshots,
+            screenshots_since,
+            pick_screenshot_folder,
+            set_screenshot_folder,
             airport_weather,
             efb_info,
             efb_install,

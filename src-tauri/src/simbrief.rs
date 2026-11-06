@@ -108,6 +108,9 @@ pub struct FlightPlan {
     /// The full briefing, when the source has one.
     #[serde(default)]
     pub ofp: Option<Ofp>,
+    /// The destination first planned, when the pilot diverted.
+    #[serde(default)]
+    pub diverted_from: Option<String>,
 }
 
 /// A text field. SimBrief writes empty fields as `{}`, so anything that is
@@ -321,6 +324,7 @@ pub fn parse_ofp(v: &Value) -> Result<FlightPlan, String> {
         sched_in_ms: t_ms(v, &["times", "sched_in"]),
         fixes,
         ofp: Some(ofp(v)),
+        diverted_from: None,
     })
 }
 

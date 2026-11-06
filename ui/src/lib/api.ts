@@ -138,7 +138,31 @@ export interface Ofp {
 }
 
 /** A flight plan, e.g. imported from SimBrief. */
+/** A screenshot: where the file is on the PC (never copied) and when it
+ * was taken. */
+export interface Screenshot {
+  id: number;
+  path: string;
+  taken_ms: number;
+}
+
+/** An airport to divert to. */
+export interface DivertOption {
+  ident: string;
+  name: string;
+  city: string;
+  country: string;
+  lat: number;
+  lon: number;
+  distance_nm: number;
+  bearing: number;
+  longest_ft: number;
+  surface: string;
+}
+
 export interface FlightPlan {
+  /** The destination first planned, when the pilot diverted. */
+  diverted_from?: string | null;
   source: string;
   id: string;
   generated_ms: number;
@@ -798,6 +822,12 @@ export const api = {
   startFlight: (plan: FlightPlan | null, aircraftId: number | null = null) =>
     call<void>("start_flight", { plan, aircraftId }),
   setPlan: (plan: FlightPlan | null) => call<void>("set_plan", { plan }),
+  divertOptions: (lat: number, lon: number, skip: string) => call<DivertOption[]>("divert_options", { lat, lon, skip }),
+  divert: (icao: string) => call<void>("divert", { icao }),
+  flightScreenshots: (id: number) => call<Screenshot[]>("flight_screenshots", { id }),
+  screenshotsSince: (sinceMs: number) => call<Screenshot[]>("screenshots_since", { sinceMs }),
+  pickScreenshotFolder: () => call<string | null>("pick_screenshot_folder"),
+  setScreenshotFolder: (path: string | null) => call<void>("set_screenshot_folder", { path }),
   currentBriefing: () => call<Ofp | null>("current_briefing"),
   importVolanta: (files: { name: string; text: string }[], force: string[] = []) =>
     call<{ imported: string[]; duplicates: string[]; failed: [string, string][] }>("import_volanta", { files, force }),

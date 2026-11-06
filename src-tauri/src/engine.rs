@@ -35,6 +35,9 @@ pub enum Command {
     CancelFlight,
     /// Attach (or clear) a flight plan without changing anything else.
     SetPlan(Option<FlightPlan>),
+    /// Fly to another airport than planned: the plan's destination becomes
+    /// this one, remembering the first.
+    Divert(crate::simbrief::PlanAirport),
 }
 
 /// What the UI shows. Sent as the `status` event and from `get_status`.
@@ -126,6 +129,7 @@ pub fn save(
         plan: plan.and_then(|p| serde_json::to_string(p).ok()),
         source: None,
         aircraft_id,
+        diverted_from: plan.and_then(|p| p.diverted_from.clone()),
     };
     match db.lock().unwrap().save_flight(f, &ctx) {
         Ok(id) => Some((id, ctx)),
@@ -311,6 +315,17 @@ impl Engine {
                 }
             }
             Command::SetPlan(plan) => self.plan = plan,
+            Command::Divert(to) => {
+                if let Some(p) = self.plan.as_mut() {
+                    if p.diverted_from.is_none() {
+                        p.diverted_from = Some(p.destination.icao.clone());
+                    }
+                    log::info!("diverting from {} to {}", p.destination.icao, to.icao);
+                    p.destination = to;
+                    // The planned route and alternate no longer lead there.
+                    p.ete_min = 0.0;
+                }
+            }
             Command::CancelFlight => self.cancel_flight(),
         }
         self.shared.lock().unwrap().briefing = self.plan.as_ref().and_then(|p| p.ofp.clone());

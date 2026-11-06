@@ -42,7 +42,7 @@ use crate::AppState;
 pub const PORT: u16 = 8420;
 
 /// Events forwarded to browsers as they happen.
-const EVENTS: &[&str] = &["status", "flights-changed", "flight-saved", "touchdown"];
+const EVENTS: &[&str] = &["status", "flights-changed", "flight-saved", "touchdown", "screenshot"];
 
 /// Settings keys (stored with the other settings).
 pub const KEY_ENABLED: &str = "remote_enabled";
@@ -345,6 +345,7 @@ fn start(app: AppHandle, all: bool) {
         .route("/api/pair-local", post(pair_local))
         .route("/api/call/{cmd}", post(call))
         .route("/api/events", get(events_ws))
+        .route("/api/shot/{id}", get(shot))
         .layer(DefaultBodyLimit::max(64 * 1024 * 1024));
     let router = Router::new()
         .merge(api)
@@ -537,6 +538,19 @@ async fn events_ws(State(ctx): State<Ctx>, Query(q): Query<WsQuery>, ws: WebSock
     ws.on_upgrade(move |socket| forward(socket, rx))
 }
 
+/// A screenshot, for a paired device (the token in the address, as an
+/// image cannot send a header). Only pictures FlightDeck noted, by id.
+async fn shot(State(ctx): State<Ctx>, Path(id): Path<i64>, Query(q): Query<WsQuery>) -> Response {
+    if !paired(&ctx.app, q.token.as_deref()) {
+        return StatusCode::UNAUTHORIZED.into_response();
+    }
+    let db = ctx.app.state::<crate::AppState>().db.clone();
+    match tauri::async_runtime::spawn_blocking(move || crate::screenshots::read(&db, id)).await.ok().flatten() {
+        Some((bytes, kind)) => ([(header::CONTENT_TYPE, kind), (header::CACHE_CONTROL, "private, max-age=3600")], bytes).into_response(),
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
 async fn forward(mut socket: WebSocket, mut rx: broadcast::Receiver<String>) {
     loop {
         tokio::select! {
@@ -562,11 +576,11 @@ const VIEW: &[&str] = &[
     "get_status", "list_flights", "get_totals", "get_flight", "current_briefing", "demo_routes", "get_settings",
     "get_pilot", "get_logbook", "find_duplicates", "aircraft_with_registration", "get_passport", "get_hangar",
     "get_routes", "spotter_photo", "aircraft_flights", "get_aircraft_photo", "app_version", "simbrief_latest",
-    "search_airports", "get_pilot_profile", "airport_at", "map_airports", "airport_card", "airport_weather", "online_network", "online_pilot", "wx_categories", "wx_advisories", "wind_grid",
+    "search_airports", "get_pilot_profile", "airport_at", "map_airports", "airport_card", "divert_options", "flight_screenshots", "screenshots_since", "airport_weather", "online_network", "online_pilot", "wx_categories", "wx_advisories", "wind_grid",
 ];
 /// Commands that change something: only when editing is allowed.
 const EDIT: &[&str] = &[
-    "delete_flight", "start_demo", "stop_demo", "end_flight", "cancel_flight", "start_flight", "set_plan", "set_setting",
+    "delete_flight", "start_demo", "stop_demo", "end_flight", "cancel_flight", "start_flight", "set_plan", "divert", "set_setting",
     "set_pilot", "update_log_entry", "update_flight", "add_manual_entry", "update_aircraft", "add_aircraft",
     "delete_aircraft", "delete_flights", "set_aircraft_favorite", "set_aircraft_photo", "import_volanta",
     "import_elevatex", "preview_import", "add_sample_flights", "remove_sample_flights", "set_banner", "set_pilot_photo",

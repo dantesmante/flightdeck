@@ -18,7 +18,7 @@
     ondismiss: () => void;
     onsettings: () => void;
     /** The room the dock takes over the map, so the map can keep clear of it. */
-    oninset?: (right: number, bottom: number) => void;
+    oninset?: (left: number, bottom: number) => void;
   }
   let { status, completed, track = [], ondismiss, onsettings, oninset }: Props = $props();
 
@@ -53,8 +53,8 @@
 
   $effect(() => {
     // On a phone the card is a sheet across the bottom instead.
-    if (screen.phone) oninset?.(0, shown ? Math.round(window.innerHeight * 0.4) : 66);
-    else oninset?.(shown ? 380 : 0, shown ? 0 : 66);
+    if (screen.phone) oninset?.(0, shown ? Math.round(window.innerHeight * 0.4) : 0);
+    else oninset?.(shown ? 380 : 0, 0);
   });
 
   function close() {
@@ -102,29 +102,27 @@
   .card {
     position: absolute;
     z-index: 5;
-    right: 16px;
+    left: 16px;
     bottom: 16px;
     width: 356px;
     max-width: calc(100% - 32px);
-    max-height: calc(100% - 80px);
+    max-height: calc(100% - 32px);
     overflow-y: auto;
     scrollbar-width: thin;
     padding: 16px 18px 20px;
-    background: rgba(28, 30, 33, 0.97);
+    background: rgba(28, 30, 33, 0.86);
     border: 1px solid var(--rule);
     border-radius: 14px;
     box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
   }
   .top {
-    position: sticky;
-    top: -16px;
+    position: relative;
     z-index: 2;
     display: flex;
     align-items: center;
     justify-content: space-between;
     margin: -16px -18px 6px;
     padding: 14px 14px 6px 18px;
-    background: rgba(28, 30, 33, 0.97);
   }
   .top.flat {
     position: absolute;
@@ -167,7 +165,7 @@
   .start {
     position: absolute;
     z-index: 5;
-    right: 16px;
+    left: 16px;
     bottom: 16px;
     min-width: 210px;
     max-width: calc(100% - 32px);
@@ -217,7 +215,7 @@
       max-height: 55%;
     }
     .start {
-      right: 10px;
+      left: 10px;
       bottom: 12px;
       min-width: 0;
       padding: 10px 18px;

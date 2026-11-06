@@ -6,6 +6,8 @@
   import FlightsPanel from "./lib/FlightsPanel.svelte";
   import HangarView from "./lib/hangar/HangarView.svelte";
   import MapDock from "./lib/MapDock.svelte";
+  import ShotViewer from "./lib/ShotViewer.svelte";
+  import { place, shots } from "./lib/shots.svelte";
   import { screen } from "./lib/phone.svelte";
   import LogbookView from "./lib/logbook/LogbookView.svelte";
   import Map from "./lib/Map.svelte";
@@ -40,7 +42,7 @@
     if (view !== "live") go("live");
   }
   /** Room the map's card takes, for the map to keep clear of. */
-  let inset = $state({ r: 0, b: 0 });
+  let inset = $state({ l: 0, b: 0 });
   const draftRoute = $derived(view === "live" && draft.origin && draft.dest ? { origin: draft.origin, dest: draft.dest } : null);
   let openRequest = $state<{ id: number; n: number } | null>(null);
 
@@ -147,6 +149,12 @@
     if ((v === "live" || v === "flights") && view !== "live" && view !== "flights") loadRoutes();
     if (v === "live") selectedFlight = null;
     menuOpen = false;
+    // Coming to Flights from another page opens on the list, not on the
+    // last flight shown (a route clicked on the map still opens its flight).
+    if (v === "flights" && view !== "flights") {
+      openRequest = null;
+      selectedFlight = null;
+    }
     // The flights list is a card over the map: bring it out if put away.
     if (v === "flights" && collapsed) togglePanel();
     view = v;
@@ -182,6 +190,10 @@
 
   /** Phones: the page menu is hidden until the menu button opens it. */
   let menuOpen = $state(false);
+  /** Screenshots on the map: the open flight's, or the flight under way's. */
+  const mapShots = $derived(
+    view === "flights" && history ? place(shots.flight, history) : view === "live" && status?.live ? place(shots.live, liveTrack) : [],
+  );
   const FLIGHTS_LAYERS = ["routes", "airports"];
   const NO_LAYERS: string[] = [];
 
@@ -195,6 +207,7 @@
 </script>
 
 <div class="app">
+<ShotViewer />
 <TitleBar {linkText} link={status?.link ?? "waiting"} onmenu={() => (menuOpen = !menuOpen)} {menuOpen} />
 <div class="shell" class:full class:menu-open={menuOpen}>
   {#if menuOpen}<button class="scrim" aria-label="Close menu" onclick={() => (menuOpen = false)}></button>{/if}
@@ -217,19 +230,19 @@
   </nav>
 
   <main class="stage" class:hidden={full}>
-    <Map live={liveTrack} {aircraft} {origin} {history} {routes} parked={parkedShown} highlight={view === "flights" ? hoverFlight : null} onfly={status?.live ? undefined : flyThis} selected={selectedFlight} onroute={showFlight} plan={history ? historyPlan : (status?.plan ?? null)} draft={draftRoute} insetRight={view === "live" ? inset.r : view === "flights" && !collapsed && !screen.phone ? 396 : 0} insetBottom={view === "live" ? inset.b : 0} initialOn={view === "flights" ? FLIGHTS_LAYERS : NO_LAYERS} />
+    <Map live={liveTrack} {aircraft} {origin} {history} {routes} parked={parkedShown} highlight={view === "flights" ? hoverFlight : null} onfly={status?.live ? undefined : flyThis} selected={selectedFlight} onroute={showFlight} plan={history ? historyPlan : (status?.plan ?? null)} draft={draftRoute} insetLeft={view === "live" ? inset.l : view === "flights" && !collapsed && !screen.phone ? 396 : 0} insetBottom={view === "live" ? inset.b : 0} initialOn={view === "flights" ? FLIGHTS_LAYERS : NO_LAYERS} shots={mapShots} />
     {#if view === "live"}
-      <MapDock {status} {completed} track={liveTrack} ondismiss={dismiss} onsettings={() => go("settings")} oninset={(r, b) => (inset = { r, b })} />
+      <MapDock {status} {completed} track={liveTrack} ondismiss={dismiss} onsettings={() => go("settings")} oninset={(l, b) => (inset = { l, b })} />
     {:else if view === "flights"}
       {#if collapsed}
-        <button class="flights-pill" onclick={togglePanel} transition:slide={{ x: 30, duration: 180 }}>
+        <button class="flights-pill" onclick={togglePanel} transition:slide={{ x: -30, duration: 180 }}>
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14v16H5zM8 8h8M8 12h8M8 16h5" /></svg>
           Show flights
         </button>
       {:else}
-        <section class="flights-card" aria-label="Flights" transition:slide={{ x: 40, duration: 220 }}>
+        <section class="flights-card" aria-label="Flights" transition:slide={{ x: -40, duration: 220 }}>
           <button class="tuck" onclick={togglePanel} aria-label="Put the flights card away" title="Hide">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7" /></svg>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg>
           </button>
           <FlightsPanel
             {refreshKey}
@@ -241,10 +254,6 @@
         </section>
       {/if}
     {/if}
-    <footer class="status-line" class:connected={status?.link === "connected"}>
-      <span class="lamp {status?.link ?? 'waiting'}"></span>
-      <span>{linkText}</span>
-    </footer>
   </main>
 
   {#if full}
@@ -351,36 +360,6 @@
     position: relative;
     overflow: hidden;
   }
-  .status-line {
-    position: absolute;
-    left: 12px;
-    bottom: 12px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 6px 11px;
-    border-radius: 6px;
-    background: rgba(28, 30, 33, 0.92);
-    border: 1px solid var(--rule);
-    font-size: 13px;
-    color: var(--ink-dim);
-  }
-  .status-line.connected {
-    color: var(--good);
-  }
-  .lamp {
-    width: 9px;
-    height: 9px;
-    border-radius: 50%;
-    background: var(--ink-faint);
-  }
-  .lamp.connected {
-    background: var(--good);
-    box-shadow: 0 0 8px var(--good);
-  }
-  .lamp.connecting {
-    background: var(--amber);
-  }
   .toast {
     position: absolute;
     z-index: 30;
@@ -394,19 +373,20 @@
     font-weight: 600;
     box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
   }
-  /* The flights list, floating over the map under its menus. */
+  /* The flights list, floating over the left of the map, the map showing
+     faintly through it. */
   .flights-card {
     position: absolute;
     z-index: 5;
-    top: 74px;
-    right: 16px;
-    max-height: calc(100% - 90px);
+    top: 16px;
+    left: 16px;
+    max-height: calc(100% - 32px);
     width: 380px;
     max-width: calc(100% - 32px);
     overflow-y: auto;
     scrollbar-width: thin;
     padding: 18px 18px 24px;
-    background: rgba(28, 30, 33, 0.97);
+    background: rgba(28, 30, 33, 0.86);
     border: 1px solid var(--rule);
     border-radius: 14px;
     box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
@@ -443,8 +423,8 @@
   .flights-pill {
     position: absolute;
     z-index: 5;
-    top: 74px;
-    right: 16px;
+    top: 16px;
+    left: 16px;
     display: flex;
     align-items: center;
     gap: 8px;
@@ -486,9 +466,6 @@
       padding: 0;
       background: rgba(0, 0, 0, 0.45);
     }
-    .status-line {
-      display: none;
-    }
     .flights-card {
       top: 62px;
       left: 10px;
@@ -500,7 +477,7 @@
     }
     .flights-pill {
       top: 62px;
-      right: 10px;
+      left: 10px;
     }
   }
 </style>

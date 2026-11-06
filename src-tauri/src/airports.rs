@@ -313,3 +313,88 @@ mod tests {
         assert!(c.frequencies.iter().any(|f| f.kind == "TWR"));
     }
 }
+
+/// An airport to divert to.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct DivertOption {
+    pub ident: String,
+    pub name: String,
+    pub city: String,
+    pub country: String,
+    pub lat: f64,
+    pub lon: f64,
+    pub distance_nm: f64,
+    /// Course to it, degrees true.
+    pub bearing: f64,
+    pub longest_ft: i64,
+    pub surface: String,
+}
+
+/// The longest hard runway (asphalt or concrete; unknown counts at large
+/// airports, where it nearly always is) of at least 2,000 ft, if any.
+fn hard_runway(kind: AirportKind, runways: &[RunwayInfo]) -> Option<&RunwayInfo> {
+    runways
+        .iter()
+        .filter(|r| r.length_ft >= 2000)
+        .filter(|r| matches!(r.surface.as_str(), "Asphalt" | "Concrete") || (r.surface.is_empty() && kind == AirportKind::Large))
+        .max_by_key(|r| r.length_ft)
+}
+
+/// The nearest airports fit for a diversion, nearest first: large and
+/// regional airports (no small fields) with a hard runway of at least
+/// 2,000 ft (so no grass strips), leaving out the one planned already.
+pub fn divert_options(rd: &RefData, lat: f64, lon: f64, skip: &str, n: usize) -> Vec<DivertOption> {
+    for radius in [60.0, 150.0, 400.0, 1200.0] {
+        let found: Vec<DivertOption> = rd
+            .near(lat, lon, radius)
+            .into_iter()
+            .filter(|(a, _)| matches!(a.kind, AirportKind::Large | AirportKind::Medium) && !a.ident.eq_ignore_ascii_case(skip))
+            .filter_map(|(a, d)| {
+                let runways = rd.runways_of(&a.ident);
+                let r = hard_runway(a.kind, &runways)?;
+                Some(DivertOption {
+                    ident: a.ident.clone(),
+                    name: a.name.clone(),
+                    city: a.city.clone(),
+                    country: a.country.clone(),
+                    lat: a.lat,
+                    lon: a.lon,
+                    distance_nm: (d * 10.0).round() / 10.0,
+                    bearing: telemetry::geo::bearing_deg(lat, lon, a.lat, a.lon).round(),
+                    longest_ft: r.length_ft,
+                    surface: r.surface.clone(),
+                })
+            })
+            .take(n)
+            .collect();
+        if found.len() >= n {
+            return found;
+        }
+    }
+    vec![]
+}
+
+#[cfg(test)]
+mod divert_tests {
+    use super::*;
+
+    #[test]
+    fn hard_runways_only() {
+        let rw = |len: i64, surface: &str| RunwayInfo { name: "1/19".into(), length_ft: len, width_ft: 75, surface: surface.into(), lighted: false };
+        assert!(hard_runway(AirportKind::Medium, &[rw(3000, "Grass")]).is_none());
+        assert!(hard_runway(AirportKind::Medium, &[rw(1800, "Asphalt")]).is_none());
+        assert!(hard_runway(AirportKind::Medium, &[rw(1800, "Asphalt"), rw(2400, "Grass")]).is_none());
+        assert_eq!(hard_runway(AirportKind::Medium, &[rw(2400, "Concrete"), rw(5000, "Grass")]).unwrap().length_ft, 2400);
+        assert!(hard_runway(AirportKind::Medium, &[rw(9000, "")]).is_none());
+        assert!(hard_runway(AirportKind::Large, &[rw(9000, "")]).is_some());
+    }
+
+    #[test]
+    fn nearest_three_near_seattle() {
+        let rd = RefData::load();
+        let near = divert_options(&rd, 47.45, -122.31, "KSEA", 3);
+        assert_eq!(near.len(), 3);
+        assert!(near.iter().all(|o| o.ident != "KSEA" && o.longest_ft >= 2000));
+        assert!(near.windows(2).all(|w| w[0].distance_nm <= w[1].distance_nm));
+    }
+}

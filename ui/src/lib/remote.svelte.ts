@@ -14,6 +14,12 @@ function token(): string | null {
   }
 }
 
+/** This device's pairing token, for addresses that cannot carry a header
+ * (pictures). */
+export function remoteToken(): string | null {
+  return token();
+}
+
 /** Whether this device is paired, and whether it may make changes. */
 export const session = $state<{ checked: boolean; paired: boolean; canEdit: boolean; version: string; offline: boolean }>({
   checked: false,

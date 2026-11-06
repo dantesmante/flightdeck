@@ -33,6 +33,7 @@
     <div class="to">
       <span class="icao num">{plan.destination.icao}</span>
       <span class="nm">{plan.destination.name}{plan.destination.runway ? `, RWY ${plan.destination.runway}` : ""}</span>
+      {#if plan.diverted_from}<span class="div">Diverted from {plan.diverted_from}</span>{/if}
     </div>
   </div>
   <dl>
@@ -204,5 +205,12 @@
     margin: 0;
     color: var(--bad);
     font-size: 12.5px;
+  }
+  .div {
+    display: block;
+    margin-top: 2px;
+    color: var(--amber);
+    font-size: 11.5px;
+    font-weight: 700;
   }
 </style>

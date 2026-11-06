@@ -27,7 +27,8 @@ const MIGRATE_V8: &str = include_str!("migrate_v8.sql");
 const MIGRATE_V9: &str = include_str!("migrate_v9.sql");
 const MIGRATE_V10: &str = include_str!("migrate_v10.sql");
 const MIGRATE_V11: &str = include_str!("migrate_v11.sql");
-const SCHEMA_VERSION: i64 = 11;
+const MIGRATE_V12: &str = include_str!("migrate_v12.sql");
+const SCHEMA_VERSION: i64 = 12;
 
 /// The hangar aircraft with this registration (as the pilot sees it), if any.
 pub(crate) fn aircraft_by_reg(conn: &Connection, reg: &str) -> Result<Option<i64>> {
@@ -145,6 +146,16 @@ pub struct SaveContext {
     /// Log the flight to this hangar aircraft ("Fly this aircraft"),
     /// whatever aircraft the sim reported.
     pub aircraft_id: Option<i64>,
+    /// The planned destination, when the pilot diverted from it.
+    pub diverted_from: Option<String>,
+}
+
+/// A screenshot: where the file is (never copied) and when it was taken.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Screenshot {
+    pub id: i64,
+    pub path: String,
+    pub taken_ms: i64,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -296,6 +307,9 @@ impl Store {
         if version < 11 {
             conn.execute_batch(&format!("BEGIN; {MIGRATE_V11} PRAGMA user_version = 11; COMMIT;"))?;
         }
+        if version < 12 {
+            conn.execute_batch(&format!("BEGIN; {MIGRATE_V12} PRAGMA user_version = 12; COMMIT;"))?;
+        }
         merge_duplicate_aircraft(&conn)?;
         reclassify_aircraft(&conn)?;
         Ok(Store { conn })
@@ -353,6 +367,38 @@ impl Store {
                 |r| r.get(0),
             )
             .optional()?)
+    }
+
+    /// Note a new screenshot file (once; the same path again is ignored).
+    /// Returns its id when it is new.
+    pub fn add_screenshot(&self, path: &str, taken_ms: i64) -> Result<Option<i64>> {
+        let n = self.conn.execute("INSERT OR IGNORE INTO screenshot (path, taken_ms) VALUES (?1, ?2)", params![path, taken_ms])?;
+        Ok((n > 0).then(|| self.conn.last_insert_rowid()))
+    }
+
+    /// A flight's screenshots, in the order taken.
+    pub fn screenshots_of(&self, flight_id: i64) -> Result<Vec<Screenshot>> {
+        let mut st = self.conn.prepare("SELECT id, path, taken_ms FROM screenshot WHERE flight_id = ?1 ORDER BY taken_ms")?;
+        let rows = st.query_map(params![flight_id], |r| Ok(Screenshot { id: r.get(0)?, path: r.get(1)?, taken_ms: r.get(2)? }))?;
+        Ok(rows.collect::<std::result::Result<_, _>>()?)
+    }
+
+    /// Screenshots not yet part of a saved flight, taken since a time (the
+    /// flight under way's).
+    pub fn screenshots_since(&self, since_ms: i64) -> Result<Vec<Screenshot>> {
+        let mut st = self.conn.prepare("SELECT id, path, taken_ms FROM screenshot WHERE flight_id IS NULL AND taken_ms >= ?1 ORDER BY taken_ms")?;
+        let rows = st.query_map(params![since_ms], |r| Ok(Screenshot { id: r.get(0)?, path: r.get(1)?, taken_ms: r.get(2)? }))?;
+        Ok(rows.collect::<std::result::Result<_, _>>()?)
+    }
+
+    /// Where a screenshot's file is.
+    pub fn screenshot_path(&self, id: i64) -> Result<Option<String>> {
+        Ok(self.conn.query_row("SELECT path FROM screenshot WHERE id = ?1", params![id], |r| r.get(0)).optional()?)
+    }
+
+    /// Forget screenshots never part of a flight once they are a few days old.
+    pub fn prune_screenshots(&self, before_ms: i64) -> Result<usize> {
+        Ok(self.conn.execute("DELETE FROM screenshot WHERE flight_id IS NULL AND taken_ms < ?1", params![before_ms])?)
     }
 
     /// A flight already saved for the same UTC day between the same airports
@@ -624,6 +670,12 @@ impl StoreTx<'_> {
         )?;
         let id = self.conn.last_insert_rowid();
 
+        // Screenshots taken during the flight belong to it.
+        self.conn.execute(
+            "UPDATE screenshot SET flight_id = ?1 WHERE flight_id IS NULL AND taken_ms BETWEEN ?2 AND ?3",
+            params![id, f.start_ms, f.end_ms],
+        )?;
+
         // Logbook line. IFR, approaches and role are left for the pilot.
         let total = f.total_minutes().round() as i64;
         let (span_a, span_b) = f.counted_span();
@@ -638,6 +690,9 @@ impl StoreTx<'_> {
                 remarks.push_str(&format!(", {} bounce{}", l.bounces, if l.bounces > 1 { "s" } else { "" }));
             }
             remarks.push_str(" · ");
+        }
+        if let Some(d) = ctx.diverted_from.as_deref().filter(|d| !d.is_empty()) {
+            remarks.push_str(&format!("Diverted from {d} · "));
         }
         remarks.push_str(f.sim.label());
         if f.max_sim_rate > 1.01 {

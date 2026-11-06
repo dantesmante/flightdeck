@@ -294,6 +294,30 @@ export async function mockCall<T>(cmd: string, _args?: Record<string, unknown>):
     setTimeout(pushStatus, 50);
     return null as T;
   }
+  if (cmd === "flight_screenshots") {
+    const f = Number(_args?.id ?? 0);
+    const base = now - 86_400_000 * 2;
+    return (f % 2 ? [] : [0, 1, 2].map((i) => ({ id: f * 10 + i, path: `C:\\Users\\you\\Pictures\\Screenshots\\Flight ${f} ${i + 1}.png`, taken_ms: base + (i + 1) * 900_000 }))) as unknown as T;
+  }
+  if (cmd === "screenshots_since") {
+    return [{ id: 901, path: "C:\\Users\\you\\Pictures\\Screenshots\\Climb out.png", taken_ms: now - 600_000 }] as T;
+  }
+  if (cmd === "pick_screenshot_folder") return "C:\\Users\\you\\Pictures\\Screenshots" as T;
+  if (cmd === "set_screenshot_folder") return null as T;
+  if (cmd === "divert_options") {
+    return [
+      { ident: "KPAE", name: "Snohomish County (Paine Field)", city: "Everett", country: "US", lat: 47.906, lon: -122.281, distance_nm: 18.4, bearing: 350, longest_ft: 9010, surface: "Asphalt" },
+      { ident: "KBFI", name: "Boeing Field", city: "Seattle", country: "US", lat: 47.53, lon: -122.302, distance_nm: 24.9, bearing: 175, longest_ft: 10000, surface: "Asphalt" },
+      { ident: "KBLI", name: "Bellingham International", city: "Bellingham", country: "US", lat: 48.793, lon: -122.537, distance_nm: 41.2, bearing: 340, longest_ft: 6700, surface: "Asphalt" },
+    ] as T;
+  }
+  if (cmd === "divert") {
+    if (status.plan) {
+      status.plan = { ...status.plan, diverted_from: status.plan.diverted_from ?? status.plan.destination.icao, destination: { icao: String(_args?.icao), name: "Diversion airport", lat: 47.9, lon: -122.28, runway: "" } };
+      setTimeout(pushStatus, 50);
+    }
+    return null as T;
+  }
   if (cmd === "preview_import") {
     const files = (_args?.files as { name: string }[]) ?? [];
     const routes = [["KSEA", "KPDX"], ["KPDX", "KSFO"], ["KSFO", "KLAX"], ["KSEA", "KPDX"], ["EGLL", "LFPG"]];

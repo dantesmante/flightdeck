@@ -1,8 +1,9 @@
 <script lang="ts">
-  import { api, type FlightDetail, type Status } from "./api";
+  import { api, on, type FlightDetail, type Status } from "./api";
   import AltSpeedGraph from "./AltSpeedGraph.svelte";
   import PlanCard from "./PlanCard.svelte";
   import { fly } from "./flyStore.svelte";
+  import DivertPanel from "./DivertPanel.svelte";
   import { fromTrack, type Pt } from "./track";
   import { hhmm } from "./format";
   import { distance, prefs } from "./prefs.svelte";
@@ -12,6 +13,8 @@
   import PilotScoreCard from "./pilot/PilotScoreCard.svelte";
   import PhaseLadder from "./PhaseLadder.svelte";
   import Readouts from "./Readouts.svelte";
+  import ShotStrip from "./ShotStrip.svelte";
+  import { place, shots } from "./shots.svelte";
 
   interface Props {
     status: Status | null;
@@ -22,6 +25,33 @@
     onsettings?: () => void;
   }
   let { status, completed, track = [], ondismiss, onsettings = () => {} }: Props = $props();
+
+  // The screenshots of the flight just landed.
+  let doneShots = $state<import("./api").Screenshot[]>([]);
+  $effect(() => {
+    const id = completed?.flight.id;
+    doneShots = [];
+    if (id != null) api.flightScreenshots(id).then((l) => (doneShots = l ?? []), () => {});
+  });
+
+  // Screenshots taken during the flight under way, as they are taken.
+  const liveStart = $derived(status?.live?.start_ms ?? null);
+  $effect(() => {
+    const since = liveStart;
+    if (since == null) {
+      shots.live = [];
+      return;
+    }
+    const load = () => api.screenshotsSince(since).then((l) => (shots.live = l ?? []), () => {});
+    load();
+    let off: (() => void) | null = null;
+    let gone = false;
+    on("screenshot", load).then((u) => (gone ? u() : (off = u)));
+    return () => {
+      gone = true;
+      off?.();
+    };
+  });
 
   /** Mid-flight: the flight plan form, to add a plan to the flight. */
   let addingPlan = $state(false);
@@ -50,6 +80,8 @@
 
   /** A plan is loaded already (from SimBrief or the EFB): fly it. */
   let otherPlan = $state(false);
+  /** The divert list is open. */
+  let diverting = $state(false);
   async function startWithPlan() {
     busy = true;
     await api.startFlight(status?.plan ?? null, fly.item?.id ?? null).catch(() => {});
@@ -95,7 +127,11 @@
     {#if status.last_landing}
       <LandingCard landing={status.last_landing} />
     {/if}
+    <ShotStrip list={place(shots.live, track)} title="Screenshots this flight" />
     <PhaseLadder phase={status.phase} />
+    {#if diverting && status.plan && status.telemetry}
+      <DivertPanel lat={status.telemetry.lat} lon={status.telemetry.lon} planned={status.plan.destination.icao} onclose={() => (diverting = false)} />
+    {/if}
     <div class="actions">
       {#if confirmCancel}
         <div class="row inline" use:reveal title="The flight is thrown away and nothing is saved.">
@@ -104,14 +140,17 @@
           <button class="ghost" onclick={() => (confirmCancel = false)}>Keep it</button>
         </div>
       {:else if confirmEnd}
-        <div class="row inline" use:reveal title="The flight is saved as partial.">
-          <span class="ask">End and save as partial?</span>
-          <button class="danger" onclick={endFlight}>End</button>
+        <div class="row inline" use:reveal title="The flight ends here and is saved to your logbook.">
+          <span class="ask">End and save flight?</span>
+          <button class="danger" onclick={endFlight}>End and save</button>
           <button class="ghost" onclick={() => (confirmEnd = false)}>Keep flying</button>
         </div>
       {:else}
         <button class="ghost" onclick={() => (confirmEnd = true)}>End flight</button>
         <button class="ghost" onclick={() => (confirmCancel = true)}>Cancel flight</button>
+        {#if status.plan && status.telemetry && !diverting}
+          <button class="ghost divert-btn" onclick={() => (diverting = true)}>Divert flight</button>
+        {/if}
         {#if status.demo}
           <button class="ghost" onclick={() => api.stopDemo()}>Stop demo</button>
         {/if}
@@ -131,6 +170,7 @@
     {/if}
     {#if completed.track.length > 1}
       <AltSpeedGraph pts={fromTrack(completed.track)} height={150} />
+      <ShotStrip list={place(doneShots, fromTrack(completed.track))} />
     {/if}
     {#if completed.score}
       <PilotScoreCard score={completed.score} standing={completed.standing} />

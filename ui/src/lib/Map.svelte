@@ -11,6 +11,7 @@
   import type { Net, NetworkData } from "./api";
   import { C as BASE, STYLE, addAirportLayout, addRegionLines, offlineStyle, runwayEnds, setBorders, showAirportLayout, showSatellite, showTerrain, tintMap } from "./mapStyle";
   import MapLayers from "./MapLayers.svelte";
+  import { shots as shotStore, type PlacedShot } from "./shots.svelte";
   import { WindParticles } from "./wind/particles";
   import { addWindIcons, windIconExpr, windText } from "./wind/arrows";
   import { WIND_LEVELS, WIND_STOPS, decodeGrid, dirSpeed, levelFor, sample, type Field } from "./wind/wind";
@@ -53,6 +54,8 @@
     insetBottom?: number;
     /** Room taken by a card over the left of the map, in pixels. */
     insetLeft?: number;
+    /** Screenshots to mark on the map where they were taken. */
+    shots?: PlacedShot[];
     /** Layers this map shows from the start whatever the saved choice
      * (they can still be switched off here, without changing it). */
     initialOn?: string[];
@@ -74,6 +77,7 @@
     insetBottom = 0,
     insetLeft = 0,
     initialOn = [],
+    shots: shotList = [],
   }: Props = $props();
 
   /** The plan drawn: the real one, or the route being set up. */
@@ -215,6 +219,31 @@
     };
   });
 
+  // --- Screenshots: a small camera where each was taken ----------------------
+  let shotMarkers: maplibregl.Marker[] = [];
+  $effect(() => {
+    const list = shotList.filter((s) => s.lon != null && s.lat != null);
+    if (!loaded || !map) return;
+    for (const m of shotMarkers) m.remove();
+    shotMarkers = list.map((s) => {
+      const el = document.createElement("button");
+      el.className = "shot-pin";
+      el.title = "Screenshot";
+      el.setAttribute("aria-label", "Screenshot taken here");
+      el.innerHTML =
+        '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h3l2-2.5h6L17 8h3v11H4z"/><circle cx="12" cy="13" r="3.4"/></svg>';
+      el.addEventListener("click", (e) => {
+        e.stopPropagation();
+        shotStore.viewer = { list: shotList, index: shotList.indexOf(s) };
+      });
+      return new maplibregl.Marker({ element: el, anchor: "bottom" }).setLngLat([s.lon!, s.lat!]).addTo(map!);
+    });
+    return () => {
+      for (const m of shotMarkers) m.remove();
+      shotMarkers = [];
+    };
+  });
+
   // --- Wind -----------------------------------------------------------------
 
   /** Wind level chosen: "auto" follows the aircraft, else a level id. */
@@ -299,7 +328,7 @@
     if (!map) return;
     windFocus = { ...a };
     const covered = Math.min(372, el.clientWidth / 2);
-    map.flyTo({ center: [a.lon, a.lat], zoom: 13, offset: [covered / 2, 0], duration: 1400 });
+    map.flyTo({ center: [a.lon, a.lat], zoom: 13, offset: [-covered / 2, 0], duration: 1400 });
   }
 
   // Airport wind arrows: METAR winds while the layer is on, every 10 minutes.
@@ -1067,6 +1096,8 @@
       tint();
       addOverlays();
       loaded = true;
+      // The credits start folded to their (i) button: open, they run across the map.
+      el.querySelector(".maplibregl-ctrl-attrib")?.classList.remove("maplibregl-compact-show");
     });
     map.on("error", (e) => {
       if (!loaded && String(e.error?.message ?? "").match(/fetch|network|load|style/i)) useOfflineStyle();
@@ -1160,7 +1191,7 @@
         map!.easeTo({
           center: hit.at,
           zoom: Math.min(Math.max(map!.getZoom() + 1.5, 6), 12),
-          offset: [covered / 2, 0],
+          offset: [-covered / 2, 0],
           duration: 700,
         });
       }
@@ -1528,7 +1559,7 @@
   <em>{hoverTip?.hint ?? ""}</em>
 </div>
 {#if aircraft && !follow && !history}
-  <button class="follow" onclick={() => (follow = true)}>Follow aircraft</button>
+  <button class="follow" style:left="{16 + insetLeft}px" onclick={() => (follow = true)}>Follow aircraft</button>
 {/if}
 <MapLayers
   {three}
@@ -1571,7 +1602,7 @@
       : undefined}
   />
 {/if}
-<div class="keys" style:left="{12 + insetLeft}px">
+<div class="keys">
 {#if layers.has("wind")}
   <div class="wind-key" aria-label="Wind speed colours">
     <span class="t">
@@ -1747,8 +1778,8 @@
   }
   .keys {
     position: absolute;
-    left: 12px;
-    bottom: 62px;
+    right: 56px;
+    bottom: 16px;
     display: flex;
     flex-direction: column;
     gap: 8px;
@@ -1837,11 +1868,12 @@
     font-size: 11px;
     color: var(--ink);
   }
+  /* Top left, clear of the map's menus at the top right on any screen. */
   .follow {
     position: absolute;
+    z-index: 4;
     top: 16px;
-    left: 50%;
-    transform: translateX(-50%);
+    left: 16px;
     padding: 7px 14px;
     border-radius: 6px;
     border: 1px solid var(--amber);
@@ -1868,11 +1900,33 @@
       display: none;
     }
     .keys {
-      bottom: 76px;
-      left: 10px !important;
+      right: 10px;
+      bottom: 10px;
     }
     .keys > * {
       width: 170px;
     }
+  }
+  .map :global(.shot-pin) {
+    display: grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    border: 2px solid #1b1c1e;
+    border-radius: 50% 50% 50% 4px;
+    transform: rotate(-45deg);
+    background: var(--amber);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+    cursor: pointer;
+  }
+  .map :global(.shot-pin svg) {
+    width: 14px;
+    height: 14px;
+    transform: rotate(45deg);
+    fill: none;
+    stroke: #1b1406;
+    stroke-width: 2;
+    stroke-linejoin: round;
   }
 </style>

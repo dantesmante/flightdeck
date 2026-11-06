@@ -10,6 +10,8 @@
   import PilotScoreCard from "./pilot/PilotScoreCard.svelte";
   import { fromTrack, type Pt } from "./track";
   import { distance } from "./prefs.svelte";
+  import ShotStrip from "./ShotStrip.svelte";
+  import { place, shots } from "./shots.svelte";
 
   interface Props {
     refreshKey: number;
@@ -39,6 +41,7 @@
   async function open(id: number) {
     confirmDelete = false;
     selected = await api.flight(id);
+    shots.flight = selected ? ((await api.flightScreenshots(id).catch(() => [])) ?? []) : [];
     onselect(selected ? fromTrack(selected.track) : null, selected?.flight.id ?? null, selected?.plan ?? null);
   }
 
@@ -48,6 +51,7 @@
 
   function close() {
     selected = null;
+    shots.flight = [];
     onselect(null, null);
   }
 
@@ -90,6 +94,7 @@
       <LandingCard landing={l} />
     {/each}
     <AltSpeedGraph pts={fromTrack(selected.track)} height={170} />
+    <ShotStrip list={place(shots.flight, fromTrack(selected.track))} />
     {#if selected.score}
       {#key f.id}<PilotScoreCard score={selected.score} standing={selected.standing} />{/key}
     {/if}

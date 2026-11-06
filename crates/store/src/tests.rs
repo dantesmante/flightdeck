@@ -662,3 +662,23 @@ fn ground_time_without_block_times_is_not_counted() {
     let total: i64 = db.conn.query_row("SELECT total_min FROM log_entry WHERE flight_id = ?1", [id], |r| r.get(0)).unwrap();
     assert_eq!(total, 999);
 }
+
+#[test]
+fn screenshots_join_the_flight_they_were_taken_in() {
+    let mut db = Store::open_in_memory().unwrap();
+    let f = fly(1);
+    let during = f.start_ms + 60_000;
+    let a = db.add_screenshot("C:/shots/a.png", during).unwrap().unwrap();
+    assert_eq!(db.add_screenshot("C:/shots/a.png", during).unwrap(), None);
+    db.add_screenshot("C:/shots/before.png", f.start_ms - 3_600_000).unwrap();
+    assert_eq!(db.screenshots_since(f.start_ms).unwrap().len(), 1);
+    let id = db.save_flight(&f, &SaveContext::default()).unwrap();
+    let shots = db.screenshots_of(id).unwrap();
+    assert_eq!(shots.len(), 1);
+    assert_eq!(shots[0].id, a);
+    assert_eq!(db.screenshot_path(a).unwrap().as_deref(), Some("C:/shots/a.png"));
+    assert!(db.screenshots_since(f.start_ms).unwrap().is_empty());
+    assert_eq!(db.prune_screenshots(f.start_ms).unwrap(), 1);
+    db.delete_flights(&[id]).unwrap();
+    assert_eq!(db.screenshot_path(a).unwrap(), None);
+}

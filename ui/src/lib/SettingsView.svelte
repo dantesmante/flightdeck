@@ -154,6 +154,27 @@
     }
   }
   let exportFormat = $state<"json" | "csv">("json");
+
+  // The folder watched for screenshots.
+  let shotErr = $state<string | null>(null);
+  async function setShotDir(path: string | null) {
+    shotErr = null;
+    try {
+      await api.setScreenshotFolder(path);
+      prefs.s = { ...prefs.s, screenshot_dir: path ?? "" };
+    } catch (e) {
+      shotErr = String(e);
+    }
+  }
+  async function chooseShotDir() {
+    shotErr = null;
+    try {
+      const p = await api.pickScreenshotFolder();
+      if (p) await setShotDir(p);
+    } catch (e) {
+      shotErr = String(e);
+    }
+  }
   let exporting = $state(false);
 
 
@@ -338,6 +359,30 @@
       <button role="radio" aria-checked={prefs.s.logbook_view !== "list"} class:on={prefs.s.logbook_view !== "list"} onclick={() => setPref("logbook_view", "book")}>Logbook pages</button>
       <button role="radio" aria-checked={prefs.s.logbook_view === "list"} class:on={prefs.s.logbook_view === "list"} onclick={() => setPref("logbook_view", "list")}>Simple list</button>
     </div>
+  </div>
+
+  <div class="group">
+    <h3>Screenshots</h3>
+    <p class="help">
+      Choose the folder your screenshots are saved in (the sim's, Steam's, Xbox Game Bar's or your own). FlightDeck
+      notices each new picture there, adds it to the flight you are flying and marks on the map where it was taken.
+    </p>
+    <p class="help warn">
+      FlightDeck only links to your screenshots where they are on this PC; it never copies them. Moving, renaming or
+      deleting a picture, or the folder, breaks its link in FlightDeck.
+    </p>
+    <div class="row">
+      <span class="url num">{prefs.s.screenshot_dir || "No folder chosen"}</span>
+    </div>
+    {#if !inRemote}
+      <div class="row">
+        <button class="primary" onclick={chooseShotDir}>{prefs.s.screenshot_dir ? "Change folder…" : "Choose folder…"}</button>
+        {#if prefs.s.screenshot_dir}<button class="ghost" onclick={() => setShotDir(null)}>Stop watching</button>{/if}
+      </div>
+    {:else}
+      <p class="help">The folder is chosen on the flight sim PC.</p>
+    {/if}
+    {#if shotErr}<p class="err" role="alert">{shotErr}</p>{/if}
   </div>
 
   {:else if tab === "connections"}
@@ -738,6 +783,9 @@
     margin: 0;
     font-size: 16px;
     font-weight: 600;
+  }
+  .help.warn {
+    color: var(--amber);
   }
   .help {
     margin: -4px 0 0;
