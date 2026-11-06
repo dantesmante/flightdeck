@@ -488,7 +488,7 @@
 
     {#if mode === "start"}
       <div class="two">
-        <button type="button" class="opt small" disabled title="Coming in a future version">
+        <button type="button" class="opt small" disabled title="Enter route manually: coming in a future version" aria-label="Enter route manually (coming soon)">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h10M4 17h7" /></svg>
           Enter route manually
           <em>Soon</em>
@@ -611,7 +611,7 @@
     display: flex;
     align-items: center;
     gap: 14px;
-    min-height: 46px;
+    min-height: 40px;
   }
   /* The line from origin to destination (solid), on to the alternate (dotted). */
   .legs li.pt.solid::after,
@@ -748,12 +748,14 @@
     gap: 8px;
   }
   .opt.small {
+    position: relative;
     flex-direction: row;
     justify-content: center;
     gap: 7px;
-    padding: 9px 8px;
-    font-size: 13px;
+    padding: 10px 4px;
+    font-size: 12.5px;
     font-weight: 600;
+    white-space: nowrap;
   }
   .opt.small svg {
     width: 17px;
@@ -770,6 +772,9 @@
     cursor: default;
   }
   .opt.small em {
+    position: absolute;
+    top: -7px;
+    right: 6px;
     font-style: normal;
     font-size: 10px;
     font-weight: 700;
@@ -779,6 +784,7 @@
     border-radius: 4px;
     background: #3a3e44;
     color: var(--ink-dim);
+    border: 1px solid #23262a;
   }
 
   /* Drawing a route, and the route drawn. */

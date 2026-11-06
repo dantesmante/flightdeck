@@ -31,10 +31,9 @@
   let { three, on, onthree, ontoggle, radarTime, radarError, parkedLayer = false, airportDetail = 1, ondetail, windLevel = "auto", onwindlevel, cardOpen = false, measuring = false, onmeasure, airspaceState = "idle" }: Props = $props();
   const DETAIL = ["Major airports only", "Major and regional airports", "All airports and airstrips"];
 
-  /** Which menu is open: airports and flights, weather, or the map's own layers. */
+  /** The Layers panel's tabs: airports and flights, weather, the map itself. */
   type Menu = "traffic" | "weather" | "map";
-  let open = $state<Menu | null>(null);
-  const MENUS: { id: Menu; label: string; title: string; icon: string }[] = [
+  const TABS: { id: Menu; label: string; title: string; icon: string }[] = [
     {
       id: "traffic",
       label: "Airports & Flights",
@@ -42,10 +41,39 @@
       icon: "M2.5 13.5l7-1.5 5-8h2.5l-2.5 8 5.5-.5 1.8-2.5H23l-1.2 4 1.2 4h-1.2L20 14.5l-5.5-.5 2.5 8h-2.5l-5-8-7-1.5z",
     },
     { id: "weather", label: "Weather", title: "Weather", icon: "M7 18h10a4 4 0 0 0 .6-7.96A6 6 0 0 0 6.1 9.1 4.5 4.5 0 0 0 7 18z" },
-    { id: "map", label: "Layers", title: "Map layers", icon: "M12 3l9 5-9 5-9-5 9-5zM3 13l9 5 9-5" },
+    { id: "map", label: "Map", title: "Map layers", icon: "M12 3l9 5-9 5-9-5 9-5zM3 13l9 5 9-5" },
   ];
-  function toggleMenu(m: Menu) {
-    open = open === m ? null : m;
+  /** The layers in each tab, to mark a tab that has something on. */
+  const IN_TAB: Record<Menu, string[]> = {
+    traffic: ["world", "airports", "routes", "airspace", "parked", "vatsim-atc", "vatsim-pilots", "ivao-atc", "ivao-pilots"],
+    weather: ["radar", "wx-cat", "wx-adv", "wind", "wx-wind"],
+    map: ["night", "satellite", "terrain", "borders"],
+  };
+  const tabOn = (t: Menu) => IN_TAB[t].some((k) => on.has(k)) || (t === "traffic" && !on.has("aeroway-off")) || (t === "map" && three);
+  /** The panel is open on this tab. */
+  let open = $state<Menu | null>(null);
+  // The panel opens on the tab used last (this device only).
+  const TAB_KEY = "fd.layersTab";
+  let lastTab: Menu = (() => {
+    try {
+      const v = localStorage.getItem(TAB_KEY);
+      return v === "traffic" || v === "weather" || v === "map" ? v : "traffic";
+    } catch {
+      return "traffic";
+    }
+  })();
+  function showTab(t: Menu) {
+    open = t;
+    lastTab = t;
+    try {
+      localStorage.setItem(TAB_KEY, t);
+    } catch {
+      /* private window: just not remembered */
+    }
+  }
+  function togglePanel() {
+    if (open) open = null;
+    else showTab(lastTab);
   }
 
   const zulu = (s: number) => {
@@ -211,19 +239,25 @@
       <span>Measure</span>
     </button>
   {/if}
-  {#each MENUS as m (m.id)}
-    <button class="layers-btn" class:open={open === m.id} aria-expanded={open === m.id} onclick={() => toggleMenu(m.id)}>
-      <svg viewBox="0 0 24 24" aria-hidden="true" class:fill={m.id === "traffic"}><path d={m.icon} /></svg>
-      <span>{m.label}</span>
-    </button>
-  {/each}
+  <button class="layers-btn" class:open={!!open} aria-expanded={!!open} onclick={togglePanel}>
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l9 5-9 5-9-5 9-5zM3 13l9 5 9-5" /></svg>
+    <span>Layers</span>
+  </button>
 </div>
 
 {#if open}
-  {@const menu = MENUS.find((m) => m.id === open)!}
-  <div class="panel" class:beside={cardOpen} role="dialog" aria-label={menu.title}>
+  {@const menu = TABS.find((m) => m.id === open)!}
+  <div class="panel" class:beside={cardOpen} role="dialog" aria-label="Layers: {menu.title}">
     <header>
-      <h3>{menu.title}</h3>
+      <div class="tabs" role="tablist" aria-label="Layers">
+        {#each TABS as t (t.id)}
+          <button role="tab" aria-selected={open === t.id} class:sel={open === t.id} onclick={() => showTab(t.id)}>
+            <svg viewBox="0 0 24 24" aria-hidden="true" class:fill={t.id === "traffic"}><path d={t.icon} /></svg>
+            {t.label}
+            {#if tabOn(t.id)}<i class="dot" aria-label="(on)"></i>{/if}
+          </button>
+        {/each}
+      </div>
       <button class="x" aria-label="Close" onclick={() => (open = null)}>
         <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" /></svg>
       </button>
@@ -371,10 +405,6 @@
     font-weight: 600;
     font-size: 15px;
   }
-  .layers-btn svg.fill {
-    fill: currentColor;
-    stroke: none;
-  }
   .layers-btn svg {
     width: 18px;
     height: 18px;
@@ -393,7 +423,7 @@
     position: absolute;
     top: 62px;
     right: 16px;
-    width: 360px;
+    width: 384px;
     max-height: calc(100% - 130px);
     overflow-y: auto;
     overflow-x: hidden;
@@ -408,18 +438,63 @@
   /* An airport (or network, weather) card is open on the right: the menu
      opens beside it instead of over it. */
   .panel.beside {
-    right: max(16px, min(368px, calc(100% - 376px)));
+    right: max(16px, min(368px, calc(100% - 400px)));
   }
   header {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    gap: 6px;
+    margin-bottom: 12px;
   }
-  h3 {
-    margin: 0;
+  .tabs {
+    display: flex;
+    gap: 2px;
+    padding: 3px;
+    border-radius: 9px;
+    background: rgba(255, 255, 255, 0.04);
+    min-width: 0;
+  }
+  .tabs button {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 9px;
+    border: none;
+    border-radius: 7px;
+    background: transparent;
+    color: var(--ink-dim);
     font-family: var(--cond);
+    font-size: 14.5px;
     font-weight: 600;
-    font-size: 19px;
+    white-space: nowrap;
+  }
+  .tabs button:hover {
+    color: var(--ink);
+  }
+  .tabs button.sel {
+    background: var(--panel-3);
+    color: var(--ink);
+    box-shadow: inset 0 -2px 0 var(--amber);
+  }
+  .tabs svg {
+    width: 15px;
+    height: 15px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linejoin: round;
+  }
+  .tabs svg.fill {
+    fill: currentColor;
+    stroke: none;
+  }
+  .tabs .dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--amber);
   }
   .x {
     border: none;
@@ -635,6 +710,13 @@
     }
     .panel.beside {
       right: 10px;
+    }
+    .tabs button {
+      padding: 5px 7px;
+      font-size: 13.5px;
+    }
+    .tabs svg {
+      display: none;
     }
   }
 </style>

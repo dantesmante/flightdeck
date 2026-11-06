@@ -114,9 +114,12 @@
     width: 356px;
     max-width: calc(100% - 32px);
     max-height: calc(100% - 32px);
+    /* Scrolls when the window is short, without showing a scroll bar; the
+       tear-line notches are cut off at the edges, as they should be. */
+    overflow-x: hidden;
     overflow-y: auto;
-    scrollbar-width: thin;
-    padding: 16px 18px 20px;
+    scrollbar-width: none;
+    padding: 16px 18px 18px;
     background: rgba(28, 30, 33, 0.86);
     border: 1px solid var(--rule);
     border-radius: 14px;
@@ -130,6 +133,9 @@
     justify-content: space-between;
     margin: -16px -18px 6px;
     padding: 14px 14px 6px 18px;
+  }
+  .card::-webkit-scrollbar {
+    display: none;
   }
   .top.flat {
     position: absolute;

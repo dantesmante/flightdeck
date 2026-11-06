@@ -152,15 +152,17 @@ MIT licensed.
   Microsoft Flight Simulator flight plan (VFR or IFR, cruise altitude;
   user waypoints) that MSFS 2020 and 2024 load from the world map. On a
   phone or tablet the file downloads. "Enter route manually" comes later.
-- **Measure** (left of Airports & Flights): click points on the map to
+- **Measure** (left of Layers): click points on the map to
   measure a route, leg by leg, in nautical miles with the course of each
   leg, and the total in miles and kilometres too. Great-circle distances.
   Backspace or right-click takes back the last point; Escape or Done ends.
-- **Map menus**, beside 2D/3D: **Airports & Flights** (world airports,
-  your airports, past routes, runways and taxiways, parked aircraft,
-  VATSIM and IVAO), **Weather** (radar, flight category, SIGMETs and
-  AIRMETs, wind, airport wind) and **Layers** (the map itself: 3D flight,
-  day/night, satellite, topographic, borders).
+- **Layers**, beside 2D/3D and Measure: one panel with three tabs,
+  **Airports & Flights** (world airports, your airports, past routes,
+  runways and taxiways, US airspace, parked aircraft, VATSIM and IVAO),
+  **Weather** (radar, flight category, SIGMETs and AIRMETs, wind, airport
+  wind) and **Map** (3D flight, day/night, satellite, topographic,
+  borders). It opens on the tab used last; a dot marks a tab with
+  something switched on.
 - **Flights** page: the list of flights is a card floating over the left
   of the map, a little see-through (put it away with its arrow to see the
   whole map); it opens on the list whenever you come to it from another
