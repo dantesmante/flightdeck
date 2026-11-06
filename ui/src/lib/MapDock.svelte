@@ -141,9 +141,10 @@
   }
   h2 {
     margin: 0;
-    font-family: var(--cond);
-    font-size: 22px;
-    font-weight: 600;
+    font-family: var(--sans);
+    font-size: 21px;
+    font-weight: 800;
+    letter-spacing: -0.01em;
   }
   .x {
     display: grid;

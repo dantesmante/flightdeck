@@ -137,7 +137,21 @@ MIT licensed.
   IFR, LIFR); airports without one show none rather than wait.
   **Right-click** an airport for **Set as origin**, **Set as destination**
   (they fill in Start a flight on the Map tab) and **Zoom to fit**. The
-  airport clicked is marked by a pulsing amber ring until you zoom right in.
+  airport clicked is marked by an amber ring that glows softly in and out
+  until you zoom in on it (zoom 12.5).
+- **Airspace (US only)** in Airports & Flights: Class B (solid blue), C
+  (magenta) and D (dashed blue) around US airports, with ceiling/floor in
+  hundreds of feet along the edges as charts print them ("100/30", "[25]"
+  for a Class D ceiling). From the FAA's NASR data (public domain), fetched
+  once per 28-day cycle and kept in the data folder; other countries have no
+  free airspace data.
+- **Draw route** (Start a flight): choose the origin (type it or click an
+  airport), click the map to add waypoints (an airport clicked is passed
+  over), and finish on the destination airport. The route becomes the
+  flight plan, drawn on the map, and **Save as .PLN** writes it as a
+  Microsoft Flight Simulator flight plan (VFR or IFR, cruise altitude;
+  user waypoints) that MSFS 2020 and 2024 load from the world map. On a
+  phone or tablet the file downloads. "Enter route manually" comes later.
 - **Measure** (left of Airports & Flights): click points on the map to
   measure a route, leg by leg, in nautical miles with the course of each
   leg, and the total in miles and kilometres too. Great-circle distances.

@@ -344,6 +344,29 @@ export async function mockCall<T>(cmd: string, _args?: Record<string, unknown>):
   if (cmd === "export_csv" || cmd === "export_all_volanta") {
     return { folder: cmd === "export_csv" ? "C:\\Users\\you\\Downloads\\FlightDeck export\\FlightDeck flights.csv" : "C:\\Users\\you\\Downloads\\FlightDeck export", count: 3 } as T;
   }
+  if (cmd === "pln_text") return ["KSEA-KPDX.pln", "<?xml version=\"1.0\"?>"] as T;
+  if (cmd === "save_pln") return "C:\\Users\\you\\Documents\\KSEA-KPDX.pln" as T;
+  if (cmd === "us_airspace") {
+    // Rings like a Class B around KSEA and a Class D at KPDX.
+    const ring = (lon: number, lat: number, r: number, cw = false) => {
+      const pts = Array.from({ length: 73 }, (_, i) => {
+        const a = ((cw ? -i : i) * 5 * Math.PI) / 180;
+        return [lon + (r * Math.cos(a)) / Math.cos((lat * Math.PI) / 180), lat + r * Math.sin(a)];
+      });
+      return pts;
+    };
+    const f = (c: string, label: string, rings: number[][][]) => ({ type: "Feature", properties: { c, name: "", label }, geometry: { type: "Polygon", coordinates: rings } });
+    return JSON.stringify({
+      type: "FeatureCollection",
+      features: [
+        f("B", "100/SFC", [ring(-122.309, 47.449, 0.1)]),
+        f("B", "100/30", [ring(-122.309, 47.449, 0.2), ring(-122.309, 47.449, 0.1, true)]),
+        f("C", "40/SFC", [ring(-122.598, 45.589, 0.08)]),
+        f("C", "40/20", [ring(-122.598, 45.589, 0.17), ring(-122.598, 45.589, 0.08, true)]),
+        f("D", "[29]", [ring(-122.95, 45.54, 0.07)]),
+      ],
+    }) as T;
+  }
   if (cmd === "wx_categories") {
     return {
       updated_ms: now,

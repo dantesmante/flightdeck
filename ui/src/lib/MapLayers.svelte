@@ -25,8 +25,10 @@
     /** The measuring tool is on. Leave out onmeasure to not offer it. */
     measuring?: boolean;
     onmeasure?: () => void;
+    /** The US airspace layer's data: loading, ready or not reachable. */
+    airspaceState?: "idle" | "loading" | "ok" | "error";
   }
-  let { three, on, onthree, ontoggle, radarTime, radarError, parkedLayer = false, airportDetail = 1, ondetail, windLevel = "auto", onwindlevel, cardOpen = false, measuring = false, onmeasure }: Props = $props();
+  let { three, on, onthree, ontoggle, radarTime, radarError, parkedLayer = false, airportDetail = 1, ondetail, windLevel = "auto", onwindlevel, cardOpen = false, measuring = false, onmeasure, airspaceState = "idle" }: Props = $props();
   const DETAIL = ["Major airports only", "Major and regional airports", "All airports and airstrips"];
 
   /** Which menu is open: airports and flights, weather, or the map's own layers. */
@@ -138,6 +140,12 @@
         </g>
         <circle cx={x} cy={y} r="2" fill="#eef1f4" />
       {/each}
+    {:else if kind === "airspace"}
+      <circle cx="56" cy="34" r="27" fill="#4a8ce8" fill-opacity="0.08" stroke="#4a8ce8" stroke-width="2" />
+      <circle cx="56" cy="34" r="13" fill="none" stroke="#4a8ce8" stroke-width="2" />
+      <circle cx="102" cy="16" r="10" fill="none" stroke="#c25bb0" stroke-width="1.6" />
+      <circle cx="98" cy="50" r="9" fill="none" stroke="#4a8ce8" stroke-width="1.3" stroke-dasharray="3 2" />
+      <text x="56" y="11" text-anchor="middle" font-size="7.5" font-weight="700" fill="#4a8ce8">100/30</text>
     {:else if kind === "radar"}
       <path d="M10 40 C 20 20, 44 18, 52 30 C 60 42, 40 56, 22 52 C 12 50, 6 46, 10 40 Z" fill="#3aa0ff" opacity="0.55" />
       <path d="M22 40 C 26 32, 38 30, 42 36 C 46 44, 32 48, 26 46 Z" fill="#7ce0ff" opacity="0.8" />
@@ -178,6 +186,12 @@
 
 {#snippet windNote()}
   <span class="note">{on.has("wind") ? (WIND_LEVELS.find((l) => l.id === windLevel)?.label ?? "Auto") : "Moving flow"}</span>
+{/snippet}
+
+{#snippet airspaceNote()}
+  <span class="note">
+    {#if on.has("airspace") && airspaceState === "loading"}Loading from the FAA…{:else if on.has("airspace") && airspaceState === "error"}FAA not reachable{:else}US only · B, C, D{/if}
+  </span>
 {/snippet}
 
 {#snippet radarNote()}
@@ -253,6 +267,7 @@
       {@render card("airports", "Your airports", on.has("airports"), () => ontoggle("airports"))}
       {@render card("routes", "Past routes", on.has("routes"), () => ontoggle("routes"))}
       {@render card("aeroway", "Runways", !on.has("aeroway-off"), () => ontoggle("aeroway-off"))}
+      {@render card("airspace", "Airspace", on.has("airspace"), () => ontoggle("airspace"), airspaceNote)}
       {#if parkedLayer}
         {@render card("parked", "Parked aircraft", on.has("parked"), () => ontoggle("parked"))}
       {/if}
@@ -278,7 +293,7 @@
       {@render netCard("ivao", "IVAO")}
     </div>
     <p class="credit">
-      Airports OurAirports · Runways and taxiways OpenStreetMap · Live traffic VATSIM and IVAO (every 30 s while on) ·
+      Airports OurAirports · Runways and taxiways OpenStreetMap · Airspace FAA (US only, every 28 days) · Live traffic VATSIM and IVAO (every 30 s while on) ·
       ATC areas VAT-Spy Data Project (CC BY-SA 4.0)
     </p>
     {/if}

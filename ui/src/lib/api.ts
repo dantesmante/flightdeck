@@ -89,6 +89,22 @@ export interface AirportHit {
   lon: number;
 }
 
+/** A route drawn on the map, for an MSFS .PLN file. */
+export interface PlnRoute {
+  rules: "VFR" | "IFR";
+  cruise_ft: number;
+  origin: PlnPoint;
+  destination: PlnPoint;
+  waypoints: PlnPoint[];
+}
+export interface PlnPoint {
+  ident: string;
+  name: string;
+  lat: number;
+  lon: number;
+  airport: boolean;
+}
+
 export interface PlanFix {
   ident: string;
   kind: string;
@@ -888,6 +904,12 @@ export const api = {
   remoteForget: () => call<RemoteInfo>("remote_forget"),
   wxCategories: () => call<WxCategories>("wx_categories"),
   windGrid: (level: string) => call<WindGrid>("wind_grid", { level }),
+  /** US Class B, C and D airspace, GeoJSON text (FAA, 28-day cycle). */
+  usAirspace: () => call<string>("us_airspace"),
+  /** A drawn route as an MSFS .PLN: [file name, text]. */
+  plnText: (route: PlnRoute) => call<[string, string]>("pln_text", { route }),
+  /** Save a drawn route as an MSFS .PLN (PC only): the path, or null if cancelled. */
+  savePln: (route: PlnRoute) => call<string | null>("save_pln", { route }),
   wxAdvisories: () => call<WxAdvisories>("wx_advisories"),
   onlineNetwork: (net: Net) => call<NetworkData>("online_network", { net }),
   onlinePilot: (net: Net, callsign: string) => call<NetPilot | null>("online_pilot", { net, callsign }),

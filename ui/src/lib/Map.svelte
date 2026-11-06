@@ -20,7 +20,7 @@
   import { day } from "./format";
   import { modelName } from "./hangar/names";
   import { prefs, setPref } from "./prefs.svelte";
-  import { pick } from "./flyStore.svelte";
+  import { drawing, pick } from "./flyStore.svelte";
   import { altColor, altGradient, altLabel, altRange, lonLat, sideOnBearing, wallFeatures, wallScale, type Pt } from "./track";
 
   interface Props {
@@ -48,7 +48,7 @@
     /** "Fly this aircraft" was pressed in a parked aircraft's card. */
     onfly?: (item: HangarItem) => void;
     /** A route being set up and not flown yet: drawn like a plan when there is none. */
-    draft?: { origin: { icao: string; name: string; lat: number; lon: number }; dest: { icao: string; name: string; lat: number; lon: number } } | null;
+    draft?: { origin: { icao: string; name: string; lat: number; lon: number }; dest: { icao: string; name: string; lat: number; lon: number }; fixes?: FlightPlan["fixes"] } | null;
     /** Room taken by cards over the right and bottom of the map, in pixels:
      * the map controls move clear of it and routes fit beside it. */
     insetRight?: number;
@@ -93,7 +93,7 @@
             id: "draft",
             origin: { ...draft.origin, runway: "" },
             destination: { ...draft.dest, runway: "" },
-            fixes: [],
+            fixes: draft.fixes ?? [],
           } as unknown as FlightPlan)
         : null),
   );
@@ -189,6 +189,30 @@
   let openAirport = $state<string | null>(null);
   /** A SIGMET or AIRMET whose card is open. */
   let wxPick = $state<WxAdvisoryProps | null>(null);
+  // US airspace: read once when the layer is first switched on (FlightDeck
+  // keeps a copy for the FAA's 28-day cycle).
+  let aspData: GeoJSON.FeatureCollection | null = null;
+  let aspState = $state<"idle" | "loading" | "ok" | "error">("idle");
+  $effect(() => {
+    const on = layers.has("airspace");
+    if (!loaded || !map || !map.getSource("us-airspace")) return;
+    for (const id of ["asp-fill", "asp-line", "asp-dash", "asp-label"]) if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", on ? "visible" : "none");
+    if (!on) return;
+    if (aspData) {
+      (map.getSource("us-airspace") as GeoJSONSource).setData(aspData);
+      return;
+    }
+    if (aspState === "loading") return;
+    untrack(() => (aspState = "loading"));
+    api.usAirspace()
+      .then((text) => {
+        aspData = JSON.parse(text) as GeoJSON.FeatureCollection;
+        aspState = "ok";
+        (map?.getSource("us-airspace") as GeoJSONSource | undefined)?.setData(aspData);
+      })
+      .catch(() => (aspState = "error"));
+  });
+
   // Weather from the Aviation Weather Center: only while its layers are on,
   // every 10 minutes (FlightDeck's own cache has the same age).
   $effect(() => {
@@ -380,7 +404,7 @@
   let ringAt = $state<[number, number] | null>(null);
   let ringMarker: maplibregl.Marker | undefined;
   /** Zoomed in this far, the airport fills the view and needs no ring. */
-  const RING_HIDE = 13.5;
+  const RING_HIDE = 12.5;
   let zoomNow = $state(2);
   /** The airport the ring was placed for. */
   let ringFor: string | null = null;
@@ -394,14 +418,19 @@
     }
     if (!ringMarker) {
       const d = document.createElement("div");
+      // The map sets the marker's own opacity, so the glow and its hiding
+      // live on an element inside it.
       d.className = "ap-ring";
-      d.innerHTML = "<span></span><span></span>";
+      d.innerHTML = "<span></span>";
       ringMarker = new maplibregl.Marker({ element: d });
     }
     ringMarker.setLngLat(at).addTo(map);
   });
   $effect(() => {
-    ringMarker?.getElement().classList.toggle("hide", zoomNow >= RING_HIDE);
+    const hide = zoomNow >= RING_HIDE;
+    void ringAt;
+    void openAirport;
+    ringMarker?.getElement().firstElementChild?.classList.toggle("hide", hide);
   });
   // A card opened from elsewhere (an online controller's airport): find
   // where the airport is.
@@ -424,6 +453,54 @@
   // --- Measuring ----------------------------------------------------------
   let measuring = $state(false);
   let mPts = $state<[number, number][]>([]);
+  /** Draw route (from Start a flight) uses the measuring line: the origin
+   * and the points clicked so far. */
+  const drawOn = $derived(planner && (drawing.stage === "origin" || drawing.stage === "route"));
+  const drawRoute = $derived(planner && drawing.stage === "route");
+  /** Points clicked on the map are being traced (measuring or drawing). */
+  const tracing = $derived(measuring || drawRoute);
+  const linePts = $derived<[number, number][]>(
+    drawOn ? (drawing.origin ? [[drawing.origin.lon, drawing.origin.lat], ...drawing.pts.map((p) => [p.lon, p.lat] as [number, number])] : []) : mPts,
+  );
+  function undoPoint() {
+    if (drawOn) drawing.pts = drawing.pts.slice(0, -1);
+    else mPts = mPts.slice(0, -1);
+  }
+  // Drawing: a crosshair while points are being added.
+  $effect(() => {
+    const on = drawRoute;
+    if (!map || measuring) return;
+    map.getCanvas().style.cursor = on ? "crosshair" : "";
+    if (on) map.doubleClickZoom.disable();
+    else map.doubleClickZoom.enable();
+    if (on) {
+      ctx = null;
+      hoverTip = null;
+    } else untrack(() => (mHover = null));
+  });
+  /** A click while drawing: the origin airport first, then the route. */
+  async function drawClick(pt: maplibregl.Point, at: [number, number]) {
+    const hit = airportHit(pt);
+    const named = async (ident: string, where: [number, number]) => {
+      const h = ((await api.searchAirports(ident).catch(() => [])) ?? []).find((x) => x.icao === ident);
+      return h ? { icao: h.icao, name: h.name, lat: h.lat, lon: h.lon } : { icao: ident, name: "", lat: where[1], lon: where[0] };
+    };
+    if (drawing.stage === "origin") {
+      if (!hit) {
+        drawing.note = "Click an airport to start from.";
+        return;
+      }
+      drawing.note = "";
+      drawing.origin = await named(hit.ident, hit.at);
+      return;
+    }
+    if (hit) {
+      drawing.pts = [...drawing.pts, await named(hit.ident, hit.at)];
+    } else {
+      drawing.pts = [...drawing.pts, { icao: "", name: "", lat: at[1], lon: at[0] }];
+    }
+    drawing.note = "";
+  }
   let mHover = $state<[number, number] | null>(null);
   let legMarkers: maplibregl.Marker[] = [];
   const R_NM = 3440.065;
@@ -441,23 +518,25 @@
     const x = Math.cos(a[1] * rad) * Math.sin(b[1] * rad) - Math.sin(a[1] * rad) * Math.cos(b[1] * rad) * Math.cos((b[0] - a[0]) * rad);
     return ((Math.atan2(y, x) / rad + 360) % 360);
   }
-  const legs = $derived(mPts.slice(1).map((b, i) => ({ nm: gcNm(mPts[i], b), crs: course(mPts[i], b) })));
+  const legs = $derived(linePts.slice(1).map((b, i) => ({ nm: gcNm(linePts[i], b), crs: course(linePts[i], b) })));
   const mTotal = $derived(legs.reduce((t, l) => t + l.nm, 0));
   const mNext = $derived.by(() => {
-    if (!measuring || !mHover || !mPts.length) return null;
-    const nm = gcNm(mPts[mPts.length - 1], mHover);
-    return nm < 0.05 ? null : { nm, crs: course(mPts[mPts.length - 1], mHover) };
+    const pts = linePts;
+    if (!tracing || !mHover || !pts.length) return null;
+    const nm = gcNm(pts[pts.length - 1], mHover);
+    return nm < 0.05 ? null : { nm, crs: course(pts[pts.length - 1], mHover) };
   });
   const fmt = (nm: number) => (nm < 10 ? nm.toFixed(1) : Math.round(nm).toLocaleString("en-US"));
   const crs3 = (c: number) => String(Math.round(c) % 360 || 360).padStart(3, "0");
   function measureData(): GeoJSON.FeatureCollection {
     const features: GeoJSON.Feature[] = [];
+    const mPts = linePts;
     if (mPts.length > 1) {
       const line: [number, number][] = [mPts[0]];
       for (let i = 1; i < mPts.length; i++) line.push(...greatCircle(line[line.length - 1], mPts[i], 32).slice(1));
       features.push({ type: "Feature", properties: { kind: "line" }, geometry: { type: "LineString", coordinates: line } });
     }
-    if (measuring && mHover && mPts.length && mNext) {
+    if (tracing && mHover && mPts.length && mNext) {
       features.push({ type: "Feature", properties: { kind: "next" }, geometry: { type: "LineString", coordinates: greatCircle(mPts[mPts.length - 1], mHover, 24) } });
     }
     mPts.forEach((p, i) => features.push({ type: "Feature", properties: { kind: "pt", first: i === 0 }, geometry: { type: "Point", coordinates: p } }));
@@ -485,15 +564,16 @@
   });
   $effect(() => {
     const ls = legs;
-    const pts = mPts;
+    const pts = linePts;
     if (!map || !loaded) return;
     for (const m of legMarkers) m.remove();
-    legMarkers = ls.map((l, i) => {
+    legMarkers = ls.flatMap((l, i) => {
+      if (l.nm < 0.05) return [];
       const mid = greatCircle(pts[i], pts[i + 1], 2)[1];
       const d = document.createElement("div");
       d.className = "leg-label";
       d.textContent = `${fmt(l.nm)} nm · ${crs3(l.crs)}°`;
-      return new maplibregl.Marker({ element: d }).setLngLat(mid).addTo(map!);
+      return [new maplibregl.Marker({ element: d }).setLngLat(mid).addTo(map!)];
     });
   });
   function setMeasuring(on: boolean) {
@@ -514,13 +594,13 @@
   }
   function measureKey(e: KeyboardEvent) {
     if (ctx && e.key === "Escape") ctx = null;
-    if (!measuring) return;
+    if (!tracing) return;
     const t = e.target as HTMLElement | null;
     if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
-    if (e.key === "Escape") setMeasuring(false);
+    if (e.key === "Escape" && measuring) setMeasuring(false);
     else if (e.key === "Backspace" || (e.key === "z" && (e.ctrlKey || e.metaKey))) {
       e.preventDefault();
-      mPts = mPts.slice(0, -1);
+      undoPoint();
     }
   }
 
@@ -887,6 +967,46 @@
       filter: ["==", ["get", "kind"], "AIRMET"],
       paint: { "line-color": wxColor, "line-width": 1.3, "line-opacity": 0.85, "line-dasharray": [3, 2] },
     });
+    // US airspace (Class B, C and D), as charts draw it: B solid blue, C
+    // magenta, D dashed blue, with ceiling/floor along the edges.
+    map.addSource("us-airspace", { type: "geojson", data: wxEmpty });
+    const ASP: maplibregl.ExpressionSpecification = ["match", ["get", "c"], "C", "#c25bb0", "#4a8ce8"] as unknown as maplibregl.ExpressionSpecification;
+    map.addLayer({ id: "asp-fill", type: "fill", source: "us-airspace", minzoom: 5, layout: { visibility: "none" }, paint: { "fill-color": ASP, "fill-opacity": ["match", ["get", "c"], "D", 0.03, 0.05] } });
+    map.addLayer({
+      id: "asp-line",
+      type: "line",
+      source: "us-airspace",
+      minzoom: 5,
+      filter: ["!=", ["get", "c"], "D"],
+      layout: { visibility: "none", "line-join": "round" },
+      paint: { "line-color": ASP, "line-width": ["interpolate", ["linear"], ["zoom"], 5, 1, 10, ["match", ["get", "c"], "B", 2.4, 1.8]], "line-opacity": 0.9 },
+    });
+    map.addLayer({
+      id: "asp-dash",
+      type: "line",
+      source: "us-airspace",
+      minzoom: 7,
+      filter: ["==", ["get", "c"], "D"],
+      layout: { visibility: "none" },
+      paint: { "line-color": "#4a8ce8", "line-width": 1.4, "line-dasharray": [3, 2], "line-opacity": 0.9 },
+    });
+    if (map.getStyle().glyphs)
+      map.addLayer({
+        id: "asp-label",
+        type: "symbol",
+        source: "us-airspace",
+        minzoom: 8,
+        layout: {
+          visibility: "none",
+          "symbol-placement": "line",
+          "symbol-spacing": 320,
+          "text-field": ["get", "label"],
+          "text-font": ["Noto Sans Bold"],
+          "text-size": 11,
+          "text-keep-upright": true,
+        },
+        paint: { "text-color": ASP, "text-halo-color": "#111214", "text-halo-width": 1.6 },
+      });
     // The world's airports (the Airports layer, by detail level), under
     // your routes. Smaller airports appear as you zoom in.
     map.addSource("world-airports", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
@@ -1333,7 +1453,7 @@
         map.getCanvas().style.cursor = "pointer";
         const p = f.properties as { label: string; sub: string };
         // An airport under the pointer has its own tip.
-        if (measuring || airportAt(e.point)) return;
+        if (tracing || airportAt(e.point)) return;
         hoverTip = { x: e.point.x, y: e.point.y, label: p.label, sub: p.sub, hint: "Click for flight details" };
       });
       map.on("mouseleave", layer, clearHover);
@@ -1341,7 +1461,7 @@
         const f = e.features?.[0];
         clearHover();
         // An airport or online pilot under the pointer wins over a route.
-        if (measuring || airportAt(e.point)) return;
+        if (tracing || drawOn || airportAt(e.point)) return;
         const n = netAt(e.point);
         if (n && n.kind !== "area") return;
         if (f?.id != null) onroute?.(Number(f.id));
@@ -1353,20 +1473,20 @@
         const f = e.features?.[0];
         const p = f?.properties as { id?: string; name?: string; ident?: string } | undefined;
         const ident = p?.id ?? p?.ident;
-        if (!ident || !map || measuring) return;
+        if (!ident || !map || tracing) return;
         map.getCanvas().style.cursor = "pointer";
         hoverTip = { x: e.point.x, y: e.point.y, label: ident, sub: p?.name ?? "", hint: "Click for airport info", cat: cats.get(ident) ?? null, more: "Right-click for flight options" };
       });
       map.on("mouseleave", layer, () => {
         clearHover();
-        if (measuring && map) map.getCanvas().style.cursor = "crosshair";
+        if (tracing && map) map.getCanvas().style.cursor = "crosshair";
       });
     }
     // Right-click on an airport: send it to the planner, or fit it in view.
     map.on("contextmenu", (e) => {
-      if (measuring) {
-        // While measuring, a right-click takes back the last point.
-        mPts = mPts.slice(0, -1);
+      if (tracing) {
+        // While measuring or drawing, a right-click takes back the last point.
+        undoPoint();
         return;
       }
       const hit = airportHit(e.point);
@@ -1382,12 +1502,16 @@
       ctx = { x: e.point.x, y: e.point.y, ident: hit.ident, name, at: hit.at };
     });
     map.on("mousemove", (e) => {
-      if (measuring) mHover = [e.lngLat.lng, e.lngLat.lat];
+      if (tracing) mHover = [e.lngLat.lng, e.lngLat.lat];
     });
     map.on("mouseout", () => (mHover = null));
     map.on("zoom", () => (zoomNow = map!.getZoom()));
     map.on("click", (e) => {
       ctx = null;
+      if (drawOn) {
+        drawClick(e.point, [e.lngLat.lng, e.lngLat.lat]);
+        return;
+      }
       if (measuring) {
         mPts = [...mPts, [e.lngLat.lng, e.lngLat.lat]];
         return;
@@ -1856,7 +1980,7 @@
     </button>
   </div>
 {/if}
-{#if measuring || mPts.length > 1}
+{#if !drawOn && (measuring || mPts.length > 1)}
   <div class="measure" style:--ml="{insetLeft}px" style:--mr="{openAirport || netPick || wxPick ? Math.max(372, insetRight) : insetRight}px" style:bottom="{16 + insetBottom}px">
     <div class="m-total">
       <span class="num big">{fmt(mTotal + (mNext?.nm ?? 0))}<small>nm</small></span>
@@ -1903,6 +2027,7 @@
   cardOpen={!!(openAirport || (netPick && !openAirport) || (wxPick && !openAirport && !netPick))}
   {measuring}
   onmeasure={() => setMeasuring(!measuring)}
+  airspaceState={aspState}
 />
 {#if wxPick && !openAirport && !netPick}
   <WxCard item={wxPick} onclose={() => (wxPick = null)} />
@@ -2197,39 +2322,39 @@
     color: var(--ink-faint);
   }
 
-  /* The airport clicked: an amber ring that pulses outward. Only opacity
-     and scale change, which the browser composites cheaply. */
+  /* The airport clicked: an amber ring that glows softly in and out. Only
+     its opacity changes, which every browser draws cheaply. */
   .map :global(.ap-ring) {
-    width: 46px;
-    height: 46px;
+    width: 44px;
+    height: 44px;
     pointer-events: none;
-    transition: opacity 0.3s;
-  }
-  .map :global(.ap-ring.hide) {
-    opacity: 0;
   }
   .map :global(.ap-ring span) {
     position: absolute;
     inset: 0;
-    border: 2.5px solid #f0b23a;
+    border: 2px solid #f0b23a;
     border-radius: 50%;
-    box-shadow: 0 0 8px rgba(240, 178, 58, 0.5);
-    animation: ap-pulse 1.8s ease-out infinite;
+    box-shadow:
+      0 0 10px 2px rgba(240, 178, 58, 0.45),
+      inset 0 0 8px rgba(240, 178, 58, 0.35);
+    animation: ap-glow 3.2s ease-in-out infinite;
   }
-  .map :global(.ap-ring span + span) {
-    animation-delay: 0.9s;
+  .map :global(.ap-ring span.hide) {
+    display: none;
   }
-  .map :global(.ap-ring.hide span) {
-    animation-play-state: paused;
-  }
-  @keyframes ap-pulse {
-    0% {
-      transform: scale(0.45);
-      opacity: 1;
-    }
+  @keyframes ap-glow {
+    0%,
     100% {
-      transform: scale(1.5);
-      opacity: 0;
+      opacity: 0.25;
+    }
+    50% {
+      opacity: 0.95;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .map :global(.ap-ring span) {
+      animation: none;
+      opacity: 0.8;
     }
   }
 

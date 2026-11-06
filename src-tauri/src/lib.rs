@@ -7,6 +7,8 @@ mod engine;
 mod photos;
 mod efb;
 mod networks;
+mod airspace;
+mod pln;
 mod backup;
 mod screenshots;
 mod winds;
@@ -322,6 +324,13 @@ async fn wx_categories() -> CmdResult<wx::Categories> {
     tauri::async_runtime::spawn_blocking(wx::categories).await.map_err(err)
 }
 
+/// US Class B, C and D airspace as GeoJSON text (FAA, every 28 days).
+#[tauri::command]
+async fn us_airspace(state: tauri::State<'_, AppState>) -> CmdResult<String> {
+    let dir = state.data_dir.clone();
+    tauri::async_runtime::spawn_blocking(move || airspace::us(&dir)).await.map_err(err)?
+}
+
 /// Forecast wind at one level ("sfc", "850" ... "200"), for the wind layer.
 #[tauri::command]
 async fn wind_grid(level: String) -> CmdResult<winds::WindGrid> {
@@ -367,6 +376,39 @@ async fn backup_save(app: tauri::AppHandle) -> CmdResult<Option<String>> {
     let p = path.clone();
     tauri::async_runtime::spawn_blocking(move || db.lock().unwrap().backup_to(&p)).await.map_err(err)?.map_err(err)?;
     log::info!("backup saved to {}", path.display());
+    Ok(Some(path.display().to_string()))
+}
+
+/// A route drawn on the map as an MSFS .PLN text, with the file name to
+/// offer (for devices, which download it).
+#[tauri::command]
+fn pln_text(state: tauri::State<'_, AppState>, route: pln::Route) -> CmdResult<(String, String)> {
+    let rd = state.refdata.clone();
+    Ok((pln::file_name(&route), pln::write(&route, |id| rd.airport(id).map(|a| a.elevation_ft as f64))))
+}
+
+/// Save a route drawn on the map as an MSFS .PLN file wherever the pilot
+/// picks. Returns the path, or None if the picker was closed.
+#[tauri::command]
+async fn save_pln(app: tauri::AppHandle, route: pln::Route) -> CmdResult<Option<String>> {
+    use tauri_plugin_dialog::DialogExt;
+    let rd = app.state::<AppState>().refdata.clone();
+    let text = pln::write(&route, |id| rd.airport(id).map(|a| a.elevation_ft as f64));
+    let name = pln::file_name(&route);
+    let a = app.clone();
+    let picked = tauri::async_runtime::spawn_blocking(move || {
+        a.dialog()
+            .file()
+            .set_title("Save the flight plan for MSFS")
+            .set_file_name(name)
+            .add_filter("MSFS flight plan", &["pln", "PLN"])
+            .blocking_save_file()
+    })
+    .await
+    .map_err(err)?;
+    let Some(path) = picked.and_then(|p| p.into_path().ok()) else { return Ok(None) };
+    std::fs::write(&path, text).map_err(|e| format!("Could not save the flight plan: {e}"))?;
+    log::info!("flight plan saved to {}", path.display());
     Ok(Some(path.display().to_string()))
 }
 
@@ -1403,6 +1445,8 @@ pub(crate) async fn dispatch(app: &tauri::AppHandle, cmd: &str, a: serde_json::V
         "online_network" => ok(to_value(online_network(arg(&a, "net")?).await?)),
         "wx_categories" => ok(to_value(wx_categories().await?)),
         "wind_grid" => ok(to_value(wind_grid(arg(&a, "level")?).await?)),
+        "us_airspace" => ok(to_value(us_airspace(st()).await?)),
+        "pln_text" => ok(to_value(pln_text(st(), arg(&a, "route")?)?)),
         "wx_advisories" => ok(to_value(wx_advisories().await?)),
         "online_pilot" => ok(to_value(online_pilot(arg(&a, "net")?, arg(&a, "callsign")?))),
         "flight_screenshots" => ok(to_value(flight_screenshots(st(), arg(&a, "id")?)?)),
@@ -1564,6 +1608,9 @@ pub fn run() {
             online_network,
             wx_categories,
             wind_grid,
+            us_airspace,
+            pln_text,
+            save_pln,
             wx_advisories,
             online_pilot,
             airport_card,
