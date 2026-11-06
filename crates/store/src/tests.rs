@@ -682,3 +682,25 @@ fn screenshots_join_the_flight_they_were_taken_in() {
     db.delete_flights(&[id]).unwrap();
     assert_eq!(db.screenshot_path(a).unwrap(), None);
 }
+
+#[test]
+fn backup_holds_everything_and_opens_again() {
+    let dir = std::env::temp_dir().join(format!("fd-backup-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let db = Store::open(&dir.join("live.db")).unwrap();
+    let mut db = db;
+    db.save_flight(&fly(1), &SaveContext { dep: place("EGLL", "GB"), arr: place("LFPG", "FR"), ..Default::default() }).unwrap();
+    db.set_setting("distance_unit", "km").unwrap();
+    let file = dir.join("FlightDeck backup.fdbackup");
+    db.backup_to(&file).unwrap();
+    db.backup_to(&file).unwrap(); // again over the old one
+    let info = Store::check_backup(&file).unwrap();
+    assert_eq!(info.flights, 1);
+    assert_eq!(info.schema, SCHEMA_VERSION);
+    let back = Store::open(&file).unwrap();
+    assert_eq!(back.settings().unwrap().get("distance_unit").map(String::as_str), Some("km"));
+    assert!(Store::check_backup(&dir.join("missing.fdbackup")).is_err());
+    std::fs::write(dir.join("junk.fdbackup"), b"not a database").unwrap();
+    assert!(Store::check_backup(&dir.join("junk.fdbackup")).is_err());
+    let _ = std::fs::remove_dir_all(&dir);
+}

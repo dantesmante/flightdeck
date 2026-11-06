@@ -370,6 +370,37 @@ export function addAirportLayout(map: maplibregl.Map) {
     },
     paint: { "text-color": "#ffffff", "text-halo-color": "#16171a", "text-halo-width": 2.4 },
   });
+  // Approach lines at the planned destination (see approachLines): white,
+  // dashed, always shown with a plan (not part of the switchable layout).
+  if (!map.getSource("fd-approach")) map.addSource("fd-approach", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+  map.addLayer(
+    {
+      id: "fd-approach",
+      type: "line",
+      source: "fd-approach",
+      minzoom: 9,
+      filter: ["==", ["get", "kind"], "line"],
+      paint: {
+        "line-color": "#ffffff",
+        "line-opacity": 0.75,
+        "line-width": ["interpolate", ["linear"], ["zoom"], 9, 1, 14, 1.8],
+        "line-dasharray": [4, 3],
+      },
+    },
+    before,
+  );
+  map.addLayer(
+    {
+      id: "fd-approach-label",
+      type: "symbol",
+      source: "fd-approach",
+      minzoom: 9,
+      filter: ["==", ["get", "kind"], "label"],
+      layout: { "text-field": ["get", "ref"], "text-font": font, "text-size": 11.5, "text-allow-overlap": false },
+      paint: { "text-color": "#ffffff", "text-halo-color": "#0e0f11", "text-halo-width": 2 },
+    } as maplibregl.LayerSpecification,
+    before,
+  );
   // Runway numbers at each end, from the runways in view (see runwayEnds).
   if (!map.getSource("fd-runway-ends")) map.addSource("fd-runway-ends", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
   add(
@@ -425,14 +456,25 @@ function beyond(a: LL, b: LL, m: number): LL {
   return [b[0] + ((b[0] - a[0]) * m) / d, b[1] + ((b[1] - a[1]) * m) / d];
 }
 
+/** A runway in view: its two ends, each with the number of the runway
+ * that starts there. */
+export interface RunwaySeen {
+  a: LL;
+  b: LL;
+  /** The number at end a (landing from a towards b), and at end b. */
+  atA: string;
+  atB: string;
+  length_m: number;
+}
+
 /**
- * Where each runway's two numbers go: its runway lines in view (cut up by
- * the map tiles) are joined back by name and place, the two ends found,
- * and each end given the number of the runway that starts there (the one
- * whose heading points down the runway from it: 10 at the west end of
- * 10/28).
+ * The runways in view, from the base map's OpenStreetMap runway lines
+ * (cut up by the map tiles): joined back by name and place, the two ends
+ * found, and each end given the number of the runway that starts there
+ * (the one whose heading points down the runway from it: 10 at the west
+ * end of 10/28).
  */
-export function runwayEnds(map: maplibregl.Map): GeoJSON.FeatureCollection {
+export function runwaysInView(map: maplibregl.Map): RunwaySeen[] {
   const parts = map.querySourceFeatures("openmaptiles", {
     sourceLayer: "aeroway",
     filter: ["all", ["==", ["get", "class"], "runway"], ["has", "ref"]],
@@ -453,7 +495,7 @@ export function runwayEnds(map: maplibregl.Map): GeoJSON.FeatureCollection {
       else groups.push({ ref, mid, ends: [a, b] });
     }
   }
-  const features: GeoJSON.Feature[] = [];
+  const out: RunwaySeen[] = [];
   for (const g of groups) {
     // The two ends: the farthest-apart pair of the pieces' ends.
     let best: [LL, LL] | null = null;
@@ -476,11 +518,50 @@ export function runwayEnds(map: maplibregl.Map): GeoJSON.FeatureCollection {
     // Which name belongs at end a: the one pointing from a towards b.
     const atA = off(heading(names[0]), ab) <= off(heading(names[1]), ab) ? names[0] : names[1];
     const atB = atA === names[0] ? names[1] : names[0];
-    const gap = Math.max(60, far * 0.035);
+    out.push({ a, b, atA, atB, length_m: far });
+  }
+  return out;
+}
+
+/** Where each runway's two numbers go: just beyond each end. */
+export function runwayEnds(map: maplibregl.Map): GeoJSON.FeatureCollection {
+  const features: GeoJSON.Feature[] = [];
+  for (const r of runwaysInView(map)) {
+    const gap = Math.max(60, r.length_m * 0.035);
     features.push(
-      { type: "Feature", properties: { ref: atA }, geometry: { type: "Point", coordinates: beyond(b, a, gap) } },
-      { type: "Feature", properties: { ref: atB }, geometry: { type: "Point", coordinates: beyond(a, b, gap) } },
+      { type: "Feature", properties: { ref: r.atA }, geometry: { type: "Point", coordinates: beyond(r.b, r.a, gap) } },
+      { type: "Feature", properties: { ref: r.atB }, geometry: { type: "Point", coordinates: beyond(r.a, r.b, gap) } },
     );
+  }
+  return { type: "FeatureCollection", features };
+}
+
+/** How far out the approach lines reach from each threshold. */
+const APPROACH_M = 10 * 1852;
+
+/**
+ * Approach lines at an airport: from each runway end, the runway's line
+ * carried straight out for 10 nm the way an aircraft comes in to land on
+ * it, labelled with that runway's number at the far end. Only runways
+ * within 5 km of the airport.
+ */
+export function approachLines(map: maplibregl.Map, at: { lat: number; lon: number }): GeoJSON.FeatureCollection {
+  const here: LL = [at.lon, at.lat];
+  const features: GeoJSON.Feature[] = [];
+  for (const r of runwaysInView(map)) {
+    const mid: LL = [(r.a[0] + r.b[0]) / 2, (r.a[1] + r.b[1]) / 2];
+    if (metres(mid, here) > 5000) continue;
+    // Landing on the runway that starts at a, aircraft come from beyond a.
+    for (const [from, to, name] of [
+      [r.a, r.b, r.atA],
+      [r.b, r.a, r.atB],
+    ] as [LL, LL, string][]) {
+      const far = beyond(to, from, APPROACH_M);
+      features.push(
+        { type: "Feature", properties: { kind: "line", ref: name }, geometry: { type: "LineString", coordinates: [from, far] } },
+        { type: "Feature", properties: { kind: "label", ref: `RWY ${name}` }, geometry: { type: "Point", coordinates: far } },
+      );
+    }
   }
   return { type: "FeatureCollection", features };
 }

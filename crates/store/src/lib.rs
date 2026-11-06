@@ -150,6 +150,15 @@ pub struct SaveContext {
     pub diverted_from: Option<String>,
 }
 
+/// What a backup file holds.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct BackupInfo {
+    pub flights: i64,
+    pub aircraft: i64,
+    pub last_flight_ms: Option<i64>,
+    pub schema: i64,
+}
+
 /// A screenshot: where the file is (never copied) and when it was taken.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Screenshot {
@@ -367,6 +376,32 @@ impl Store {
                 |r| r.get(0),
             )
             .optional()?)
+    }
+
+    /// Write a complete copy of the database (every flight, the logbook,
+    /// the hangar and its pictures, the pilot and the settings) to a file,
+    /// consistent even while FlightDeck is running. Written beside the
+    /// target first, then moved into place, so a backup is never half
+    /// written (a cloud folder never syncs a partial file).
+    pub fn backup_to(&self, path: &Path) -> Result<()> {
+        let tmp = path.with_extension("partial");
+        let _ = std::fs::remove_file(&tmp);
+        self.conn.execute("VACUUM INTO ?1", params![tmp.to_string_lossy()])?;
+        std::fs::rename(&tmp, path)?;
+        Ok(())
+    }
+
+    /// Check a backup file before restoring it: what it holds.
+    pub fn check_backup(path: &Path) -> Result<BackupInfo> {
+        let conn = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+        let version: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
+        if version > SCHEMA_VERSION {
+            return Err(StoreError::TooNew(version));
+        }
+        let flights: i64 = conn.query_row("SELECT COUNT(*) FROM flight", [], |r| r.get(0))?;
+        let last_ms: Option<i64> = conn.query_row("SELECT MAX(start_ms) FROM flight", [], |r| r.get(0))?;
+        let aircraft: i64 = conn.query_row("SELECT COUNT(*) FROM aircraft", [], |r| r.get(0)).unwrap_or(0);
+        Ok(BackupInfo { flights, aircraft, last_flight_ms: last_ms, schema: version })
     }
 
     /// Note a new screenshot file (once; the same path again is ignored).

@@ -7,6 +7,7 @@ mod engine;
 mod photos;
 mod efb;
 mod networks;
+mod backup;
 mod screenshots;
 mod winds;
 mod wx;
@@ -344,6 +345,96 @@ fn online_pilot(net: String, callsign: String) -> Option<networks::Pilot> {
 fn airport_card(state: tauri::State<AppState>, ident: String) -> CmdResult<Option<airports::AirportCard>> {
     let flights = state.db.lock().unwrap().airport_flights(&ident.to_ascii_uppercase()).map_err(err)?;
     Ok(airports::card(&state.refdata, &flights, &ident))
+}
+
+/// Back up everything to a file the pilot chooses. Returns where.
+#[tauri::command]
+async fn backup_save(app: tauri::AppHandle) -> CmdResult<Option<String>> {
+    use tauri_plugin_dialog::DialogExt;
+    let a = app.clone();
+    let picked = tauri::async_runtime::spawn_blocking(move || {
+        a.dialog()
+            .file()
+            .set_title("Save a FlightDeck backup")
+            .set_file_name(backup::dated_name())
+            .add_filter("FlightDeck backup", &[backup::EXT])
+            .blocking_save_file()
+    })
+    .await
+    .map_err(err)?;
+    let Some(path) = picked.and_then(|p| p.into_path().ok()) else { return Ok(None) };
+    let db = app.state::<AppState>().db.clone();
+    let p = path.clone();
+    tauri::async_runtime::spawn_blocking(move || db.lock().unwrap().backup_to(&p)).await.map_err(err)?.map_err(err)?;
+    log::info!("backup saved to {}", path.display());
+    Ok(Some(path.display().to_string()))
+}
+
+/// Choose the folder kept backed up (a cloud folder, say), and back up to
+/// it at once. Returns the folder, or None if the picker was closed.
+#[tauri::command]
+async fn backup_choose_folder(app: tauri::AppHandle) -> CmdResult<Option<String>> {
+    use tauri_plugin_dialog::DialogExt;
+    let a = app.clone();
+    let picked = tauri::async_runtime::spawn_blocking(move || a.dialog().file().set_title("Folder for FlightDeck backups").blocking_pick_folder())
+        .await
+        .map_err(err)?;
+    let Some(dir) = picked.and_then(|p| p.into_path().ok()) else { return Ok(None) };
+    let db = app.state::<AppState>().db.clone();
+    db.lock().unwrap().set_setting(backup::KEY_DIR, &dir.display().to_string()).map_err(err)?;
+    let d = dir.clone();
+    tauri::async_runtime::spawn_blocking(move || backup::to_folder(&db, &d)).await.map_err(err)??;
+    Ok(Some(dir.display().to_string()))
+}
+
+/// Stop keeping a folder backed up.
+#[tauri::command]
+fn backup_forget_folder(state: tauri::State<AppState>) -> CmdResult<()> {
+    let db = state.db.lock().unwrap();
+    db.set_setting(backup::KEY_DIR, "").map_err(err)?;
+    db.set_setting(backup::KEY_ON_CLOSE, "0").map_err(err)
+}
+
+/// Back up to the chosen folder now.
+#[tauri::command]
+async fn backup_now(app: tauri::AppHandle) -> CmdResult<String> {
+    let db = app.state::<AppState>().db.clone();
+    let dir = db.lock().unwrap().settings().map_err(err)?.get(backup::KEY_DIR).cloned().unwrap_or_default();
+    if dir.trim().is_empty() {
+        return Err("Choose a backup folder first.".into());
+    }
+    let f = tauri::async_runtime::spawn_blocking(move || backup::to_folder(&db, std::path::Path::new(&dir))).await.map_err(err)??;
+    Ok(f.display().to_string())
+}
+
+/// Choose a backup to restore: it is checked and set aside, and replaces
+/// everything here when FlightDeck restarts. Returns what it holds.
+#[tauri::command]
+async fn backup_restore_pick(app: tauri::AppHandle) -> CmdResult<Option<store::BackupInfo>> {
+    use tauri_plugin_dialog::DialogExt;
+    let a = app.clone();
+    let picked = tauri::async_runtime::spawn_blocking(move || {
+        a.dialog().file().set_title("Restore a FlightDeck backup").add_filter("FlightDeck backup", &[backup::EXT, "db"]).blocking_pick_file()
+    })
+    .await
+    .map_err(err)?;
+    let Some(path) = picked.and_then(|p| p.into_path().ok()) else { return Ok(None) };
+    let info = Store::check_backup(&path).map_err(|e| format!("This is not a FlightDeck backup FlightDeck can read ({e})."))?;
+    backup::stage(&app.state::<AppState>().data_dir, &path)?;
+    log::info!("restore staged from {}", path.display());
+    Ok(Some(info))
+}
+
+/// Do not restore the backup chosen after all.
+#[tauri::command]
+fn backup_restore_cancel(state: tauri::State<AppState>) {
+    backup::unstage(&state.data_dir);
+}
+
+/// Restart FlightDeck (to finish a restore).
+#[tauri::command]
+fn restart_app(app: tauri::AppHandle) {
+    app.restart();
 }
 
 /// A saved flight's screenshots, in the order taken.
@@ -746,6 +837,7 @@ const SETTING_KEYS: &[&str] = &[
     "map_airport_detail",
     "map_wind_level",
     "show_demo",
+    "backup_on_close",
     "simbrief_id",
 ];
 
@@ -1357,6 +1449,14 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        // Closing: refresh the backup folder first, if the pilot asked.
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { .. } = event {
+                if window.label() == "main" {
+                    backup::on_close(&window.state::<AppState>().db);
+                }
+            }
+        })
         // Screenshots are read from where they are on this PC, by their id:
         // only pictures FlightDeck noted can be reached this way.
         .register_asynchronous_uri_scheme_protocol("fdshot", |ctx, request, responder| {
@@ -1377,6 +1477,7 @@ pub fn run() {
             let data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&data_dir)?;
             diag::set_folder(&data_dir);
+            backup::apply_staged(&data_dir);
             log::info!(
                 "FlightDeck {} starting on {} {}; data folder: {}",
                 app.package_info().version,
@@ -1471,6 +1572,13 @@ pub fn run() {
             flight_screenshots,
             screenshots_since,
             pick_screenshot_folder,
+            backup_save,
+            backup_choose_folder,
+            backup_forget_folder,
+            backup_now,
+            backup_restore_pick,
+            backup_restore_cancel,
+            restart_app,
             set_screenshot_folder,
             airport_weather,
             efb_info,

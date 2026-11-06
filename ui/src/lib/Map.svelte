@@ -9,7 +9,7 @@
   import WxCard, { CATEGORY, WX_GROUP } from "./WxCard.svelte";
   import type { WxAdvisoryProps } from "./api";
   import type { Net, NetworkData } from "./api";
-  import { C as BASE, STYLE, addAirportLayout, addRegionLines, offlineStyle, runwayEnds, setBorders, showAirportLayout, showSatellite, showTerrain, tintMap } from "./mapStyle";
+  import { C as BASE, STYLE, addAirportLayout, addRegionLines, approachLines, offlineStyle, runwayEnds, setBorders, showAirportLayout, showSatellite, showTerrain, tintMap } from "./mapStyle";
   import MapLayers from "./MapLayers.svelte";
   import { shots as shotStore, type PlacedShot } from "./shots.svelte";
   import { WindParticles } from "./wind/particles";
@@ -218,6 +218,9 @@
       clearInterval(t);
     };
   });
+
+  /** The airport whose approach lines are drawn ("" none). */
+  let approachShown = "";
 
   // --- Screenshots: a small camera where each was taken ----------------------
   let shotMarkers: maplibregl.Marker[] = [];
@@ -1207,8 +1210,30 @@
     map.on("mousemove", windUnder);
     // Runway numbers at the runway ends, for the runways in view.
     map.on("idle", () => {
-      if (!map || map.getZoom() < 12 || layers.has("aeroway-off")) return;
-      (map.getSource("fd-runway-ends") as GeoJSONSource | undefined)?.setData(runwayEnds(map));
+      if (!map) return;
+      if (map.getZoom() >= 12 && !layers.has("aeroway-off")) {
+        (map.getSource("fd-runway-ends") as GeoJSONSource | undefined)?.setData(runwayEnds(map));
+      }
+      // Approach lines into the planned destination's runways, once its
+      // runways are in the map tiles (zoom 10 and in).
+      const dest = shownPlan?.destination;
+      const src = map.getSource("fd-approach") as GeoJSONSource | undefined;
+      if (!dest || !(dest.lat || dest.lon)) {
+        if (approachShown) {
+          src?.setData({ type: "FeatureCollection", features: [] });
+          approachShown = "";
+        }
+      } else if (approachShown && approachShown !== dest.icao && map.getZoom() < 10) {
+        // Diverted elsewhere while zoomed out: the old lines go.
+        src?.setData({ type: "FeatureCollection", features: [] });
+        approachShown = "";
+      } else if (map.getZoom() >= 10) {
+        const lines = approachLines(map, dest);
+        if (lines.features.length || approachShown !== dest.icao) {
+          src?.setData(lines);
+          approachShown = lines.features.length ? dest.icao : "";
+        }
+      }
     });
     map.on("mouseout", () => (windAt = null));
     // Stop drawing while the window is hidden.

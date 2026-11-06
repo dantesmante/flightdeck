@@ -302,6 +302,11 @@ export async function mockCall<T>(cmd: string, _args?: Record<string, unknown>):
   if (cmd === "screenshots_since") {
     return [{ id: 901, path: "C:\\Users\\you\\Pictures\\Screenshots\\Climb out.png", taken_ms: now - 600_000 }] as T;
   }
+  if (cmd === "backup_save") return "C:\\Users\\you\\Documents\\FlightDeck backup 2026-11-06.fdbackup" as T;
+  if (cmd === "backup_choose_folder") return "C:\\Users\\you\\OneDrive\\FlightDeck" as T;
+  if (cmd === "backup_now") return "C:\\Users\\you\\OneDrive\\FlightDeck\\FlightDeck backup.fdbackup" as T;
+  if (cmd === "backup_restore_pick") return { flights: 412, aircraft: 23, last_flight_ms: now - 86_400_000, schema: 12 } as T;
+  if (cmd === "backup_forget_folder" || cmd === "backup_restore_cancel" || cmd === "restart_app") return null as T;
   if (cmd === "pick_screenshot_folder") return "C:\\Users\\you\\Pictures\\Screenshots" as T;
   if (cmd === "set_screenshot_folder") return null as T;
   if (cmd === "divert_options") {

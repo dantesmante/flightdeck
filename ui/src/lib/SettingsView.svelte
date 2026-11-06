@@ -1,9 +1,9 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { api, inRemote, type FlightPlan, type ImportPreview, type Pilot, type RemoteInfo, type EfbInfo } from "./api";
+  import { api, inRemote, type BackupInfo, type FlightPlan, type ImportPreview, type Pilot, type RemoteInfo, type EfbInfo } from "./api";
   import ImportReview from "./ImportReview.svelte";
   import { shrinkImage } from "./image";
-  import { prefs, setPref } from "./prefs.svelte";
+  import { loadPrefs, prefs, setPref } from "./prefs.svelte";
   import ExportDialog from "./ExportDialog.svelte";
   import { checkForUpdates, installUpdate, updates } from "./updates.svelte";
 
@@ -155,6 +155,56 @@
   }
   let exportFormat = $state<"json" | "csv">("json");
 
+  // Backup data.
+  let bkBusy = $state(false);
+  let bkMsg = $state<string | null>(null);
+  let bkErr = $state<string | null>(null);
+  let staged = $state<BackupInfo | null>(null);
+  async function backupStep(f: () => Promise<void>) {
+    bkBusy = true;
+    bkMsg = bkErr = null;
+    try {
+      await f();
+    } catch (e) {
+      bkErr = String(e);
+    } finally {
+      bkBusy = false;
+    }
+  }
+  const saveBackup = () =>
+    backupStep(async () => {
+      const p = await api.backupSave();
+      if (p) bkMsg = `Backup saved: ${p}`;
+    });
+  const chooseBackupDir = () =>
+    backupStep(async () => {
+      const d = await api.backupChooseFolder();
+      if (d) {
+        await loadPrefs();
+        bkMsg = "Backed up to the folder.";
+      }
+    });
+  const backupNow = () =>
+    backupStep(async () => {
+      const f = await api.backupNow();
+      await loadPrefs();
+      bkMsg = `Backed up: ${f}`;
+    });
+  const forgetBackupDir = () =>
+    backupStep(async () => {
+      await api.backupForgetFolder();
+      await loadPrefs();
+    });
+  const pickRestore = () =>
+    backupStep(async () => {
+      staged = (await api.backupRestorePick()) ?? null;
+    });
+  const cancelRestore = () =>
+    backupStep(async () => {
+      await api.backupRestoreCancel();
+      staged = null;
+    });
+
   // The folder watched for screenshots.
   let shotErr = $state<string | null>(null);
   async function setShotDir(path: string | null) {
@@ -223,7 +273,7 @@
   }
 
   // The sections, down a sidebar. Some only exist on the PC itself.
-  type Tab = "profile" | "prefs" | "connections" | "import" | "efb" | "devices" | "system";
+  type Tab = "profile" | "prefs" | "connections" | "import" | "efb" | "devices" | "system" | "backup";
   const TABS: { id: Tab; name: string; icon: string; pcOnly?: boolean }[] = [
     { id: "profile", name: "Pilot profile", icon: "M12 12a4 4 0 100-8 4 4 0 000 8zM4 20c1-4 4.5-6 8-6s7 2 8 6" },
     { id: "prefs", name: "Preferences", icon: "M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0M14 4v4M8 10v4M16 16v4" },
@@ -231,6 +281,7 @@
     { id: "import", name: "Import / export", icon: "M12 3v12M7 10l5 5 5-5M5 21h14" },
     { id: "efb", name: "EFB integration", icon: "M7 3h10a2 2 0 012 2v14a2 2 0 01-2 2H7a2 2 0 01-2-2V5a2 2 0 012-2zM10 18h4", pcOnly: true },
     { id: "devices", name: "Device pairing", icon: "M3 6h12v9H3zM7 19h4M17 9h4v11h-4zM9 15v4", pcOnly: true },
+    { id: "backup", name: "Backup data", icon: "M4 7c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3zM4 7v10c0 1.7 3.6 3 8 3s8-1.3 8-3V7M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3", pcOnly: true },
     { id: "system", name: "Updates and diagnostics", icon: "M20 12a8 8 0 10-2.3 5.7M20 4v6h-6" },
   ];
   let tab = $state<Tab>("profile");
@@ -536,6 +587,69 @@
     </div>
   {/if}
 
+  {:else if tab === "backup"}
+  <div class="group">
+    <h3>Save a backup</h3>
+    <p class="help">
+      One file with everything FlightDeck keeps: every flight and its track, the logbook, the hangar and its pictures,
+      your pilot profile, passport and settings. Keep it safe, or use it to move FlightDeck to a new PC.
+      Screenshots are not in it (FlightDeck only links to them), so copy your screenshots folder too.
+    </p>
+    <div class="row">
+      <button class="primary" onclick={saveBackup} disabled={bkBusy}>Save a backup…</button>
+    </div>
+  </div>
+
+  <div class="group">
+    <h3>Backup folder</h3>
+    <p class="help">
+      Keep a backup in a folder of your choice, such as a OneDrive, Google Drive or Dropbox folder, so it is copied off
+      this PC. FlightDeck writes "FlightDeck backup.fdbackup" there and keeps the one before it as "(previous)".
+    </p>
+    <div class="row"><span class="url num">{prefs.s.backup_dir || "No folder chosen"}</span></div>
+    <div class="row">
+      <button class="primary" onclick={chooseBackupDir} disabled={bkBusy}>{prefs.s.backup_dir ? "Change folder…" : "Choose folder…"}</button>
+      {#if prefs.s.backup_dir}
+        <button class="ghost" onclick={backupNow} disabled={bkBusy}>Back up now</button>
+        <button class="ghost" onclick={forgetBackupDir} disabled={bkBusy}>Stop</button>
+      {/if}
+    </div>
+    {#if prefs.s.backup_dir}
+      <label class="switch">
+        <input type="checkbox" checked={prefs.s.backup_on_close === "1"} onchange={(e) => setPref("backup_on_close", (e.currentTarget as HTMLInputElement).checked ? "1" : "0")} />
+        <span>Back up to this folder whenever FlightDeck closes</span>
+      </label>
+      {#if prefs.s.backup_last_ms}<p class="help">Last backup {new Date(Number(prefs.s.backup_last_ms)).toLocaleString()}.</p>{/if}
+    {/if}
+  </div>
+
+  <div class="group">
+    <h3>Restore a backup</h3>
+    <p class="help">
+      Replace everything in FlightDeck on this PC with a backup, for example on a new PC after installing FlightDeck.
+      What is here now is kept aside as flightdeck.before-restore.db in FlightDeck's data folder, just in case.
+    </p>
+    {#if staged}
+      <div class="restore">
+        <p>
+          The backup holds <b>{staged.flights} {staged.flights === 1 ? "flight" : "flights"}</b> and {staged.aircraft}
+          {staged.aircraft === 1 ? "aircraft" : "aircraft"}{staged.last_flight_ms ? `, the latest from ${new Date(staged.last_flight_ms).toLocaleDateString()}` : ""}.
+          Restart FlightDeck to finish restoring it.
+        </p>
+        <div class="row">
+          <button class="danger" onclick={() => api.restartApp()}>Restart and restore</button>
+          <button class="ghost" onclick={cancelRestore}>Don't restore</button>
+        </div>
+      </div>
+    {:else}
+      <div class="row">
+        <button class="ghost" onclick={pickRestore} disabled={bkBusy}>Restore from a backup…</button>
+      </div>
+    {/if}
+  </div>
+  {#if bkMsg}<p class="ok">{bkMsg}</p>{/if}
+  {#if bkErr}<p class="err" role="alert">{bkErr}</p>{/if}
+
   {:else if tab === "system"}
   {#if !inRemote}
   <div class="group">
@@ -784,6 +898,19 @@
     font-size: 16px;
     font-weight: 600;
   }
+  .restore {
+    padding: 12px 14px;
+    border-radius: 8px;
+    border: 1px solid rgba(240, 178, 58, 0.45);
+    background: rgba(240, 178, 58, 0.06);
+  }
+  .restore p {
+    margin: 0 0 10px;
+  }
+  .ok {
+    color: var(--good);
+    font-size: 13px;
+  }
   .help.warn {
     color: var(--amber);
   }
@@ -890,6 +1017,14 @@
   }
   .primary:disabled {
     opacity: 0.6;
+  }
+  .danger {
+    border: none;
+    background: #d9534a;
+    color: #fff;
+    border-radius: 6px;
+    padding: 8px 14px;
+    font-weight: 600;
   }
   .ghost {
     border: 1px solid var(--rule);

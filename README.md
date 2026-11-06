@@ -112,6 +112,19 @@ MIT licensed.
   pictures are never copied: FlightDeck links to each file where it is, so
   moving, renaming or deleting one breaks its link. Other devices see them
   too, read from the PC.
+- **Backup data** (Settings): **Save a backup** writes one .fdbackup file
+  with everything FlightDeck keeps (flights and tracks, logbook, hangar
+  and its pictures, pilot, passport, settings). A **backup folder** (a
+  OneDrive, Google Drive or Dropbox folder, say) can be kept up to date,
+  refreshed whenever FlightDeck closes, keeping the one before as
+  "(previous)". **Restore a backup** replaces everything on this PC with a
+  backup when FlightDeck restarts (on a new PC: install, restore, done);
+  what was there is kept as flightdeck.before-restore.db. Screenshots are
+  not included, as FlightDeck only links to them.
+- **Approach lines**: with a flight plan, zoomed in on the destination
+  (zoom 10 and in), each runway gets a white dashed line carried 10 nm out
+  along its approach, labelled with the runway it leads to. Runways come
+  from OpenStreetMap, so they show where OpenStreetMap has them.
 - **Flight time**: the logbook counts block out to block in. When the
   aircraft was not seen taxiing (it started on the runway, or the flight
   ended on it), it counts from the takeoff roll or to the end of the

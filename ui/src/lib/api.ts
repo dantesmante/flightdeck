@@ -138,6 +138,14 @@ export interface Ofp {
 }
 
 /** A flight plan, e.g. imported from SimBrief. */
+/** What a backup file holds. */
+export interface BackupInfo {
+  flights: number;
+  aircraft: number;
+  last_flight_ms: number | null;
+  schema: number;
+}
+
 /** A screenshot: where the file is on the PC (never copied) and when it
  * was taken. */
 export interface Screenshot {
@@ -824,6 +832,13 @@ export const api = {
   setPlan: (plan: FlightPlan | null) => call<void>("set_plan", { plan }),
   divertOptions: (lat: number, lon: number, skip: string) => call<DivertOption[]>("divert_options", { lat, lon, skip }),
   divert: (icao: string) => call<void>("divert", { icao }),
+  backupSave: () => call<string | null>("backup_save"),
+  backupChooseFolder: () => call<string | null>("backup_choose_folder"),
+  backupForgetFolder: () => call<void>("backup_forget_folder"),
+  backupNow: () => call<string>("backup_now"),
+  backupRestorePick: () => call<BackupInfo | null>("backup_restore_pick"),
+  backupRestoreCancel: () => call<void>("backup_restore_cancel"),
+  restartApp: () => call<void>("restart_app"),
   flightScreenshots: (id: number) => call<Screenshot[]>("flight_screenshots", { id }),
   screenshotsSince: (sinceMs: number) => call<Screenshot[]>("screenshots_since", { sinceMs }),
   pickScreenshotFolder: () => call<string | null>("pick_screenshot_folder"),

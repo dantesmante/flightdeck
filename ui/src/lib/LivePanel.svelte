@@ -137,12 +137,12 @@
         <div class="row inline" use:reveal title="The flight is thrown away and nothing is saved.">
           <span class="ask">Discard this flight?</span>
           <button class="danger" onclick={() => ((confirmCancel = false), api.cancelFlight())}>Discard</button>
-          <button class="ghost" onclick={() => (confirmCancel = false)}>Keep it</button>
+          <button class="ghost" onclick={() => (confirmCancel = false)}>Keep</button>
         </div>
       {:else if confirmEnd}
         <div class="row inline" use:reveal title="The flight ends here and is saved to your logbook.">
           <span class="ask">End and save flight?</span>
-          <button class="danger" onclick={endFlight}>End and save</button>
+          <button class="danger" onclick={endFlight}>End</button>
           <button class="ghost" onclick={() => (confirmEnd = false)}>Keep flying</button>
         </div>
       {:else}
@@ -205,8 +205,8 @@
         {#if confirmCancel}
           <div class="row inline" use:reveal>
             <span class="ask">Cancel this flight?</span>
-            <button class="danger" onclick={() => ((confirmCancel = false), api.cancelFlight())}>Cancel flight</button>
-            <button class="ghost" onclick={() => (confirmCancel = false)}>Keep it</button>
+            <button class="danger" onclick={() => ((confirmCancel = false), api.cancelFlight())}>Cancel</button>
+            <button class="ghost" onclick={() => (confirmCancel = false)}>Keep</button>
           </div>
         {:else}
           <button class="ghost" onclick={() => (confirmCancel = true)}>Cancel flight</button>
@@ -339,14 +339,22 @@
     display: flex;
     gap: 8px;
   }
+  /* A question and its answers, on one line. */
   .row.inline {
     align-items: center;
     width: 100%;
+    flex-wrap: nowrap;
+    gap: 8px;
+  }
+  .row.inline button {
+    white-space: nowrap;
+    padding: 7px 12px;
   }
   .ask {
     margin-right: auto;
     color: var(--ink);
     font-weight: 600;
+    white-space: nowrap;
   }
   button {
     border-radius: 6px;
