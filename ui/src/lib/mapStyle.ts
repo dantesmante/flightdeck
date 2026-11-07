@@ -806,56 +806,82 @@ export function setRoadsOpacity(map: maplibregl.Map, o: number) {
 }
 
 // --- Terrain awareness ---------------------------------------------------------
-// Terrain coloured by its height against the aircraft's, as a G1000 terrain
-// page does: red at or above the aircraft or within 100 ft below it, yellow
-// within 1,000 ft below, black where it is well clear. From the same free
-// elevation tiles as the Topographic layer.
+// Terrain coloured by its height against the aircraft's, by the G1000's
+// TAWS rules:
+//   in the air: red at or above the aircraft or within 100 ft below it,
+//   yellow 100 to 1,000 ft below, green 1,000 to 2,000 ft below, black at
+//   least 2,000 ft below;
+//   on the ground: red only where terrain rises 400 ft or more above the
+//   aircraft, black everywhere else.
+// Only about 100 statute miles around the aircraft is drawn (and only from
+// zoom 6 in), so just the elevation tiles there are fetched.
 
 const TAWS_IDS = ["fd-taws"];
+/** Half the drawn square, in degrees of latitude: 100 statute miles. */
+const TAWS_RADIUS_DEG = 100 / 69.05;
+/** The area is moved once the aircraft is this far (degrees) from its centre. */
+const TAWS_MOVE_DEG = 25 / 69.05;
+const tawsAt = new WeakMap<maplibregl.Map, [number, number]>();
 
 /** The colours for an aircraft at `altFt` (feet above sea level). The map
- * draws colour ramps only from "interpolate", so the hard edges are two
+ * draws colour ramps only from "interpolate", so each hard edge is two
  * stops a centimetre apart. */
-function tawsRamp(altFt: number): maplibregl.ExpressionSpecification {
+function tawsRamp(altFt: number, onGround: boolean): maplibregl.ExpressionSpecification {
   const m = (ft: number) => ft * 0.3048;
-  const clear = "rgba(0, 0, 0, 0.8)";
-  const caution = "rgba(236, 196, 40, 0.92)";
-  const warning = "rgba(226, 45, 40, 0.92)";
-  const y = m(altFt - 1000);
-  const r = m(altFt - 100);
-  const lo = Math.min(-500, y - 10);
-  const hi = Math.max(9000, r + 10);
-  return [
-    "interpolate", ["linear"], ["elevation"],
-    lo, clear,
-    y - 0.01, clear,
-    y, caution,
-    r - 0.01, caution,
-    r, warning,
-    hi, warning,
-  ] as unknown as maplibregl.ExpressionSpecification;
+  const black = "rgba(0, 0, 0, 0.82)";
+  const green = "rgba(46, 160, 67, 0.88)";
+  const yellow = "rgba(236, 196, 40, 0.92)";
+  const red = "rgba(214, 38, 34, 0.94)";
+  const bands: [number, string][] = onGround
+    ? [[m(altFt + 400), red]]
+    : [
+        [m(altFt - 2000), green],
+        [m(altFt - 1000), yellow],
+        [m(altFt - 100), red],
+      ];
+  const out: unknown[] = ["interpolate", ["linear"], ["elevation"], Math.min(-500, bands[0][0] - 10), black];
+  let prev = black;
+  for (const [at, color] of bands) {
+    out.push(at - 0.01, prev, at, color);
+    prev = color;
+  }
+  out.push(Math.max(9000, bands[bands.length - 1][0] + 10), prev);
+  return out as maplibregl.ExpressionSpecification;
 }
 
 /** Terrain awareness on or off, for an aircraft at altFt (null: no flight;
- * nothing is drawn). Cheap to call again as the altitude changes. */
-export function showTaws(map: maplibregl.Map, on: boolean, altFt: number | null) {
-  const show = on && altFt != null;
+ * nothing is drawn) at `pos` [lon, lat]. Cheap to call again as the
+ * altitude changes; the area follows the aircraft. */
+export function showTaws(map: maplibregl.Map, on: boolean, altFt: number | null, onGround = false, pos: [number, number] | null = null) {
+  const show = on && altFt != null && pos != null;
+  const at = tawsAt.get(map);
+  // Far enough from the drawn area's centre: draw it around the aircraft again.
+  if (show && at && (Math.abs(pos![1] - at[1]) > TAWS_MOVE_DEG || Math.abs(pos![0] - at[0]) * Math.cos((pos![1] * Math.PI) / 180) > TAWS_MOVE_DEG)) {
+    if (map.getLayer("fd-taws")) map.removeLayer("fd-taws");
+    if (map.getSource("fd-taws-dem")) map.removeSource("fd-taws-dem");
+    tawsAt.delete(map);
+  }
   if (show && !map.getLayer("fd-taws")) {
-    if (!map.getSource("fd-dem")) {
-      map.addSource("fd-dem", {
-        type: "raster-dem",
-        encoding: "terrarium",
-        tiles: [demSource().sharedDemProtocolUrl],
-        tileSize: 256,
-        maxzoom: 12,
-        attribution: TERRAIN_ATTRIBUTION,
-      });
-    }
+    const [lon, lat] = pos!;
+    const dLon = TAWS_RADIUS_DEG / Math.max(0.2, Math.cos((lat * Math.PI) / 180));
+    map.addSource("fd-taws-dem", {
+      type: "raster-dem",
+      encoding: "terrarium",
+      tiles: [demSource().sharedDemProtocolUrl],
+      tileSize: 256,
+      maxzoom: 11,
+      bounds: [lon - dLon, Math.max(-85, lat - TAWS_RADIUS_DEG), lon + dLon, Math.min(85, lat + TAWS_RADIUS_DEG)],
+      attribution: TERRAIN_ATTRIBUTION,
+    });
     const before = map.getLayer("fd-road-casing") ? "fd-road-casing" : (map.getStyle().layers ?? []).find((l) => l.type === "symbol" && !l.id.startsWith("fd-"))?.id;
-    map.addLayer({ id: "fd-taws", type: "color-relief", source: "fd-dem", paint: { "color-relief-color": tawsRamp(altFt!), "color-relief-opacity": 1 } }, before);
+    map.addLayer(
+      { id: "fd-taws", type: "color-relief", source: "fd-taws-dem", minzoom: 6, paint: { "color-relief-color": tawsRamp(altFt!, onGround), "color-relief-opacity": 1 } },
+      before,
+    );
+    tawsAt.set(map, [lon, lat]);
   }
   for (const id of TAWS_IDS) if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", show ? "visible" : "none");
-  if (show && map.getLayer("fd-taws")) map.setPaintProperty("fd-taws", "color-relief-color", tawsRamp(altFt!));
+  if (show && map.getLayer("fd-taws")) map.setPaintProperty("fd-taws", "color-relief-color", tawsRamp(altFt!, onGround));
 }
 
 // --- Obstacles -------------------------------------------------------------------
@@ -901,8 +927,10 @@ function obstacleIcon(lit: boolean): ImageData {
 
 const OBST_IDS = ["fd-obst", "fd-obst-label"];
 
-function obstColor(altFt: number | null): maplibregl.ExpressionSpecification {
+/** Obstacles by the same rules as terrain, from the height of their tops. */
+function obstColor(altFt: number | null, onGround = false): maplibregl.ExpressionSpecification {
   if (altFt == null) return "#ffffff" as unknown as maplibregl.ExpressionSpecification;
+  if (onGround) return ["step", ["get", "amsl"], "#ffffff", altFt + 400, "#ff3b30"] as unknown as maplibregl.ExpressionSpecification;
   return ["step", ["get", "amsl"], "#ffffff", altFt - 1000, "#ecc428", altFt - 100, "#ff3b30"] as unknown as maplibregl.ExpressionSpecification;
 }
 
@@ -956,11 +984,11 @@ export function addObstacles(map: maplibregl.Map) {
 }
 
 /** Obstacles on or off, coloured against the aircraft's altitude (null: no flight). */
-export function showObstacles(map: maplibregl.Map, on: boolean, altFt: number | null) {
+export function showObstacles(map: maplibregl.Map, on: boolean, altFt: number | null, onGround = false) {
   addObstacles(map);
   for (const id of OBST_IDS) if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", on ? "visible" : "none");
   if (on) {
-    map.setPaintProperty("fd-obst", "icon-color", obstColor(altFt));
-    map.setPaintProperty("fd-obst-label", "text-color", obstColor(altFt));
+    map.setPaintProperty("fd-obst", "icon-color", obstColor(altFt, onGround));
+    map.setPaintProperty("fd-obst-label", "text-color", obstColor(altFt, onGround));
   }
 }

@@ -73,6 +73,9 @@
     /** The aircraft's altitude (ft above sea level) while a sim is connected,
      * for the terrain and obstacle colours. */
     acAltFt?: number | null;
+    /** The aircraft on the ground, and where it is [lon, lat] (terrain colours). */
+    acOnGround?: boolean;
+    acPos?: [number, number] | null;
   }
   let {
     live,
@@ -97,6 +100,8 @@
     shotAccent = null,
     onshothover,
     acAltFt = null,
+    acOnGround = false,
+    acPos = null,
   }: Props = $props();
 
   /** The plan drawn: the real one, or the route being set up. */
@@ -225,11 +230,15 @@
       else if (altStep == null || Math.abs(a - altStep) >= 50) altStep = Math.round(a);
     });
   });
+  // Where the aircraft is, in steps of about 5 nm (the terrain area follows it).
+  const posStep = $derived<[number, number] | null>(acPos ? [Math.round(acPos[0] * 12) / 12, Math.round(acPos[1] * 12) / 12] : null);
   $effect(() => {
     const on = layers.has("taws");
     const alt = altStep;
+    const ground = acOnGround;
+    const pos = posStep;
     if (!loaded || !map) return;
-    showTaws(map, on && !offline, alt);
+    showTaws(map, on && !offline, alt, ground, pos);
   });
   let obstData: GeoJSON.FeatureCollection | null = null;
   let obstState = $state<"idle" | "loading" | "ok" | "error">("idle");
@@ -237,7 +246,7 @@
     const on = layers.has("obstacles");
     const alt = altStep;
     if (!loaded || !map) return;
-    showObstacles(map, on, alt);
+    showObstacles(map, on, alt, acOnGround);
     if (!on || obstData || untrack(() => obstState) === "loading") return;
     untrack(() => (obstState = "loading"));
     api.usObstacles()

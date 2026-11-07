@@ -255,7 +255,7 @@
 {/snippet}
 
 {#snippet tawsNote()}
-  <span class="note">{on.has("taws") && !hasAircraft ? "Needs the sim" : "Against your altitude"}</span>
+  <span class="note">{on.has("taws") && !hasAircraft ? "Needs the sim" : "100 mi around you"}</span>
 {/snippet}
 
 {#snippet obstNote()}
@@ -343,7 +343,7 @@
     {/if}
     {#if on.has("taws") || on.has("obstacles")}
       <p class="legend">
-        <span style:--c="#e22d28">Within 100 ft or above you</span><span style:--c="#ecc428">Within 1,000 ft below</span><span style:--c="#3a3d42">Well clear</span>
+        <span style:--c="#d62622">Above you or within 100 ft below</span><span style:--c="#ecc428">100–1,000 ft below</span><span style:--c="#2ea043">1,000–2,000 ft below</span><span style:--c="#3a3d42">2,000 ft+ below</span>
       </p>
     {/if}
     <p class="credit">Satellite Esri · Terrain AWS Terrain Tiles · Map OpenFreeMap, OpenStreetMap · Obstacles FAA Digital Obstacle File (US, every 28 days)</p>

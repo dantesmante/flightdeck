@@ -174,7 +174,8 @@ MIT licensed.
   is plain sky and ground; on phones and tablets **SVT** draws the terrain
   ahead (synthetic vision, from the free Terrain Tiles, with water in dark
   blue and airports in concrete grey with runway and taxiway centrelines
-  from OpenStreetMap), which costs the PC nothing; on the PC a note says so. **Split** docks the PFD to the
+  from OpenStreetMap; on the ground the view sits at eye height on the
+  runway, never under it), which costs the PC nothing; on the PC a note says so. **Split** docks the PFD to the
   right half of the Map tab with the map on the left (the flight card
   folds away until you open it; leaving split brings it back). The PFD
   belongs to the Map tab: other tabs hide it, and it is back when you
@@ -184,12 +185,14 @@ MIT licensed.
   their names along them, and route shields: Interstate, US and state
   highways, E-roads and motorways. From the same OpenFreeMap tiles as the
   map, so nothing more is downloaded. A slider fades them (15–100%).
-- **Terrain** (Layers → Map): terrain coloured against your altitude, as a
-  G1000 terrain page: red at or above you or within 100 ft below, yellow
-  within 1,000 ft below, black where well clear (mostly covering the map,
-  as on the G1000). Needs the sim connected;
-  redrawn as you climb or descend (every 50 ft). From the free Terrain
-  Tiles.
+- **Terrain** (Layers → Map): terrain coloured against your altitude by
+  the G1000's TAWS rules. In the air: red above you or within 100 ft
+  below, yellow 100–1,000 ft below, green 1,000–2,000 ft below, black
+  2,000 ft or more below. On the ground: red only where terrain rises
+  400 ft or more above you, black elsewhere. Drawn for about 100 miles
+  around the aircraft (from zoom 6 in), following it as it flies, so only
+  those elevation tiles are fetched; recoloured every 50 ft. Needs the sim
+  connected. From the free Terrain Tiles.
 - **Obstacles** (Layers → Map, US only): towers, antennas, wind turbines
   and stacks of 200 ft or more from the FAA's Digital Obstacle File
   (public domain, fetched at most every 28 days), with the chart symbol

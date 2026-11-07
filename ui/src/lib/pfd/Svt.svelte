@@ -18,6 +18,8 @@
   let ready = $state(false);
   const DEM = "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png";
   const FT = 0.3048;
+  /** The pilot's eye above the ground, metres. */
+  const EYE_M = 3.5;
 
   /** A width in metres on the ground, as line widths at each zoom level. */
   function metres(m: number, lat: number): maplibregl.ExpressionSpecification {
@@ -160,9 +162,16 @@
   // Put the camera where the pilot sits, looking where the aircraft points.
   $effect(() => {
     if (!map || !ready || !d) return;
+    // The elevation tiles and the sim's own scenery can differ by tens of
+    // feet, which on the ground (or in the flare) can put the camera under
+    // the drawn runway. Keep it at least an eye height above the drawn
+    // ground; on the ground, always exactly there, so the runway runs ahead.
+    const ground = map.queryTerrainElevation([d.lon, d.lat]);
+    let alt = d.alt_msl_ft * FT;
+    if (ground != null) alt = d.on_ground ? ground + EYE_M : Math.max(alt, ground + EYE_M);
     const cam = map.calculateCameraOptionsFromCameraLngLatAltRotation(
       [d.lon, d.lat],
-      Math.max(d.alt_msl_ft * FT, 10),
+      Math.max(alt, 2),
       d.hdg_true_deg,
       90 + d.pitch_deg,
       d.bank_deg,
