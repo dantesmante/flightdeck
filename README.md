@@ -38,10 +38,12 @@ MIT licensed.
   it is in your hangar, the route, block out and takeoff times, the ETA,
   and a progress bar with the distance flown and left.
 - **SimBrief**: add your SimBrief Pilot ID in Settings to import plans. The
-  planned route shows as a dashed line with its waypoints, the boarding
+  planned route shows as a dashed line with its waypoints as soon as it is
+  imported (before the flight starts), the boarding
   pass gets the callsign and destination, and the plan is saved with the
   flight.
-  **Briefing (OFP)** opens the full SimBrief OFP with jump tabs for times,
+  **View OFP** (under the import, and at the top right of the flight card
+  once flying) opens the full SimBrief OFP with jump tabs for times,
   weights and fuel, the flight log, winds aloft, the ICAO flight plan,
   weather and NOTAMs.
 - **Seven flight phases**: preflight, taxi out, takeoff roll, airborne,
@@ -114,9 +116,11 @@ MIT licensed.
   moving, renaming or deleting one breaks its link. Other devices see them
   too, read from the PC. Folders named "thumbnails" (where Steam keeps a
   small copy of each screenshot) are skipped.
-- **Photos** (left bar): every screenshot, two to a row, grouped by flight,
-  newest first, beside a map that shows nothing but their pins. Pointing at
-  a picture brings out its pin; clicking a picture or a pin opens it full
+- **Photos** (left bar, under Passport): every screenshot, two to a row,
+  in two sections that fold away, **Not in a flight** and **Past flights**
+  (grouped by flight, newest first), beside a map that shows nothing but their pins. Pointing at
+  a picture brings out its pin, and pointing at a pin brings out its
+  picture; clicking a picture or a pin opens it full
   size, with **Delete** (to the Recycle Bin, or only removed from
   FlightDeck, leaving the file) and **Close**. The small pictures are made
   on the PC when first shown and kept in memory only, never written to
@@ -164,13 +168,14 @@ MIT licensed.
   measure a route, leg by leg, in nautical miles with the course of each
   leg, and the total in miles and kilometres too. Great-circle distances.
   Backspace or right-click takes back the last point; Escape or Done ends.
-- **Layers**, beside 2D/3D and Measure: one panel with three tabs,
+- **Layers**, beside 2D/3D and Measure: one panel with three buttons
+  under its title,
   **Airports & Flights** (world airports, your airports, past routes,
   runways and taxiways, US airspace, parked aircraft, VATSIM and IVAO),
   **Weather** (radar, flight category, SIGMETs and AIRMETs, wind, airport
   wind) and **Map** (3D flight, day/night, satellite, topographic,
-  borders). It opens on the tab used last; a dot marks a tab with
-  something switched on.
+  borders). It opens on the section used last; a dot marks a section
+  with something switched on.
 - **Flights** page: the list of flights is a card floating over the left
   of the map, a little see-through (put it away with its arrow to see the
   whole map); it opens on the list whenever you come to it from another

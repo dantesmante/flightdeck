@@ -3,6 +3,7 @@
   // amber "Start a flight" button that opens the card; during a flight and
   // after landing the card shows the flight.
   import { cubicOut } from "svelte/easing";
+  import { briefing, openBriefing } from "./briefingStore.svelte";
   import { fly as slide } from "svelte/transition";
   import type { FlightDetail, Status } from "./api";
   import { fly, pick } from "./flyStore.svelte";
@@ -84,6 +85,12 @@
   >
     <div class="top" class:flat={busy}>
       {#if !busy}<h2>Start a flight</h2>{/if}
+      {#if busy && status?.plan?.source === "simbrief"}
+        <button class="ofp" onclick={() => status?.plan && openBriefing(status.plan)} disabled={briefing.loading} title="SimBrief's flight plan (OFP)">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h7l4 4v14H7zM14 3v4h4M10 11h5M10 14h5M10 17h3" /></svg>
+          {briefing.loading ? "Opening…" : "OFP"}
+        </button>
+      {/if}
       <button class="x" aria-label={busy ? "Put the card away" : "Close"} title={busy ? "Hide" : "Close"} onclick={close}>
         {#if busy}
           <svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6" /></svg>
@@ -143,7 +150,34 @@
     right: 0;
     margin: 0;
     padding: 10px;
+    gap: 6px;
     background: none;
+  }
+  .ofp {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 30px;
+    padding: 0 10px;
+    border-radius: 8px;
+    border: 1px solid #6d5bd0;
+    background: rgba(28, 30, 33, 0.9);
+    color: #c4b5fd;
+    font-size: 12.5px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+  }
+  .ofp:hover:not(:disabled) {
+    background: #2b2840;
+  }
+  .ofp svg {
+    width: 15px;
+    height: 15px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
   }
   h2 {
     margin: 0;

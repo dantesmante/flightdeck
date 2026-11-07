@@ -167,10 +167,10 @@
   const NAV: { id: View; label: string; icon: string }[] = [
     { id: "live", label: "Map", icon: "M4 5.5A2.5 2.5 0 016.5 3H19a2 2 0 012 2v14a2 2 0 01-2 2H6.5A2.5 2.5 0 014 18.5zM4 18.5A2.5 2.5 0 016.5 16H7V3M11.4 7.6a1.3 1.3 0 11-2.6 0 1.3 1.3 0 012.6 0zM10.3 10.5v.01M11.4 12.5v.01M13.1 14v.01M15 15v.01M16.6 16.6l2 2M18.6 16.6l-2 2M15 3c.2 1.6-1 2.6.4 4S19 8.2 21 9.4" },
     { id: "flights", label: "Flights", icon: "M5 4h14v16H5zM8 8h8M8 12h8M8 16h5" },
-    { id: "photos", label: "Photos", icon: "M3 7.5h3.5L8.5 5h7l2 2.5H21V19H3zM12 9.5a3.5 3.5 0 100 7 3.5 3.5 0 000-7z" },
     { id: "logbook", label: "Logbook", icon: "M4 5h7a2 2 0 012 2v13a2 2 0 00-2-2H4zM20 5h-7a2 2 0 00-2 2v13a2 2 0 012-2h7z" },
     { id: "hangar", label: "Hangar", icon: "M3 20V9l9-5 9 5v11M7 20v-6h10v6M3 20h18" },
     { id: "passport", label: "Passport", icon: "M6 3h11a1 1 0 011 1v16a1 1 0 01-1 1H6zM12 9a3 3 0 100 6 3 3 0 000-6zM9 18h6" },
+    { id: "photos", label: "Photos", icon: "M3 7.5h3.5L8.5 5h7l2 2.5H21V19H3zM12 9.5a3.5 3.5 0 100 7 3.5 3.5 0 000-7z" },
   ];
 
   /** The flights card can be put away to see the whole map. */
@@ -265,7 +265,7 @@
   <main class="stage" class:hidden={full}>
     <!-- One map for the Map, Flights and Photos tabs; in Photos it shows
          nothing but the screenshot pins. -->
-    <Map live={ph ? NO_TRACK : liveTrack} aircraft={ph ? null : aircraft} origin={ph ? null : origin} history={ph ? null : history} routes={ph ? NO_ROUTES : routes} parked={ph ? NO_ROUTES : parkedShown} highlight={view === "flights" ? hoverFlight : null} onfly={status?.live || ph ? undefined : flyThis} selected={ph ? null : selectedFlight} onroute={showFlight} plan={ph ? null : history ? historyPlan : (status?.plan ?? null)} draft={ph ? null : draftRoute} insetLeft={view === "live" ? inset.l : (view === "flights" || ph) && !collapsed && !screen.phone ? 396 : 0} insetBottom={view === "live" ? inset.b : 0} initialOn={view === "flights" ? FLIGHTS_LAYERS : NO_LAYERS} shots={ph ? photoPins : mapShots} planner={view === "live"} bare={ph} shotAccent={ph ? hoverShot : null} />
+    <Map live={ph ? NO_TRACK : liveTrack} aircraft={ph ? null : aircraft} origin={ph ? null : origin} history={ph ? null : history} routes={ph ? NO_ROUTES : routes} parked={ph ? NO_ROUTES : parkedShown} highlight={view === "flights" ? hoverFlight : null} onfly={status?.live || ph ? undefined : flyThis} selected={ph ? null : selectedFlight} onroute={showFlight} plan={ph ? null : history ? historyPlan : (status?.plan ?? null)} draft={ph ? null : draftRoute} insetLeft={view === "live" ? inset.l : (view === "flights" || ph) && !collapsed && !screen.phone ? 396 : 0} insetBottom={view === "live" ? inset.b : 0} initialOn={view === "flights" ? FLIGHTS_LAYERS : NO_LAYERS} shots={ph ? photoPins : mapShots} planner={view === "live"} bare={ph} shotAccent={ph ? hoverShot : null} onshothover={ph ? (id) => (hoverShot = id) : undefined} />
     {#if view === "live"}
       <MapDock {status} {completed} track={liveTrack} ondismiss={dismiss} onsettings={() => go("settings")} oninset={(l, b) => (inset = { l, b })} />
     {:else if view === "flights"}
@@ -299,7 +299,7 @@
           <button class="tuck" onclick={togglePanel} aria-label="Put the photos card away" title="Hide">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg>
           </button>
-          <PhotosPanel list={photoList} loading={photosLoading} hasFolder={!!prefs.s.screenshot_dir} onhover={(id) => (hoverShot = id)} onsettings={() => go("settings")} />
+          <PhotosPanel list={photoList} hot={hoverShot} loading={photosLoading} hasFolder={!!prefs.s.screenshot_dir} onhover={(id) => (hoverShot = id)} onsettings={() => go("settings")} />
         </section>
       {/if}
     {/if}

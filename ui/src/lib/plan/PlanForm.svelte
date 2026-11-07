@@ -4,6 +4,7 @@
   // and mid-flight to add a plan.
   import { onDestroy, onMount, untrack } from "svelte";
   import { draft, drawing, pick } from "../flyStore.svelte";
+  import { briefing, openBriefing } from "../briefingStore.svelte";
   import { api, inTauri, type FlightPlan, type HangarItem, type PlanFix, type PlnRoute } from "../api";
   import { modelName } from "../hangar/names";
   import { distance, prefs } from "../prefs.svelte";
@@ -56,7 +57,8 @@
     if (mode !== "start") return;
     draft.origin = origin;
     draft.dest = dest;
-    draft.fixes = drawn ?? [];
+    // The route itself: drawn, or SimBrief's while its airports are kept.
+    draft.fixes = drawn ?? (base && origin?.icao === base.origin.icao && dest?.icao === base.destination.icao ? base.fixes : []);
   });
   // An airport sent from the map's right-click menu.
   $effect(() => {
@@ -477,6 +479,12 @@
           <span>{[latest.aircraft_icao, latest.distance_nm ? `${distance(latest.distance_nm).value} ${distance(latest.distance_nm).unit}` : "", ago(latest.generated_ms)].filter(Boolean).join(", ")}</span>
           {#if latest.route}<span class="route num">{latest.route}</span>{/if}
         </button>
+        {#if base && base.source === "simbrief"}
+          <button type="button" class="ofp" onclick={() => base && openBriefing(base)} disabled={briefing.loading}>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h7l4 4v14H7zM14 3v4h4M10 11h5M10 14h5M10 17h3" /></svg>
+            {briefing.loading ? "Opening…" : "View OFP"}
+          </button>
+        {/if}
       {:else}
         <button type="button" class="opt" onclick={lookSimbrief}>
           <strong>Import from SimBrief</strong>
@@ -738,6 +746,31 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+  .ofp {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 7px 10px;
+    border-radius: 8px;
+    border: 1px solid #6d5bd0;
+    background: transparent;
+    color: #c4b5fd;
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .ofp:hover:not(:disabled) {
+    background: rgba(167, 139, 250, 0.12);
+  }
+  .ofp svg {
+    width: 16px;
+    height: 16px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
   }
   .opt.wait {
     cursor: default;

@@ -249,19 +249,20 @@
   {@const menu = TABS.find((m) => m.id === open)!}
   <div class="panel" class:beside={cardOpen} role="dialog" aria-label="Layers: {menu.title}">
     <header>
-      <div class="tabs" role="tablist" aria-label="Layers">
-        {#each TABS as t (t.id)}
-          <button role="tab" aria-selected={open === t.id} class:sel={open === t.id} onclick={() => showTab(t.id)}>
-            <svg viewBox="0 0 24 24" aria-hidden="true" class:fill={t.id === "traffic"}><path d={t.icon} /></svg>
-            {t.label}
-            {#if tabOn(t.id)}<i class="dot" aria-label="(on)"></i>{/if}
-          </button>
-        {/each}
-      </div>
+      <h3>Layers</h3>
       <button class="x" aria-label="Close" onclick={() => (open = null)}>
         <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" /></svg>
       </button>
     </header>
+    <div class="tabs" role="group" aria-label="Show layers for">
+      {#each TABS as t (t.id)}
+        <button aria-pressed={open === t.id} class:sel={open === t.id} onclick={() => showTab(t.id)}>
+          <svg viewBox="0 0 24 24" aria-hidden="true" class:fill={t.id === "traffic"}><path d={t.icon} /></svg>
+          {t.label}
+          {#if tabOn(t.id)}<i class="dot" aria-label="(on)"></i>{/if}
+        </button>
+      {/each}
+    </div>
     {#if open === "map"}
     <div class="grid">
       {@render card("3d", "3D flight", three, () => onthree(!three))}
@@ -445,25 +446,30 @@
     align-items: center;
     justify-content: space-between;
     gap: 6px;
-    margin-bottom: 12px;
+    margin-bottom: 10px;
+  }
+  h3 {
+    margin: 0;
+    font-family: var(--cond);
+    font-size: 19px;
+    font-weight: 600;
   }
   .tabs {
-    display: flex;
-    gap: 2px;
-    padding: 3px;
-    border-radius: 9px;
-    background: rgba(255, 255, 255, 0.04);
-    min-width: 0;
+    display: grid;
+    grid-template-columns: 1.5fr 1fr 1fr;
+    gap: 6px;
+    margin-bottom: 12px;
   }
   .tabs button {
     position: relative;
     display: flex;
     align-items: center;
-    gap: 5px;
-    padding: 5px 9px;
-    border: none;
-    border-radius: 7px;
-    background: transparent;
+    justify-content: center;
+    gap: 6px;
+    padding: 8px 6px;
+    border: 1px solid var(--rule);
+    border-radius: 9px;
+    background: rgba(255, 255, 255, 0.03);
     color: var(--ink-dim);
     font-family: var(--cond);
     font-size: 14.5px;
@@ -472,15 +478,17 @@
   }
   .tabs button:hover {
     color: var(--ink);
+    border-color: #4b5057;
   }
   .tabs button.sel {
-    background: var(--panel-3);
-    color: var(--ink);
-    box-shadow: inset 0 -2px 0 var(--amber);
+    background: rgba(240, 178, 58, 0.14);
+    border-color: var(--amber);
+    color: var(--amber);
   }
   .tabs svg {
     width: 15px;
     height: 15px;
+    flex: none;
     fill: none;
     stroke: currentColor;
     stroke-width: 1.8;
@@ -491,6 +499,9 @@
     stroke: none;
   }
   .tabs .dot {
+    position: absolute;
+    top: 5px;
+    right: 6px;
     width: 5px;
     height: 5px;
     border-radius: 50%;

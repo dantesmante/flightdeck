@@ -67,6 +67,8 @@
     bare?: boolean;
     /** A screenshot pin to bring out (its thumbnail is under the pointer). */
     shotAccent?: number | null;
+    /** The pointer is on a screenshot pin (or left it: null). */
+    onshothover?: (id: number | null) => void;
   }
   let {
     live,
@@ -89,6 +91,7 @@
     planner = false,
     bare = false,
     shotAccent = null,
+    onshothover,
   }: Props = $props();
 
   /** The plan drawn: the real one, or the route being set up. */
@@ -293,6 +296,14 @@
         shotStore.viewer = { list: shotList, index: shotList.indexOf(s) };
       });
       shotEls.set(s.id, el);
+      el.addEventListener("mouseenter", () => {
+        el.classList.add("hot");
+        onshothover?.(s.id);
+      });
+      el.addEventListener("mouseleave", () => {
+        el.classList.toggle("hot", shotAccent === s.id && !onshothover);
+        onshothover?.(null);
+      });
       return new maplibregl.Marker({ element: el, anchor: "bottom" }).setLngLat([s.lon!, s.lat!]).addTo(map!);
     });
     return () => {
