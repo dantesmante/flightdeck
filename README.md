@@ -172,8 +172,9 @@ MIT licensed.
   height and AP. Fed about 15 times a second from the sim while open (MSFS
   instrument values; the demo shows what it has). On the simulator PC it
   is plain sky and ground; on phones and tablets **SVT** draws the terrain
-  ahead (synthetic vision, from the free Terrain Tiles), which costs the
-  PC nothing; on the PC a note says so. **Split** docks the PFD to the
+  ahead (synthetic vision, from the free Terrain Tiles, with water in dark
+  blue and airports in concrete grey with runway and taxiway centrelines
+  from OpenStreetMap), which costs the PC nothing; on the PC a note says so. **Split** docks the PFD to the
   right half of the Map tab with the map on the left (the flight card
   folds away until you open it; leaving split brings it back). The PFD
   belongs to the Map tab: other tabs hide it, and it is back when you
@@ -185,7 +186,8 @@ MIT licensed.
   map, so nothing more is downloaded. A slider fades them (15–100%).
 - **Terrain** (Layers → Map): terrain coloured against your altitude, as a
   G1000 terrain page: red at or above you or within 100 ft below, yellow
-  within 1,000 ft below, dark where well clear. Needs the sim connected;
+  within 1,000 ft below, black where well clear (mostly covering the map,
+  as on the G1000). Needs the sim connected;
   redrawn as you climb or descend (every 50 ft). From the free Terrain
   Tiles.
 - **Obstacles** (Layers → Map, US only): towers, antennas, wind turbines

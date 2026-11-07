@@ -813,17 +813,26 @@ export function setRoadsOpacity(map: maplibregl.Map, o: number) {
 
 const TAWS_IDS = ["fd-taws"];
 
-/** The colours for an aircraft at `altFt` (feet above sea level). */
+/** The colours for an aircraft at `altFt` (feet above sea level). The map
+ * draws colour ramps only from "interpolate", so the hard edges are two
+ * stops a centimetre apart. */
 function tawsRamp(altFt: number): maplibregl.ExpressionSpecification {
   const m = (ft: number) => ft * 0.3048;
+  const clear = "rgba(0, 0, 0, 0.8)";
+  const caution = "rgba(236, 196, 40, 0.92)";
+  const warning = "rgba(226, 45, 40, 0.92)";
+  const y = m(altFt - 1000);
+  const r = m(altFt - 100);
+  const lo = Math.min(-500, y - 10);
+  const hi = Math.max(9000, r + 10);
   return [
-    "step",
-    ["elevation"],
-    "rgba(0, 0, 0, 0.42)",
-    m(altFt - 1000),
-    "rgba(236, 196, 40, 0.62)",
-    m(altFt - 100),
-    "rgba(226, 45, 40, 0.7)",
+    "interpolate", ["linear"], ["elevation"],
+    lo, clear,
+    y - 0.01, clear,
+    y, caution,
+    r - 0.01, caution,
+    r, warning,
+    hi, warning,
   ] as unknown as maplibregl.ExpressionSpecification;
 }
 

@@ -2,8 +2,10 @@
   // Synthetic vision behind the PFD on phones and tablets: the terrain ahead
   // as seen from the aircraft, from the same free elevation tiles as the
   // Topographic layer (Terrain Tiles, AWS open data), coloured by height
-  // (green low, browns higher, white peaks) with relief shading. The device
-  // draws it, so the simulator PC does no extra work.
+  // (green low, browns higher, white peaks) with relief shading; water in
+  // dark blue and airports in grey concrete with runway and taxiway
+  // centrelines, draped from the OpenFreeMap tiles (OpenStreetMap). The
+  // device draws it, so the simulator PC does no extra work.
   import maplibregl from "maplibre-gl";
   import "maplibre-gl/dist/maplibre-gl.css";
   import { onDestroy, onMount } from "svelte";
@@ -17,7 +19,17 @@
   const DEM = "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png";
   const FT = 0.3048;
 
+  /** A width in metres on the ground, as line widths at each zoom level. */
+  function metres(m: number, lat: number): maplibregl.ExpressionSpecification {
+    const mpp = (z: number) => (40075016.686 * Math.cos((lat * Math.PI) / 180)) / (512 * 2 ** z);
+    return ["interpolate", ["exponential", 2], ["zoom"], 8, m / mpp(8), 20, m / mpp(20)] as unknown as maplibregl.ExpressionSpecification;
+  }
+
   onMount(() => {
+    const lat = d?.lat ?? 40;
+    const cls = ["get", "class"] as unknown as maplibregl.ExpressionSpecification;
+    const lines = ["match", ["geometry-type"], ["LineString", "MultiLineString"], true, false] as unknown as maplibregl.ExpressionSpecification;
+    const areas = ["match", ["geometry-type"], ["Polygon", "MultiPolygon"], true, false] as unknown as maplibregl.ExpressionSpecification;
     map = new maplibregl.Map({
       container: el,
       interactive: false,
@@ -34,6 +46,7 @@
         sources: {
           dem: { type: "raster-dem", tiles: [DEM], encoding: "terrarium", tileSize: 256, maxzoom: 12 },
           shade: { type: "raster-dem", tiles: [DEM], encoding: "terrarium", tileSize: 256, maxzoom: 12 },
+          omt: { type: "vector", url: "https://tiles.openfreemap.org/planet" },
         },
         sky: {
           "sky-color": "#0d47e0",
@@ -71,12 +84,63 @@
             source: "shade",
             paint: { "hillshade-shadow-color": "#1a2a10", "hillshade-highlight-color": "#e8f0d0", "hillshade-exaggeration": 0.5 },
           },
+          // Lakes, rivers and the sea, flat dark blue.
+          { id: "water", type: "fill", source: "omt", "source-layer": "water", paint: { "fill-color": "#0e2c5e", "fill-antialias": false } },
+          // Airports: aprons and runway areas in concrete grey.
+          {
+            id: "apron",
+            type: "fill",
+            source: "omt",
+            "source-layer": "aeroway",
+            minzoom: 10,
+            filter: ["all", areas, ["match", cls, ["apron", "runway", "taxiway", "helipad"], true, false]] as unknown as maplibregl.FilterSpecification,
+            paint: { "fill-color": ["match", cls, "runway", "#55585d", "#6c6f74"] },
+          },
+          {
+            id: "taxiway",
+            type: "line",
+            source: "omt",
+            "source-layer": "aeroway",
+            minzoom: 11,
+            filter: ["all", lines, ["==", cls, "taxiway"]] as unknown as maplibregl.FilterSpecification,
+            layout: { "line-join": "round", "line-cap": "round" },
+            paint: { "line-color": "#66696e", "line-width": metres(20, lat) },
+          },
+          {
+            id: "runway",
+            type: "line",
+            source: "omt",
+            "source-layer": "aeroway",
+            minzoom: 9,
+            filter: ["all", lines, ["==", cls, "runway"]] as unknown as maplibregl.FilterSpecification,
+            layout: { "line-join": "round" },
+            paint: { "line-color": "#4d5055", "line-width": metres(45, lat) },
+          },
+          {
+            id: "taxiway-centre",
+            type: "line",
+            source: "omt",
+            "source-layer": "aeroway",
+            minzoom: 13,
+            filter: ["all", lines, ["==", cls, "taxiway"]] as unknown as maplibregl.FilterSpecification,
+            paint: { "line-color": "#e8c22a", "line-width": metres(0.8, lat) },
+          },
+          {
+            id: "runway-centre",
+            type: "line",
+            source: "omt",
+            "source-layer": "aeroway",
+            minzoom: 12,
+            filter: ["all", lines, ["==", cls, "runway"]] as unknown as maplibregl.FilterSpecification,
+            // Dashes about 30 m long with 20 m gaps, as painted.
+            paint: { "line-color": "#f2f2f2", "line-width": metres(1, lat), "line-dasharray": [30, 20] },
+          },
         ],
       },
     });
     // Not "load": that waits for the first tiles, which can be slow.
     map.on("style.load", () => (ready = true));
-    if (import.meta.env.DEV) (window as unknown as { __svtMap: maplibregl.Map }).__svtMap = map;
+    if (import.meta.env.DEV) map.on("style.load", () => ((window as unknown as { __svtMap: maplibregl.Map }).__svtMap = map!));
   });
   onDestroy(() => map?.remove());
 
