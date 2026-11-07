@@ -231,6 +231,8 @@
   const NO_TRACK: Pt[] = [];
   const NO_ROUTES: never[] = [];
   const ph = $derived(view === "photos");
+  /** Split screen: the PFD on the right half of the Map tab, the map on the left. */
+  const splitOn = $derived(pfdState.open && pfdState.split && view === "live" && !screen.phone);
 
   const linkText = $derived(
     !status || status.link === "waiting"
@@ -264,10 +266,11 @@
     </button>
   </nav>
 
-  <main class="stage" class:hidden={full}>
+  <main class="stage" class:hidden={full} class:split={splitOn}>
+    <div class="mapside">
     <!-- One map for the Map, Flights and Photos tabs; in Photos it shows
          nothing but the screenshot pins. -->
-    <Map live={ph ? NO_TRACK : liveTrack} aircraft={ph ? null : aircraft} origin={ph ? null : origin} history={ph ? null : history} routes={ph ? NO_ROUTES : routes} parked={ph ? NO_ROUTES : parkedShown} highlight={view === "flights" ? hoverFlight : null} onfly={status?.live || ph ? undefined : flyThis} selected={ph ? null : selectedFlight} onroute={showFlight} plan={ph ? null : history ? historyPlan : (status?.plan ?? null)} draft={ph ? null : draftRoute} insetLeft={view === "live" ? inset.l : (view === "flights" || ph) && !collapsed && !screen.phone ? 396 : 0} insetBottom={view === "live" ? inset.b : 0} initialOn={view === "flights" ? FLIGHTS_LAYERS : NO_LAYERS} shots={ph ? photoPins : mapShots} planner={view === "live"} bare={ph} shotAccent={ph ? hoverShot : null} onshothover={ph ? (id) => (hoverShot = id) : undefined} />
+    <Map live={ph ? NO_TRACK : liveTrack} aircraft={ph ? null : aircraft} origin={ph ? null : origin} history={ph ? null : history} routes={ph ? NO_ROUTES : routes} parked={ph ? NO_ROUTES : parkedShown} highlight={view === "flights" ? hoverFlight : null} onfly={status?.live || ph ? undefined : flyThis} selected={ph ? null : selectedFlight} onroute={showFlight} plan={ph ? null : history ? historyPlan : (status?.plan ?? null)} draft={ph ? null : draftRoute} insetLeft={view === "live" ? inset.l : (view === "flights" || ph) && !collapsed && !screen.phone ? 396 : 0} insetBottom={view === "live" ? inset.b : 0} initialOn={view === "flights" ? FLIGHTS_LAYERS : NO_LAYERS} shots={ph ? photoPins : mapShots} planner={view === "live"} bare={ph} shotAccent={ph ? hoverShot : null} onshothover={ph ? (id) => (hoverShot = id) : undefined} acAltFt={ph ? null : (status?.telemetry?.alt_msl_ft ?? null)} />
     {#if view === "live"}
       <MapDock {status} {completed} track={liveTrack} ondismiss={dismiss} onsettings={() => go("settings")} oninset={(l, b) => (inset = { l, b })} />
     {:else if view === "flights"}
@@ -305,6 +308,8 @@
         </section>
       {/if}
     {/if}
+    </div>
+    {#if splitOn}<PfdWindow />{/if}
   </main>
 
   {#if full}
@@ -327,7 +332,7 @@
     <div class="toast" role="status">{toast}</div>
   {/if}
   <UpdateBanner />
-  {#if pfdState.open}<PfdWindow />{/if}
+  {#if pfdState.open && view === "live" && !pfdState.split}<PfdWindow />{/if}
   {#if briefing.plan && briefing.ofp}
     <Briefing plan={briefing.plan} ofp={briefing.ofp} onclose={closeBriefing} />
   {/if}
@@ -411,6 +416,14 @@
   .stage {
     position: relative;
     overflow: hidden;
+  }
+  /* Split screen: the map and its cards keep to the left half. */
+  .mapside {
+    position: absolute;
+    inset: 0;
+  }
+  .stage.split .mapside {
+    right: 50%;
   }
   .toast {
     position: absolute;

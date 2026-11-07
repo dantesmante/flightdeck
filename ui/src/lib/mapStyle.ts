@@ -794,3 +794,164 @@ export function showRoads(map: maplibregl.Map, on: boolean) {
     }
   }
 }
+
+/** How see-through the roads are, 0.15 to 1. */
+export function setRoadsOpacity(map: maplibregl.Map, o: number) {
+  if (!map.getLayer("fd-road")) return;
+  map.setPaintProperty("fd-road", "line-opacity", o);
+  map.setPaintProperty("fd-road-casing", "line-opacity", 0.75 * o);
+  map.setPaintProperty("fd-road-name", "text-opacity", Math.min(1, o + 0.2));
+  map.setPaintProperty("fd-road-shield", "icon-opacity", Math.min(1, o + 0.2));
+  map.setPaintProperty("fd-road-shield", "text-opacity", Math.min(1, o + 0.2));
+}
+
+// --- Terrain awareness ---------------------------------------------------------
+// Terrain coloured by its height against the aircraft's, as a G1000 terrain
+// page does: red at or above the aircraft or within 100 ft below it, yellow
+// within 1,000 ft below, black where it is well clear. From the same free
+// elevation tiles as the Topographic layer.
+
+const TAWS_IDS = ["fd-taws"];
+
+/** The colours for an aircraft at `altFt` (feet above sea level). */
+function tawsRamp(altFt: number): maplibregl.ExpressionSpecification {
+  const m = (ft: number) => ft * 0.3048;
+  return [
+    "step",
+    ["elevation"],
+    "rgba(0, 0, 0, 0.42)",
+    m(altFt - 1000),
+    "rgba(236, 196, 40, 0.62)",
+    m(altFt - 100),
+    "rgba(226, 45, 40, 0.7)",
+  ] as unknown as maplibregl.ExpressionSpecification;
+}
+
+/** Terrain awareness on or off, for an aircraft at altFt (null: no flight;
+ * nothing is drawn). Cheap to call again as the altitude changes. */
+export function showTaws(map: maplibregl.Map, on: boolean, altFt: number | null) {
+  const show = on && altFt != null;
+  if (show && !map.getLayer("fd-taws")) {
+    if (!map.getSource("fd-dem")) {
+      map.addSource("fd-dem", {
+        type: "raster-dem",
+        encoding: "terrarium",
+        tiles: [demSource().sharedDemProtocolUrl],
+        tileSize: 256,
+        maxzoom: 12,
+        attribution: TERRAIN_ATTRIBUTION,
+      });
+    }
+    const before = map.getLayer("fd-road-casing") ? "fd-road-casing" : (map.getStyle().layers ?? []).find((l) => l.type === "symbol" && !l.id.startsWith("fd-"))?.id;
+    map.addLayer({ id: "fd-taws", type: "color-relief", source: "fd-dem", paint: { "color-relief-color": tawsRamp(altFt!), "color-relief-opacity": 1 } }, before);
+  }
+  for (const id of TAWS_IDS) if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", show ? "visible" : "none");
+  if (show && map.getLayer("fd-taws")) map.setPaintProperty("fd-taws", "color-relief-color", tawsRamp(altFt!));
+}
+
+// --- Obstacles -------------------------------------------------------------------
+// Towers, antennas, wind turbines, stacks (FAA Digital Obstacle File, US):
+// a chart-style symbol, red when its top is within 100 ft of the
+// aircraft's altitude or above it, yellow within 1,000 ft below, white
+// otherwise; the top's height (and height above ground) as you zoom in.
+
+function obstacleIcon(lit: boolean): ImageData {
+  const s = 2;
+  const W = 22 * s;
+  const H = 26 * s;
+  const c = document.createElement("canvas");
+  c.width = W;
+  c.height = H;
+  const g = c.getContext("2d")!;
+  g.strokeStyle = "#ffffff";
+  g.fillStyle = "#ffffff";
+  g.lineWidth = 2.6 * s;
+  g.lineCap = "round";
+  g.lineJoin = "round";
+  // The chart symbol: an inverted V with a dot at its foot.
+  g.beginPath();
+  g.moveTo(5 * s, 24 * s);
+  g.lineTo(11 * s, 7 * s);
+  g.lineTo(17 * s, 24 * s);
+  g.stroke();
+  g.beginPath();
+  g.arc(11 * s, 22 * s, 1.8 * s, 0, Math.PI * 2);
+  g.fill();
+  if (lit) {
+    // Light rays from the top.
+    g.lineWidth = 1.8 * s;
+    for (const [dx, dy] of [[-6, -2], [6, -2], [-4, -5.5], [4, -5.5]]) {
+      g.beginPath();
+      g.moveTo(11 * s + dx * 0.45 * s, 6 * s + dy * 0.45 * s);
+      g.lineTo(11 * s + dx * s, 6 * s + dy * s);
+      g.stroke();
+    }
+  }
+  return g.getImageData(0, 0, W, H);
+}
+
+const OBST_IDS = ["fd-obst", "fd-obst-label"];
+
+function obstColor(altFt: number | null): maplibregl.ExpressionSpecification {
+  if (altFt == null) return "#ffffff" as unknown as maplibregl.ExpressionSpecification;
+  return ["step", ["get", "amsl"], "#ffffff", altFt - 1000, "#ecc428", altFt - 100, "#ff3b30"] as unknown as maplibregl.ExpressionSpecification;
+}
+
+export function addObstacles(map: maplibregl.Map) {
+  if (map.getSource("fd-obst")) return;
+  for (const lit of [false, true]) {
+    const id = lit ? "fd-obst-lit" : "fd-obst-icon";
+    if (!map.hasImage(id)) map.addImage(id, obstacleIcon(lit), { pixelRatio: 2, sdf: true });
+  }
+  map.addSource("fd-obst", { type: "geojson", data: { type: "FeatureCollection", features: [] }, maxzoom: 12, attribution: "Obstacles FAA" });
+  const before = (map.getStyle().layers ?? []).find((l) => l.id.startsWith("routes") || l.id === "plan-line")?.id;
+  map.addLayer(
+    {
+      id: "fd-obst",
+      type: "symbol",
+      source: "fd-obst",
+      minzoom: 8,
+      // Taller ones first, so they win where symbols would collide.
+      layout: {
+        visibility: "none",
+        "symbol-sort-key": ["-", 0, ["get", "agl"]],
+        "icon-image": ["case", ["get", "lit"], "fd-obst-lit", "fd-obst-icon"],
+        "icon-size": ["interpolate", ["linear"], ["get", "agl"], 200, 0.62, 1000, 0.95, 2000, 1.15],
+        "icon-anchor": "bottom",
+        "icon-allow-overlap": ["step", ["zoom"], false, 11, true] as unknown as boolean,
+      },
+      paint: { "icon-color": "#ffffff", "icon-halo-color": "rgba(0,0,0,0.85)", "icon-halo-width": 1.6 },
+    },
+    before,
+  );
+  map.addLayer(
+    {
+      id: "fd-obst-label",
+      type: "symbol",
+      source: "fd-obst",
+      minzoom: 10.5,
+      layout: {
+        visibility: "none",
+        "symbol-sort-key": ["-", 0, ["get", "agl"]],
+        "text-field": ["format", ["to-string", ["get", "amsl"]], { "font-scale": 1 }, "\n(", {}, ["to-string", ["get", "agl"]], {}, ")", {}],
+        "text-font": ["Noto Sans Bold"],
+        "text-size": 10.5,
+        "text-anchor": "top",
+        "text-offset": [0, 0.3],
+        "text-line-height": 1.05,
+      },
+      paint: { "text-color": "#ffffff", "text-halo-color": "#111214", "text-halo-width": 1.4 },
+    },
+    before,
+  );
+}
+
+/** Obstacles on or off, coloured against the aircraft's altitude (null: no flight). */
+export function showObstacles(map: maplibregl.Map, on: boolean, altFt: number | null) {
+  addObstacles(map);
+  for (const id of OBST_IDS) if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", on ? "visible" : "none");
+  if (on) {
+    map.setPaintProperty("fd-obst", "icon-color", obstColor(altFt));
+    map.setPaintProperty("fd-obst-label", "text-color", obstColor(altFt));
+  }
+}

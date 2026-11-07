@@ -9,7 +9,7 @@
   import WxCard, { CATEGORY, WX_GROUP } from "./WxCard.svelte";
   import type { WxAdvisoryProps } from "./api";
   import type { Net, NetworkData } from "./api";
-  import { showRoads, C as BASE, STYLE, addAirportLayout, addRegionLines, approachLines, offlineStyle, runwayEnds, setBorders, showAirportLayout, showSatellite, showTerrain, tintMap } from "./mapStyle";
+  import { showRoads, setRoadsOpacity, showTaws, showObstacles, C as BASE, STYLE, addAirportLayout, addRegionLines, approachLines, offlineStyle, runwayEnds, setBorders, showAirportLayout, showSatellite, showTerrain, tintMap } from "./mapStyle";
   import MapLayers from "./MapLayers.svelte";
   import { shots as shotStore, type PlacedShot } from "./shots.svelte";
   import { WindParticles } from "./wind/particles";
@@ -70,6 +70,9 @@
     shotAccent?: number | null;
     /** The pointer is on a screenshot pin (or left it: null). */
     onshothover?: (id: number | null) => void;
+    /** The aircraft's altitude (ft above sea level) while a sim is connected,
+     * for the terrain and obstacle colours. */
+    acAltFt?: number | null;
   }
   let {
     live,
@@ -93,6 +96,7 @@
     bare = false,
     shotAccent = null,
     onshothover,
+    acAltFt = null,
   }: Props = $props();
 
   /** The plan drawn: the real one, or the route being set up. */
@@ -204,6 +208,67 @@
   let openAirport = $state<string | null>(null);
   /** A SIGMET or AIRMET whose card is open. */
   let wxPick = $state<WxAdvisoryProps | null>(null);
+  // How see-through the roads are (Layers → Map).
+  const roadsOpacity = $derived(Math.min(1, Math.max(0.15, Number(prefs.s.map_roads_opacity ?? "1") || 1)));
+  $effect(() => {
+    const o = roadsOpacity;
+    if (loaded && map) setRoadsOpacity(map, o);
+  });
+
+  // Terrain and obstacles coloured against the aircraft's altitude, redrawn
+  // when it has changed by 50 ft or more.
+  let altStep = $state<number | null>(null);
+  $effect(() => {
+    const a = acAltFt;
+    untrack(() => {
+      if (a == null) altStep = null;
+      else if (altStep == null || Math.abs(a - altStep) >= 50) altStep = Math.round(a);
+    });
+  });
+  $effect(() => {
+    const on = layers.has("taws");
+    const alt = altStep;
+    if (!loaded || !map) return;
+    showTaws(map, on && !offline, alt);
+  });
+  let obstData: GeoJSON.FeatureCollection | null = null;
+  let obstState = $state<"idle" | "loading" | "ok" | "error">("idle");
+  $effect(() => {
+    const on = layers.has("obstacles");
+    const alt = altStep;
+    if (!loaded || !map) return;
+    showObstacles(map, on, alt);
+    if (!on || obstData || untrack(() => obstState) === "loading") return;
+    untrack(() => (obstState = "loading"));
+    api.usObstacles()
+      .then((text) => {
+        obstData = JSON.parse(text) as GeoJSON.FeatureCollection;
+        obstState = "ok";
+        (map?.getSource("fd-obst") as GeoJSONSource | undefined)?.setData(obstData);
+      })
+      .catch(() => (obstState = "error"));
+  });
+  // Style reloads (satellite) start the obstacles empty again.
+  $effect(() => {
+    void loaded;
+    if (loaded && obstData) (map?.getSource("fd-obst") as GeoJSONSource | undefined)?.setData(obstData);
+  });
+
+  // Leaving the Map tab (or opening Photos): tools and cards put away.
+  $effect(() => {
+    if (planner && !bare) return;
+    untrack(() => {
+      if (measuring) setMeasuring(false);
+      mPts = [];
+      ctx = null;
+      if (bare) {
+        openAirport = null;
+        wxPick = null;
+        netPick = null;
+      }
+    });
+  });
+
   // US airspace: read once when the layer is first switched on (FlightDeck
   // keeps a copy for the FAA's 28-day cycle).
   let aspData: GeoJSON.FeatureCollection | null = null;
@@ -1723,6 +1788,7 @@
     showTerrain(map, on.has("terrain") && !offline, on.has("satellite"));
     setBorders(map, on.has("borders"), on.has("satellite") && !offline);
     showRoads(map, on.has("roads"));
+    setRoadsOpacity(map, roadsOpacity);
     // On unless switched off ("aeroway-off"), so it shows for everyone.
     showAirportLayout(map, !on.has("aeroway-off"));
     showRadar(on.has("radar"));
@@ -2077,6 +2143,10 @@
   {measuring}
   onmeasure={() => setMeasuring(!measuring)}
   airspaceState={aspState}
+  obstaclesState={obstState}
+  hasAircraft={acAltFt != null}
+  {roadsOpacity}
+  onroadsopacity={(o) => setPref("map_roads_opacity", o.toFixed(2))}
   pfdOpen={pfdState.open}
   onpfd={planner ? () => (pfdState.open = !pfdState.open) : undefined}
 />

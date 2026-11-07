@@ -951,6 +951,8 @@ export const api = {
   windGrid: (level: string) => call<WindGrid>("wind_grid", { level }),
   /** US Class B, C and D airspace, GeoJSON text (FAA, 28-day cycle). */
   usAirspace: () => call<string>("us_airspace"),
+  /** US obstacles (towers, antennas, turbines), GeoJSON text (FAA DOF). */
+  usObstacles: () => call<string>("us_obstacles"),
   /** A PFD is open: keep its feed coming for a few more seconds. */
   pfdWatch: () => call<void>("pfd_watch"),
   /** A drawn route as an MSFS .PLN: [file name, text]. */

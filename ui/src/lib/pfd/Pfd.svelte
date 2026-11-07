@@ -83,7 +83,7 @@
   const altTens = $derived(String(Math.round((Math.abs(alt) % 100) / 20) * 20 % 100).padStart(2, "0"));
 </script>
 
-<svg viewBox="0 0 {W} {H}" class="pfd" class:svt role="img" aria-label="Primary flight display">
+<svg viewBox="0 0 {W} {H}" class="pfd" class:svt role="img" aria-label="Primary flight display" overflow="visible">
   <defs>
     <linearGradient id="pfd-sky" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#0b3fd6" />
@@ -93,7 +93,9 @@
       <stop offset="0" stop-color="#8a5a1c" />
       <stop offset="1" stop-color="#4a2e0c" />
     </linearGradient>
-    <clipPath id="pfd-att"><rect x="0" y="0" width={W} height={H} /></clipPath>
+    <!-- Sky and ground reach past the frame, to fill a taller or wider
+         window around the instruments. -->
+    <clipPath id="pfd-att"><rect x={-W * 2} y={-H * 3} width={W * 5} height={H * 7} /></clipPath>
     <clipPath id="pfd-ladder"><rect x={CX - 140} y={CY - 150} width="280" height="245" /></clipPath>
     <clipPath id="pfd-spd"><rect x="110" y={CY - 150} width="92" height="300" /></clipPath>
     <clipPath id="pfd-alt"><rect x="598" y={CY - 150} width="92" height="300" /></clipPath>
@@ -103,10 +105,10 @@
   <g clip-path="url(#pfd-att)">
     <g transform="rotate({-bank} {CX} {CY}) translate(0 {pitch * K})">
       {#if !svt}
-        <rect x={-W} y={CY - 4000} width={W * 3} height="4000" fill="url(#pfd-sky)" />
-        <rect x={-W} y={CY} width={W * 3} height="4000" fill="url(#pfd-ground)" />
+        <rect x={-W * 3} y={CY - 4000} width={W * 7} height="4000" fill="url(#pfd-sky)" />
+        <rect x={-W * 3} y={CY} width={W * 7} height="4000" fill="url(#pfd-ground)" />
       {/if}
-      <line x1={-W} x2={W * 2} y1={CY} y2={CY} stroke="#fff" stroke-width="2" />
+      <line x1={-W * 3} x2={W * 4} y1={CY} y2={CY} stroke="#fff" stroke-width="2" />
       <g clip-path="url(#pfd-ladder)">
         {#each ladder as l (l.deg)}
           {@const y = CY - l.deg * K}

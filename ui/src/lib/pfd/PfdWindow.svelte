@@ -79,6 +79,7 @@
   // Moving and sizing.
   let drag: { kind: "move" | "size"; sx: number; sy: number; b: { x: number; y: number; w: number } } | null = null;
   function down(kind: "move" | "size", e: PointerEvent) {
+    if (pfdState.split) return;
     if ((e.target as HTMLElement).closest("button") && kind === "move") return;
     drag = { kind, sx: e.clientX, sy: e.clientY, b: { ...box } };
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
@@ -103,15 +104,21 @@
   }
 </script>
 
-<div class="win" style:left="{box.x}px" style:top="{box.y}px" style:width="{box.w}px" role="dialog" aria-label="PFD">
+<div class="win" class:dock={pfdState.split} style:left={pfdState.split ? null : `${box.x}px`} style:top={pfdState.split ? null : `${box.y}px`} style:width={pfdState.split ? null : `${box.w}px`} role="dialog" aria-label="PFD">
   <header role="toolbar" tabindex="-1" aria-label="PFD window: drag to move" onpointerdown={(e) => down("move", e)} onpointermove={move} onpointerup={up}>
     <strong>PFD</strong>
     {#if d && !d.paused}<span class="live">Live</span>{/if}
     <span class="grow"></span>
     {#if svtOffered}
       <button class="svt-btn" class:on={svt} onclick={toggleSvt} title="Synthetic vision: the terrain ahead">SVT</button>
+    {:else}
+      <span class="hint" title="Synthetic vision draws the terrain ahead. It runs on phones and tablets connected to FlightDeck, so this PC keeps its graphics card for the sim.">SVT on phones &amp; tablets</span>
     {/if}
-    <button class="x" aria-label="Close the PFD" onclick={() => (pfdState.open = false)}>
+    <button class="svt-btn split" class:on={pfdState.split} onclick={() => (pfdState.split = !pfdState.split)} title={pfdState.split ? "Back to a floating window" : "Split screen: map on the left, PFD on the right"}>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M12 4v16" /></svg>
+      Split
+    </button>
+    <button class="x" aria-label="Close the PFD" onclick={() => ((pfdState.open = false), (pfdState.split = false))}>
       <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" /></svg>
     </button>
   </header>
@@ -119,7 +126,7 @@
     {#if svt}<Svt {d} />{/if}
     <div class="over"><Pfd {d} {svt} /></div>
   </div>
-  <div class="grip" role="presentation" onpointerdown={(e) => down("size", e)} onpointermove={move} onpointerup={up}></div>
+  {#if !pfdState.split}<div class="grip" role="presentation" onpointerdown={(e) => down("size", e)} onpointermove={move} onpointerup={up}></div>{/if}
 </div>
 
 <style>
@@ -168,6 +175,46 @@
     font-size: 12px;
     font-weight: 700;
   }
+  .hint {
+    font-size: 11.5px;
+    color: var(--ink-faint);
+    white-space: nowrap;
+    cursor: help;
+  }
+  .split {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .split svg {
+    width: 14px;
+    height: 14px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+  }
+  /* Split screen: the right half of the Map tab, the PFD centred in it. */
+  .win.dock {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 50%;
+    border-radius: 0;
+    border: none;
+    border-left: 1px solid var(--rule);
+    box-shadow: none;
+    display: flex;
+    flex-direction: column;
+    z-index: 8;
+  }
+  .win.dock header {
+    cursor: default;
+  }
+  .win.dock .screen {
+    flex: 1;
+    aspect-ratio: auto;
+  }
   .svt-btn.on {
     border-color: var(--amber);
     color: var(--amber);
@@ -198,6 +245,7 @@
   .screen {
     position: relative;
     aspect-ratio: 8 / 5;
+    overflow: hidden;
   }
   .over {
     position: absolute;
@@ -224,10 +272,12 @@
       flex-direction: column;
     }
     .screen {
-      width: min(100%, calc((100dvh - 34px) * 1.6));
-      margin: auto;
+      flex: 1;
+      aspect-ratio: auto;
     }
-    .grip {
+    .grip,
+    .split,
+    .hint {
       display: none;
     }
   }

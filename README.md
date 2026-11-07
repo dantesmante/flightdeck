@@ -173,12 +173,27 @@ MIT licensed.
   instrument values; the demo shows what it has). On the simulator PC it
   is plain sky and ground; on phones and tablets **SVT** draws the terrain
   ahead (synthetic vision, from the free Terrain Tiles), which costs the
-  PC nothing.
+  PC nothing; on the PC a note says so. **Split** docks the PFD to the
+  right half of the Map tab with the map on the left (the flight card
+  folds away until you open it; leaving split brings it back). The PFD
+  belongs to the Map tab: other tabs hide it, and it is back when you
+  return.
 - **Roads** (Layers → Map): roads coloured by importance (motorways
   orange, major roads amber and yellow, smaller ones grey as you zoom in),
   their names along them, and route shields: Interstate, US and state
   highways, E-roads and motorways. From the same OpenFreeMap tiles as the
-  map, so nothing more is downloaded.
+  map, so nothing more is downloaded. A slider fades them (15–100%).
+- **Terrain** (Layers → Map): terrain coloured against your altitude, as a
+  G1000 terrain page: red at or above you or within 100 ft below, yellow
+  within 1,000 ft below, dark where well clear. Needs the sim connected;
+  redrawn as you climb or descend (every 50 ft). From the free Terrain
+  Tiles.
+- **Obstacles** (Layers → Map, US only): towers, antennas, wind turbines
+  and stacks of 200 ft or more from the FAA's Digital Obstacle File
+  (public domain, fetched at most every 28 days), with the chart symbol
+  (rays when lit), coloured against your altitude like Terrain, and the
+  top's height (height above ground) when zoomed in. A ninth tile is kept
+  for a layer to come.
 - **Measure** (left of Layers): click points on the map to
   measure a route, leg by leg, in nautical miles with the course of each
   leg, and the total in miles and kilometres too. Great-circle distances.

@@ -23,6 +23,10 @@
       interactive: false,
       attributionControl: false,
       maxPitch: 180,
+      // The camera stays where the aircraft is. Left on, the map keeps its
+      // view point on the ground and drags the camera with it whenever the
+      // nose comes up past the horizon (its own docs: needed above 90°).
+      centerClampedToGround: false,
       center: [d?.lon ?? 0, d?.lat ?? 0],
       zoom: 11,
       style: {
@@ -76,6 +80,19 @@
   });
   onDestroy(() => map?.remove());
 
+  // The PFD draws pitch at 500/36.87 units per degree, scaled to fit its
+  // 800 × 500 frame into the window. A window of another shape (split
+  // screen, a phone) shows more above and below: widen the camera's view to
+  // match, so the terrain's horizon stays on the PFD's.
+  let w = $state(0);
+  let h = $state(0);
+  $effect(() => {
+    if (!map || !w || !h) return;
+    const scale = Math.min(w / 800, h / 500);
+    const f = (250 * scale) / Math.tan(((36.87 / 2) * Math.PI) / 180);
+    map.setVerticalFieldOfView((2 * Math.atan(h / 2 / f) * 180) / Math.PI);
+  });
+
   // Put the camera where the pilot sits, looking where the aircraft points.
   $effect(() => {
     if (!map || !ready || !d) return;
@@ -90,7 +107,7 @@
   });
 </script>
 
-<div class="svt" bind:this={el}></div>
+<div class="svt" bind:this={el} bind:clientWidth={w} bind:clientHeight={h}></div>
 
 <style>
   .svt {

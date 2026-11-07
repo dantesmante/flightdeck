@@ -30,8 +30,14 @@
     /** The PFD window: open, and the button to open or close it. */
     pfdOpen?: boolean;
     onpfd?: () => void;
+    obstaclesState?: "idle" | "loading" | "ok" | "error";
+    /** A sim is connected: terrain and obstacles can be coloured against it. */
+    hasAircraft?: boolean;
+    /** Roads' opacity, 0.15 to 1. */
+    roadsOpacity?: number;
+    onroadsopacity?: (o: number) => void;
   }
-  let { three, on, onthree, ontoggle, radarTime, radarError, parkedLayer = false, airportDetail = 1, ondetail, windLevel = "auto", onwindlevel, cardOpen = false, measuring = false, onmeasure, airspaceState = "idle", pfdOpen = false, onpfd }: Props = $props();
+  let { three, on, onthree, ontoggle, radarTime, radarError, parkedLayer = false, airportDetail = 1, ondetail, windLevel = "auto", onwindlevel, cardOpen = false, measuring = false, onmeasure, airspaceState = "idle", pfdOpen = false, onpfd, obstaclesState = "idle", hasAircraft = false, roadsOpacity = 1, onroadsopacity }: Props = $props();
   const DETAIL = ["Major airports only", "Major and regional airports", "All airports and airstrips"];
 
   /** The Layers panel's tabs: airports and flights, weather, the map itself. */
@@ -50,7 +56,7 @@
   const IN_TAB: Record<Menu, string[]> = {
     traffic: ["world", "airports", "routes", "airspace", "parked", "vatsim-atc", "vatsim-pilots", "ivao-atc", "ivao-pilots"],
     weather: ["radar", "wx-cat", "wx-adv", "wind", "wx-wind"],
-    map: ["night", "satellite", "terrain", "borders", "roads"],
+    map: ["night", "satellite", "terrain", "borders", "roads", "taws", "obstacles"],
   };
   const tabOn = (t: Menu) => IN_TAB[t].some((k) => on.has(k)) || (t === "traffic" && !on.has("aeroway-off")) || (t === "map" && three);
   /** The panel is open on this tab. */
@@ -115,6 +121,21 @@
       </defs>
       <path d="M0 64 L22 30 L34 42 L56 12 L74 36 L88 26 L120 58 V64 Z" fill="url(#la-ridge)" opacity="0.85" />
       <path d="M0 64 L30 46 L48 54 L70 40 L96 52 L120 46 V64 Z" fill="#3a3e43" />
+    {:else if kind === "taws"}
+      <rect width="120" height="70" fill="#101113" />
+      <path d="M0 70 L0 46 Q 20 30 34 40 T 64 26 T 96 34 T 120 22 L120 70 Z" fill="#ecc428" opacity="0.75" />
+      <path d="M40 70 L 48 44 Q 58 30 66 36 L 72 50 L 80 70 Z" fill="#e22d28" opacity="0.85" />
+      <path d="M58 64 l 6 -10 l 6 10 z" fill="#fff" />
+    {:else if kind === "obstacles"}
+      <g stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M30 56 L36 30 L42 56" /><path d="M70 56 L78 18 L86 56" stroke="#ecc428" />
+        <path d="M71 14 l-4 -3 M85 14 l4 -3" stroke="#ecc428" stroke-width="1.4" />
+        <path d="M100 56 L104 40 L108 56" />
+      </g>
+      <circle cx="36" cy="53" r="1.6" fill="#fff" /><circle cx="78" cy="53" r="1.8" fill="#ecc428" /><circle cx="104" cy="53" r="1.4" fill="#fff" />
+    {:else if kind === "soon"}
+      <rect x="40" y="16" width="40" height="38" rx="6" fill="none" stroke="#5a5f66" stroke-width="1.6" stroke-dasharray="4 3" />
+      <path d="M60 28 v14 M53 35 h14" stroke="#5a5f66" stroke-width="1.8" stroke-linecap="round" />
     {:else if kind === "roads"}
       <path d="M-4 54 C 30 44, 60 40, 124 30" fill="none" stroke="#15171a" stroke-width="7" />
       <path d="M-4 54 C 30 44, 60 40, 124 30" fill="none" stroke="#f08c3c" stroke-width="4" />
@@ -233,6 +254,16 @@
   </span>
 {/snippet}
 
+{#snippet tawsNote()}
+  <span class="note">{on.has("taws") && !hasAircraft ? "Needs the sim" : "Against your altitude"}</span>
+{/snippet}
+
+{#snippet obstNote()}
+  <span class="note">
+    {#if on.has("obstacles") && obstaclesState === "loading"}Loading from the FAA…{:else if on.has("obstacles") && obstaclesState === "error"}FAA not reachable{:else}US only · 200 ft+{/if}
+  </span>
+{/snippet}
+
 {#snippet radarNote()}
   <span class="note">
     {#if !on.has("radar")}Rain and snow{:else if radarError}Not reachable{:else if radarTime}{zulu(radarTime)}{:else}Loading…{/if}
@@ -288,8 +319,34 @@
       {@render card("terrain", "Topographic", on.has("terrain"), () => ontoggle("terrain"))}
       {@render card("borders", "Strong borders", on.has("borders"), () => ontoggle("borders"))}
       {@render card("roads", "Roads", on.has("roads"), () => ontoggle("roads"))}
+      {@render card("taws", "Terrain", on.has("taws"), () => ontoggle("taws"), tawsNote)}
+      {@render card("obstacles", "Obstacles", on.has("obstacles"), () => ontoggle("obstacles"), obstNote)}
+      <div class="card soon" aria-disabled="true">
+        <span class="thumb">{@render art("soon")}</span>
+        <span class="text"><span class="label">Coming soon</span><span class="note">Another layer</span></span>
+      </div>
     </div>
-    <p class="credit">Satellite Esri · Terrain AWS Terrain Tiles · Map OpenFreeMap, OpenStreetMap</p>
+    {#if on.has("roads")}
+      <div class="detail">
+        <label for="roads-op">Roads <span>{Math.round(roadsOpacity * 100)}%</span></label>
+        <input
+          id="roads-op"
+          type="range"
+          min="0.15"
+          max="1"
+          step="0.05"
+          value={roadsOpacity}
+          oninput={(e) => onroadsopacity?.(Number((e.currentTarget as HTMLInputElement).value))}
+        />
+        <div class="ticks"><span>Faint</span><span>Full</span></div>
+      </div>
+    {/if}
+    {#if on.has("taws") || on.has("obstacles")}
+      <p class="legend">
+        <span style:--c="#e22d28">Within 100 ft or above you</span><span style:--c="#ecc428">Within 1,000 ft below</span><span style:--c="#3a3d42">Well clear</span>
+      </p>
+    {/if}
+    <p class="credit">Satellite Esri · Terrain AWS Terrain Tiles · Map OpenFreeMap, OpenStreetMap · Obstacles FAA Digital Obstacle File (US, every 28 days)</p>
     {:else if open === "weather"}
     <div class="grid">
       {@render card("radar", "Rain radar", on.has("radar"), () => ontoggle("radar"), radarNote)}
@@ -354,6 +411,10 @@
 {/if}
 
 <style>
+  .card.soon {
+    opacity: 0.55;
+    cursor: default;
+  }
   .detail {
     margin: 8px 2px 0;
   }

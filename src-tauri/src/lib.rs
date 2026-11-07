@@ -8,6 +8,7 @@ mod photos;
 mod efb;
 mod networks;
 mod airspace;
+mod obstacles;
 mod pln;
 mod backup;
 mod screenshots;
@@ -322,6 +323,13 @@ async fn online_network(net: String) -> CmdResult<networks::NetworkData> {
 #[tauri::command]
 async fn wx_categories() -> CmdResult<wx::Categories> {
     tauri::async_runtime::spawn_blocking(wx::categories).await.map_err(err)
+}
+
+/// US obstacles (towers, antennas, wind turbines) as GeoJSON text (FAA DOF).
+#[tauri::command]
+async fn us_obstacles(state: tauri::State<'_, AppState>) -> CmdResult<String> {
+    let dir = state.data_dir.clone();
+    tauri::async_runtime::spawn_blocking(move || obstacles::us(&dir)).await.map_err(err)?
 }
 
 /// A PFD is open: feed it for the next few seconds (the window asks again
@@ -899,6 +907,7 @@ const SETTING_KEYS: &[&str] = &[
     "map_3d",
     "map_layers",
     "map_airport_detail",
+    "map_roads_opacity",
     "map_wind_level",
     "show_demo",
     "backup_on_close",
@@ -1469,6 +1478,7 @@ pub(crate) async fn dispatch(app: &tauri::AppHandle, cmd: &str, a: serde_json::V
         "wind_grid" => ok(to_value(wind_grid(arg(&a, "level")?).await?)),
         "us_airspace" => ok(to_value(us_airspace(st()).await?)),
         "pfd_watch" => ok(to_value(pfd_watch(st())?)),
+        "us_obstacles" => ok(to_value(us_obstacles(st()).await?)),
         "pln_text" => ok(to_value(pln_text(st(), arg(&a, "route")?)?)),
         "wx_advisories" => ok(to_value(wx_advisories().await?)),
         "online_pilot" => ok(to_value(online_pilot(arg(&a, "net")?, arg(&a, "callsign")?))),
@@ -1641,6 +1651,7 @@ pub fn run() {
             wind_grid,
             us_airspace,
             pfd_watch,
+            us_obstacles,
             pln_text,
             save_pln,
             wx_advisories,

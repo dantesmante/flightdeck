@@ -3,6 +3,8 @@
   // amber "Start a flight" button that opens the card; during a flight and
   // after landing the card shows the flight.
   import { cubicOut } from "svelte/easing";
+  import { pfdState } from "./pfd/store.svelte";
+  import { untrack } from "svelte";
   import { briefing, openBriefing } from "./briefingStore.svelte";
   import { fly as slide } from "svelte/transition";
   import type { FlightDetail, Status } from "./api";
@@ -31,6 +33,25 @@
   const flying = $derived(!!status?.live);
   const busy = $derived(flying || !!completed);
   const shown = $derived(busy ? !tucked : open);
+
+  // Split screen puts the card away to give the map its half; leaving it
+  // brings the card back.
+  let splitWas = false;
+  let openBeforeSplit = false;
+  $effect(() => {
+    const split = pfdState.split && pfdState.open;
+    untrack(() => {
+      if (split && !splitWas) {
+        openBeforeSplit = open;
+        tucked = true;
+        open = false;
+      } else if (!split && splitWas) {
+        tucked = false;
+        open = openBeforeSplit;
+      }
+      splitWas = split;
+    });
+  });
 
   // "Fly this aircraft" on the map opens the card with that aircraft.
   $effect(() => {
