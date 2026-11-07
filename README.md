@@ -164,6 +164,21 @@ MIT licensed.
   Microsoft Flight Simulator flight plan (VFR or IFR, cruise altitude;
   user waypoints) that MSFS 2020 and 2024 load from the world map. On a
   phone or tablet the file downloads. "Enter route manually" comes later.
+- **PFD** (beside Layers): a primary flight display in a window you can
+  move and size (full screen on a phone): attitude with pitch ladder, bank
+  scale and slip, speed and altitude tapes, vertical speed, heading rose
+  with track, and the autopilot's selected speed, altitude, heading and
+  vertical speed, the altimeter setting, true and ground speed, radio
+  height and AP. Fed about 15 times a second from the sim while open (MSFS
+  instrument values; the demo shows what it has). On the simulator PC it
+  is plain sky and ground; on phones and tablets **SVT** draws the terrain
+  ahead (synthetic vision, from the free Terrain Tiles), which costs the
+  PC nothing.
+- **Roads** (Layers → Map): roads coloured by importance (motorways
+  orange, major roads amber and yellow, smaller ones grey as you zoom in),
+  their names along them, and route shields: Interstate, US and state
+  highways, E-roads and motorways. From the same OpenFreeMap tiles as the
+  map, so nothing more is downloaded.
 - **Measure** (left of Layers): click points on the map to
   measure a route, leg by leg, in nautical miles with the course of each
   leg, and the total in miles and kilometres too. Great-circle distances.

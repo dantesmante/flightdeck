@@ -12,6 +12,10 @@ const track: [number, number, number, number, number][] = Array.from({ length: 4
   now - (40 - i) * 30_000,
 ]);
 
+/** The preview's PFD feed. */
+let pfdUntil = 0;
+let pfdTimer: ReturnType<typeof setInterval> | undefined;
+
 /** Screenshots deleted in this preview. */
 const deletedShots = new Set<number>();
 
@@ -370,6 +374,31 @@ export async function mockCall<T>(cmd: string, _args?: Record<string, unknown>):
   }
   if (cmd === "pln_text") return ["KSEA-KPDX.pln", "<?xml version=\"1.0\"?>"] as T;
   if (cmd === "save_pln") return "C:\\Users\\you\\Documents\\KSEA-KPDX.pln" as T;
+  if (cmd === "pfd_watch") {
+    pfdUntil = Date.now() + 6000;
+    if (!pfdTimer) {
+      const t0 = Date.now();
+      pfdTimer = setInterval(() => {
+        if (Date.now() > pfdUntil) {
+          clearInterval(pfdTimer);
+          pfdTimer = undefined;
+          return;
+        }
+        // A steady climbing right turn over the Cascades, west of Mt Rainier.
+        const t = (Date.now() - t0) / 1000;
+        const hdg = (300 + t * 3) % 360;
+        const frame = {
+          t_ms: Date.now(), lat: 46.85 + Math.sin(t / 40) * 0.02, lon: -121.95 + Math.cos(t / 40) * 0.02,
+          alt_msl_ft: 8200 + t * 8, alt_ft: 8210 + t * 8, agl_ft: 3100, ias_kt: 128 + Math.sin(t / 3) * 2, tas_kt: 146, gs_kt: 139,
+          vs_fpm: 480 + Math.sin(t / 2) * 60, pitch_deg: 4.5 + Math.sin(t / 3), bank_deg: 18 + Math.sin(t / 4) * 3,
+          hdg_deg: hdg, hdg_true_deg: (hdg + 15) % 360, track_true_deg: (hdg + 18) % 360, ball: Math.sin(t / 5) * 0.15, g_load: 1.05,
+          on_ground: false, paused: false, baro_inhg: 29.92, sel_alt_ft: 10000, sel_hdg_deg: 20, sel_spd_kt: 130, sel_vs_fpm: 500, ap_on: true,
+        };
+        for (const cb of listeners.pfd ?? []) cb(frame);
+      }, 66);
+    }
+    return null as T;
+  }
   if (cmd === "us_airspace") {
     // Rings like a Class B around KSEA and a Class D at KPDX.
     const ring = (lon: number, lat: number, r: number, cw = false) => {

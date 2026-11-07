@@ -5,6 +5,8 @@
   import { api, inRemote, on, type FlightDetail, type FlightPlan, type HangarItem, type Photo, type Route, type Status } from "./lib/api";
   import FlightsPanel from "./lib/FlightsPanel.svelte";
   import PhotosPanel from "./lib/PhotosPanel.svelte";
+  import PfdWindow from "./lib/pfd/PfdWindow.svelte";
+  import { pfdState } from "./lib/pfd/store.svelte";
   import { prefs } from "./lib/prefs.svelte";
   import HangarView from "./lib/hangar/HangarView.svelte";
   import MapDock from "./lib/MapDock.svelte";
@@ -325,6 +327,7 @@
     <div class="toast" role="status">{toast}</div>
   {/if}
   <UpdateBanner />
+  {#if pfdState.open}<PfdWindow />{/if}
   {#if briefing.plan && briefing.ofp}
     <Briefing plan={briefing.plan} ofp={briefing.ofp} onclose={closeBriefing} />
   {/if}

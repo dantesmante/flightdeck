@@ -89,7 +89,77 @@ pub struct Shared {
     /// The current plan's full briefing, kept out of the twice-a-second
     /// status and fetched when the pilot opens it.
     pub briefing: Option<crate::simbrief::Ofp>,
+    /// A PFD is open (here or on a device) until this time (Unix ms); the
+    /// window asks again every few seconds while it is open.
+    pub pfd_until_ms: i64,
 }
+
+/// What a PFD draws, sent about 15 times a second while one is open.
+#[derive(Serialize, Clone, Debug, Default)]
+pub struct Pfd {
+    pub t_ms: i64,
+    pub lat: f64,
+    pub lon: f64,
+    pub alt_msl_ft: f64,
+    /// On the altimeter: with its pressure setting where the sim says.
+    pub alt_ft: f64,
+    pub agl_ft: f64,
+    pub ias_kt: f64,
+    pub tas_kt: Option<f64>,
+    pub gs_kt: f64,
+    pub vs_fpm: f64,
+    pub pitch_deg: f64,
+    pub bank_deg: f64,
+    /// Magnetic where the sim says, else true.
+    pub hdg_deg: f64,
+    pub hdg_true_deg: f64,
+    pub track_true_deg: Option<f64>,
+    pub ball: Option<f64>,
+    pub g_load: f64,
+    pub on_ground: bool,
+    pub paused: bool,
+    pub baro_inhg: Option<f64>,
+    pub sel_alt_ft: Option<f64>,
+    pub sel_hdg_deg: Option<f64>,
+    pub sel_spd_kt: Option<f64>,
+    pub sel_vs_fpm: Option<f64>,
+    pub ap_on: Option<bool>,
+}
+
+impl Pfd {
+    pub fn from(s: &Telemetry, i: &telemetry::Instruments) -> Pfd {
+        Pfd {
+            t_ms: s.t_ms,
+            lat: s.lat,
+            lon: s.lon,
+            alt_msl_ft: s.alt_msl_ft,
+            alt_ft: i.ind_alt_ft.unwrap_or(s.alt_msl_ft),
+            agl_ft: s.alt_agl_ft,
+            ias_kt: s.ias_kt,
+            tas_kt: i.tas_kt,
+            gs_kt: s.gs_kt,
+            vs_fpm: s.vs_fpm,
+            pitch_deg: s.pitch_deg,
+            bank_deg: s.bank_deg,
+            hdg_deg: i.hdg_mag_deg.unwrap_or(s.hdg_true_deg),
+            hdg_true_deg: s.hdg_true_deg,
+            track_true_deg: i.track_true_deg,
+            ball: i.ball,
+            g_load: s.g_load,
+            on_ground: s.on_ground,
+            paused: s.paused,
+            baro_inhg: i.baro_inhg,
+            sel_alt_ft: i.sel_alt_ft,
+            sel_hdg_deg: i.sel_hdg_deg,
+            sel_spd_kt: i.sel_spd_kt,
+            sel_vs_fpm: i.sel_vs_fpm,
+            ap_on: i.ap_on,
+        }
+    }
+}
+
+/// How often a PFD is fed: smooth enough, and light.
+const PFD_EVERY: Duration = Duration::from_millis(66);
 
 /// One live track point: [lon, lat, altitude ft, ground speed kt, time ms].
 pub type Pt = [f64; 5];
@@ -177,6 +247,9 @@ struct Engine {
     last_status: Instant,
     session: u64,
     last_diag: Instant,
+    last_pfd: Instant,
+    /// The latest cockpit instruments (MSFS), for the PFD.
+    instr: telemetry::Instruments,
     /// "Start a flight" was pressed: begin tracking even without power.
     armed: bool,
     /// After a flight ends, wait for power or engines to go off (or the
@@ -256,6 +329,8 @@ pub fn spawn(
                 last_status: Instant::now(),
                 session: 0,
                 last_diag: Instant::now(),
+                last_pfd: Instant::now(),
+                instr: Default::default(),
                 armed: false,
                 forced: None,
                 need_reset: false,
@@ -415,6 +490,7 @@ impl Engine {
                 }
             }
             SimMessage::Telemetry(s) => self.sample(s),
+            SimMessage::Instruments(i) => self.instr = i,
             SimMessage::Disconnected { reason } => {
                 self.end_flight(&reason);
                 self.disconnect();
@@ -424,6 +500,11 @@ impl Engine {
 
     fn sample(&mut self, s: Telemetry) {
         let sim = self.sim.unwrap_or(SimKind::Demo);
+        // A PFD is open: feed it.
+        if self.last_pfd.elapsed() >= PFD_EVERY && self.shared.lock().unwrap().pfd_until_ms > s.t_ms {
+            self.last_pfd = Instant::now();
+            let _ = self.app.emit("pfd", Pfd::from(&s, &self.instr));
+        }
         // Note changes that decide when flights start and stop.
         if self.last_power != Some(s.powered) || self.last_camera != Some(s.camera_state) || self.last_paused != Some(s.paused) {
             log::info!(

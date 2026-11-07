@@ -54,6 +54,24 @@ pub const POWER_VARS: &[Var] = &[
     v("CAMERA STATE", "number"),
 ];
 
+/// Instruments for the PFD. Each its own definition and request (id
+/// `INSTR_BASE + index`), every frame but only when the value changes, so a
+/// variable an aircraft lacks loses only that one reading.
+pub const INSTR_BASE: u32 = 40;
+pub const INSTR_VARS: &[Var] = &[
+    v("INDICATED ALTITUDE", "feet"),
+    v("PLANE HEADING DEGREES MAGNETIC", "degrees"),
+    v("AIRSPEED TRUE", "knots"),
+    v("GPS GROUND TRUE TRACK", "degrees"),
+    v("TURN COORDINATOR BALL", "position 128"),
+    v("KOHLSMAN SETTING HG", "inHg"),
+    v("AUTOPILOT ALTITUDE LOCK VAR", "feet"),
+    v("AUTOPILOT HEADING LOCK DIR", "degrees"),
+    v("AUTOPILOT AIRSPEED HOLD VAR", "knots"),
+    v("AUTOPILOT VERTICAL HOLD VAR", "feet per minute"),
+    v("AUTOPILOT MASTER", "bool"),
+];
+
 /// Aircraft details. Each one is its own definition and request (id
 /// `AIRCRAFT_BASE + index`), so a variable a sim version rejects only loses
 /// that one field. Empty units = STRING256.
@@ -96,6 +114,15 @@ pub struct State {
     battery: Option<bool>,
     bus_volts: Option<f64>,
     camera: Option<u8>,
+    instr: telemetry::Instruments,
+    have_instr: bool,
+}
+
+impl State {
+    /// The instruments read so far, once any have come.
+    pub fn instruments(&self) -> Option<telemetry::Instruments> {
+        self.have_instr.then_some(self.instr)
+    }
 }
 
 fn u32_at(b: &[u8], off: usize) -> Option<u32> {
@@ -208,6 +235,26 @@ pub fn parse(b: &[u8], st: &mut State, now_ms: i64) -> Parsed {
                             1 => st.bus_volts = Some(x),
                             _ => st.camera = Some(x.clamp(0.0, 255.0) as u8),
                         }
+                    }
+                    Parsed::Other
+                }
+                r if (INSTR_BASE..INSTR_BASE + INSTR_VARS.len() as u32).contains(&r) => {
+                    if let Some(x) = f64_at(b, SIMOBJECT_DATA_OFFSET).filter(|x| x.is_finite()) {
+                        let i = &mut st.instr;
+                        match r - INSTR_BASE {
+                            0 => i.ind_alt_ft = Some(x),
+                            1 => i.hdg_mag_deg = Some(x.rem_euclid(360.0)),
+                            2 => i.tas_kt = Some(x),
+                            3 => i.track_true_deg = Some(x.rem_euclid(360.0)),
+                            4 => i.ball = Some((x / 127.0).clamp(-1.0, 1.0)),
+                            5 => i.baro_inhg = Some(x),
+                            6 => i.sel_alt_ft = Some(x),
+                            7 => i.sel_hdg_deg = Some(x.rem_euclid(360.0)),
+                            8 => i.sel_spd_kt = Some(x),
+                            9 => i.sel_vs_fpm = Some(x),
+                            _ => i.ap_on = Some(x != 0.0),
+                        }
+                        st.have_instr = true;
                     }
                     Parsed::Other
                 }
@@ -432,6 +479,20 @@ mod tests {
         assert_eq!(t(&mut st).powered, Some(true));
         parse(&data_msg(POWER_BASE + 2, &2.0f64.to_le_bytes()), &mut st, 0);
         assert_eq!(t(&mut st).camera_state, Some(2));
+    }
+
+    #[test]
+    fn instruments_arrive_one_by_one() {
+        let mut st = State::default();
+        assert_eq!(st.instruments(), None);
+        parse(&data_msg(INSTR_BASE + 1, &(-10.0f64).to_le_bytes()), &mut st, 0);
+        parse(&data_msg(INSTR_BASE + 4, &(63.5f64).to_le_bytes()), &mut st, 0);
+        parse(&data_msg(INSTR_BASE + 10, &1.0f64.to_le_bytes()), &mut st, 0);
+        let i = st.instruments().unwrap();
+        assert_eq!(i.hdg_mag_deg, Some(350.0));
+        assert_eq!(i.ball, Some(0.5));
+        assert_eq!(i.ap_on, Some(true));
+        assert_eq!(i.sel_alt_ft, None);
     }
 
     #[test]

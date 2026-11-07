@@ -565,3 +565,232 @@ export function approachLines(map: maplibregl.Map, at: { lat: number; lon: numbe
   }
   return { type: "FeatureCollection", features };
 }
+
+// --- Roads ------------------------------------------------------------------
+// From the same OpenFreeMap tiles as the base map (OpenStreetMap data,
+// OpenMapTiles schema): roads coloured by importance, their names along
+// them, and route shields (Interstate, US and state highways, E-roads,
+// motorways) drawn here, so nothing else is downloaded.
+
+/** Road colours, most important first. */
+const ROAD = {
+  motorway: "#f08c3c",
+  trunk: "#f2a64b",
+  primary: "#e8c55c",
+  secondary: "#d6d9de",
+  tertiary: "#a4abb3",
+  minor: "#7d848c",
+};
+const ROAD_IDS = ["fd-road-casing", "fd-road", "fd-road-name", "fd-road-shield"];
+
+type ShieldKind = "i" | "us" | "st" | "e" | "m" | "g";
+/** The shield's ink and the colour of its number. */
+const SHIELD_TEXT: Record<ShieldKind, string> = { i: "#ffffff", us: "#111111", st: "#111111", e: "#ffffff", m: "#ffffff", g: "#f1f3f5" };
+
+/** A route shield, drawn at twice the size for sharp screens. */
+function shield(kind: ShieldKind, w: number): ImageData {
+  const s = 2;
+  const W = w * s;
+  const H = 26 * s;
+  const c = document.createElement("canvas");
+  c.width = W;
+  c.height = H;
+  const g = c.getContext("2d")!;
+  g.lineJoin = "round";
+  const round = (x: number, y: number, ww: number, hh: number, r: number) => {
+    g.beginPath();
+    g.roundRect(x, y, ww, hh, r);
+  };
+  if (kind === "i" || kind === "us") {
+    // A shield: flat-ish top, sides curving to a point at the bottom.
+    const path = () => {
+      g.beginPath();
+      g.moveTo(3 * s, 3 * s);
+      g.quadraticCurveTo(W / 2, 0.5 * s, W - 3 * s, 3 * s);
+      g.lineTo(W - 2 * s, H * 0.48);
+      g.quadraticCurveTo(W - 3 * s, H * 0.86, W / 2, H - 1.5 * s);
+      g.quadraticCurveTo(3 * s, H * 0.86, 2 * s, H * 0.48);
+      g.closePath();
+    };
+    path();
+    g.fillStyle = kind === "i" ? "#1d4fa0" : "#ffffff";
+    g.fill();
+    if (kind === "i") {
+      // The red band across the top.
+      g.save();
+      path();
+      g.clip();
+      g.fillStyle = "#c8102e";
+      g.fillRect(0, 0, W, H * 0.3);
+      g.restore();
+    }
+    path();
+    g.lineWidth = 1.6 * s;
+    g.strokeStyle = kind === "i" ? "#ffffff" : "#111111";
+    g.stroke();
+  } else if (kind === "st") {
+    g.beginPath();
+    g.ellipse(W / 2, H / 2, W / 2 - 1.5 * s, H / 2 - 2 * s, 0, 0, Math.PI * 2);
+    g.fillStyle = "#ffffff";
+    g.fill();
+    g.lineWidth = 1.6 * s;
+    g.strokeStyle = "#111111";
+    g.stroke();
+  } else {
+    round(1.5 * s, 4 * s, W - 3 * s, H - 8 * s, 3.5 * s);
+    g.fillStyle = kind === "e" ? "#1b8a3a" : kind === "m" ? "#1d4fa0" : "#3a3f46";
+    g.fill();
+    g.lineWidth = 1.4 * s;
+    g.strokeStyle = kind === "g" ? "#8a9098" : "#ffffff";
+    g.stroke();
+  }
+  return g.getImageData(0, 0, W, H);
+}
+
+/** Roads, under the place names and over the land (and satellite). Hidden
+ * until switched on with showRoads. */
+export function addRoads(map: maplibregl.Map) {
+  if (map.getLayer("fd-road") || !map.getSource("openmaptiles")) return;
+  for (const k of Object.keys(SHIELD_TEXT) as ShieldKind[]) {
+    for (const [n, w] of [[2, 28], [3, 34], [4, 42]] as const) {
+      const id = `fd-sh-${k}-${n}`;
+      if (!map.hasImage(id)) map.addImage(id, shield(k, k === "st" && n > 2 ? w + 4 : w), { pixelRatio: 2 });
+    }
+  }
+  const layers = map.getStyle().layers ?? [];
+  // Under the first base-map label, above everything drawn on the ground.
+  const before = layers.find((l) => l.type === "symbol" && !l.id.startsWith("fd-"))?.id;
+  const cls = ["get", "class"] as unknown as maplibregl.ExpressionSpecification;
+  const color = ["match", cls, "motorway", ROAD.motorway, "trunk", ROAD.trunk, "primary", ROAD.primary, "secondary", ROAD.secondary, "tertiary", ROAD.tertiary, ROAD.minor] as unknown as maplibregl.ExpressionSpecification;
+  const width = (k: number) =>
+    [
+      "interpolate", ["exponential", 1.5], ["zoom"],
+      5, ["match", cls, "motorway", 1.1 * k, "trunk", 0.9 * k, "primary", 0.6 * k, 0.3 * k],
+      10, ["match", cls, "motorway", 2.6 * k, "trunk", 2.2 * k, "primary", 1.8 * k, "secondary", 1.3 * k, "tertiary", 1 * k, 0.6 * k],
+      14, ["match", cls, "motorway", 6 * k, "trunk", 5 * k, "primary", 4.5 * k, "secondary", 3.6 * k, "tertiary", 3 * k, 1.8 * k],
+      18, ["match", cls, "motorway", 18 * k, "trunk", 16 * k, "primary", 14 * k, "secondary", 12 * k, "tertiary", 10 * k, 7 * k],
+    ] as unknown as maplibregl.ExpressionSpecification;
+  // Smaller roads appear as you zoom in.
+  const filter = [
+    "all",
+    ["match", ["geometry-type"], ["LineString", "MultiLineString"], true, false],
+    [
+      "any",
+      ["match", cls, ["motorway", "trunk"], true, false],
+      ["all", ["==", cls, "primary"], [">=", ["zoom"], 7]],
+      ["all", ["==", cls, "secondary"], [">=", ["zoom"], 9]],
+      ["all", ["==", cls, "tertiary"], [">=", ["zoom"], 10]],
+      ["all", ["==", cls, "minor"], [">=", ["zoom"], 12.5]],
+      ["all", ["==", cls, "service"], [">=", ["zoom"], 14]],
+    ],
+  ] as unknown as maplibregl.FilterSpecification;
+  map.addLayer(
+    {
+      id: "fd-road-casing",
+      type: "line",
+      source: "openmaptiles",
+      "source-layer": "transportation",
+      minzoom: 5,
+      filter,
+      layout: { visibility: "none", "line-join": "round", "line-cap": "round" },
+      paint: { "line-color": "#15171a", "line-opacity": 0.75, "line-width": width(1.6) },
+    },
+    before,
+  );
+  map.addLayer(
+    {
+      id: "fd-road",
+      type: "line",
+      source: "openmaptiles",
+      "source-layer": "transportation",
+      minzoom: 5,
+      filter,
+      layout: { visibility: "none", "line-join": "round", "line-cap": "round" },
+      paint: { "line-color": color, "line-width": width(1) },
+    },
+    before,
+  );
+  map.addLayer(
+    {
+      id: "fd-road-name",
+      type: "symbol",
+      source: "openmaptiles",
+      "source-layer": "transportation_name",
+      minzoom: 10,
+      filter: [
+        "all",
+        ["match", ["geometry-type"], ["LineString", "MultiLineString"], true, false],
+        ["match", cls, ["trunk", "primary", "secondary", "tertiary", "minor"], true, false],
+        ["any", ["!=", cls, "minor"], [">=", ["zoom"], 13.5]],
+      ] as unknown as maplibregl.FilterSpecification,
+      layout: {
+        visibility: "none",
+        "symbol-placement": "line",
+        "symbol-spacing": 320,
+        "text-field": ["coalesce", ["get", "name_en"], ["get", "name"]],
+        "text-font": ["Noto Sans Regular"],
+        "text-size": ["interpolate", ["linear"], ["zoom"], 10, 10.5, 15, 13],
+        "text-max-angle": 30,
+      },
+      paint: { "text-color": "#e6e8eb", "text-halo-color": "#15171a", "text-halo-width": 1.4 },
+    },
+    before,
+  );
+  const kind = [
+    "match", ["get", "network"],
+    "us-interstate", "i",
+    "us-highway", "us",
+    "us-state", "st",
+    "e-road", "e",
+    ["gb-motorway", "ie-motorway", "ca-transcanada"], "m",
+    "g",
+  ] as unknown as maplibregl.ExpressionSpecification;
+  map.addLayer(
+    {
+      id: "fd-road-shield",
+      type: "symbol",
+      source: "openmaptiles",
+      "source-layer": "transportation_name",
+      minzoom: 6,
+      filter: [
+        "all",
+        ["has", "ref"],
+        ["<=", ["coalesce", ["get", "ref_length"], 9], 6],
+        ["match", ["geometry-type"], ["LineString", "MultiLineString"], true, false],
+        ["any", ["match", cls, ["motorway", "trunk"], true, false], [">=", ["zoom"], 8]],
+      ] as unknown as maplibregl.FilterSpecification,
+      layout: {
+        visibility: "none",
+        "symbol-placement": "line",
+        "symbol-spacing": ["interpolate", ["linear"], ["zoom"], 6, 260, 12, 420],
+        "icon-image": ["concat", "fd-sh-", kind, "-", ["to-string", ["min", 4, ["max", 2, ["coalesce", ["get", "ref_length"], 2]]]]],
+        "icon-rotation-alignment": "viewport",
+        "text-rotation-alignment": "viewport",
+        "text-field": ["to-string", ["get", "ref"]],
+        "text-font": ["Noto Sans Bold"],
+        "text-size": 10.5,
+        "text-offset": ["match", kind, ["i", "us"], ["literal", [0, 0.15]], ["literal", [0, 0]]],
+      } as maplibregl.SymbolLayerSpecification["layout"],
+      paint: {
+        "text-color": ["match", kind, "i", SHIELD_TEXT.i, "us", SHIELD_TEXT.us, "st", SHIELD_TEXT.st, "e", SHIELD_TEXT.e, "m", SHIELD_TEXT.m, SHIELD_TEXT.g],
+      },
+    },
+    before,
+  );
+}
+
+/** Roads on or off. While on, the base map's own faint road names step aside. */
+export function showRoads(map: maplibregl.Map, on: boolean) {
+  addRoads(map);
+  if (on) {
+    // Back over anything added since (satellite pictures), under the labels.
+    const before = (map.getStyle().layers ?? []).find((l) => l.type === "symbol" && !l.id.startsWith("fd-"))?.id;
+    for (const id of ROAD_IDS) if (map.getLayer(id)) map.moveLayer(id, before);
+  }
+  for (const id of ROAD_IDS) if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", on ? "visible" : "none");
+  for (const l of map.getStyle().layers ?? []) {
+    if (l.type === "symbol" && !l.id.startsWith("fd-") && /highway-name|road_shield|highway-shield/.test(l.id)) {
+      if (!/shield/.test(l.id)) map.setLayoutProperty(l.id, "visibility", on ? "none" : "visible");
+    }
+  }
+}

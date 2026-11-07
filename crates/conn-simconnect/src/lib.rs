@@ -13,7 +13,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use telemetry::{ConnectorError, SimConnector, SimKind, SimMessage};
 
-use parse::{Parsed, AIRCRAFT_BASE, AIRCRAFT_VARS, POWER_BASE, POWER_VARS, TELEMETRY_VARS};
+use parse::{Parsed, AIRCRAFT_BASE, AIRCRAFT_VARS, INSTR_BASE, INSTR_VARS, POWER_BASE, POWER_VARS, TELEMETRY_VARS};
 
 pub use ffi::candidate_paths;
 
@@ -109,6 +109,11 @@ impl SimConnectConnector {
             let hr = self.api.add_to_data_definition(h, def, v.name, Some(v.units), ffi::DATATYPE_FLOAT64);
             self.check(hr, &format!("power variable '{}'", v.name))?;
         }
+        for (i, v) in INSTR_VARS.iter().enumerate() {
+            let def = INSTR_BASE + i as u32;
+            let hr = self.api.add_to_data_definition(h, def, v.name, Some(v.units), ffi::DATATYPE_FLOAT64);
+            self.check(hr, &format!("instrument variable '{}'", v.name))?;
+        }
         for (id, name) in [
             (EVENT_PAUSE, "Pause"),
             (EVENT_SIM, "Sim"),
@@ -129,6 +134,11 @@ impl SimConnectConnector {
             let id = POWER_BASE + i as u32;
             let _ = self.api.request_data(h, id, id, ffi::PERIOD_SECOND);
             self.note(&format!("power request '{}'", v.name));
+        }
+        for (i, v) in INSTR_VARS.iter().enumerate() {
+            let id = INSTR_BASE + i as u32;
+            let _ = self.api.request_data_flags(h, id, id, ffi::PERIOD_SIM_FRAME, ffi::DATA_REQUEST_FLAG_CHANGED);
+            self.note(&format!("instrument request '{}'", v.name));
         }
         Ok(())
     }
@@ -162,7 +172,12 @@ impl SimConnector for SimConnectConnector {
                         app_version: format!("{version_major}.{version_minor}"),
                     });
                 }
-                Parsed::Telemetry(t) => out.push(SimMessage::Telemetry(t)),
+                Parsed::Telemetry(t) => {
+                    out.push(SimMessage::Telemetry(t));
+                    if let Some(i) = self.state.instruments() {
+                        out.push(SimMessage::Instruments(i));
+                    }
+                }
                 Parsed::Aircraft(a) => {
                     if !self.have_aircraft {
                         log::info!("aircraft: {a:?}");

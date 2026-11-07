@@ -9,7 +9,7 @@
   import WxCard, { CATEGORY, WX_GROUP } from "./WxCard.svelte";
   import type { WxAdvisoryProps } from "./api";
   import type { Net, NetworkData } from "./api";
-  import { C as BASE, STYLE, addAirportLayout, addRegionLines, approachLines, offlineStyle, runwayEnds, setBorders, showAirportLayout, showSatellite, showTerrain, tintMap } from "./mapStyle";
+  import { showRoads, C as BASE, STYLE, addAirportLayout, addRegionLines, approachLines, offlineStyle, runwayEnds, setBorders, showAirportLayout, showSatellite, showTerrain, tintMap } from "./mapStyle";
   import MapLayers from "./MapLayers.svelte";
   import { shots as shotStore, type PlacedShot } from "./shots.svelte";
   import { WindParticles } from "./wind/particles";
@@ -21,6 +21,7 @@
   import { modelName } from "./hangar/names";
   import { prefs, setPref } from "./prefs.svelte";
   import { drawing, pick } from "./flyStore.svelte";
+  import { pfdState } from "./pfd/store.svelte";
   import { altColor, altGradient, altLabel, altRange, lonLat, sideOnBearing, wallFeatures, wallScale, type Pt } from "./track";
 
   interface Props {
@@ -177,7 +178,7 @@
     }
   });
   /** How the map itself looks (kept in the Photos tab, where nothing else shows). */
-  const LOOKS = ["night", "satellite", "terrain", "borders"];
+  const LOOKS = ["night", "satellite", "terrain", "borders", "roads"];
   const layers = $derived.by(() => {
     const all = new Set([...(prefs.s.map_layers ?? DEFAULT_LAYERS).split(",").filter(Boolean), ...localOn]);
     return bare ? new Set([...LOOKS.filter((k) => all.has(k)), "aeroway-off"]) : all;
@@ -1721,6 +1722,7 @@
     showSatellite(map, on.has("satellite") && !offline);
     showTerrain(map, on.has("terrain") && !offline, on.has("satellite"));
     setBorders(map, on.has("borders"), on.has("satellite") && !offline);
+    showRoads(map, on.has("roads"));
     // On unless switched off ("aeroway-off"), so it shows for everyone.
     showAirportLayout(map, !on.has("aeroway-off"));
     showRadar(on.has("radar"));
@@ -2075,6 +2077,8 @@
   {measuring}
   onmeasure={() => setMeasuring(!measuring)}
   airspaceState={aspState}
+  pfdOpen={pfdState.open}
+  onpfd={planner ? () => (pfdState.open = !pfdState.open) : undefined}
 />
 {/if}
 {#if wxPick && !openAirport && !netPick}

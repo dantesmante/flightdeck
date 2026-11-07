@@ -42,7 +42,7 @@ use crate::AppState;
 pub const PORT: u16 = 8420;
 
 /// Events forwarded to browsers as they happen.
-const EVENTS: &[&str] = &["status", "flights-changed", "flight-saved", "touchdown", "screenshot"];
+const EVENTS: &[&str] = &["status", "flights-changed", "flight-saved", "touchdown", "screenshot", "pfd"];
 
 /// Settings keys (stored with the other settings).
 pub const KEY_ENABLED: &str = "remote_enabled";
@@ -588,7 +588,7 @@ const VIEW: &[&str] = &[
     "get_status", "list_flights", "get_totals", "get_flight", "current_briefing", "demo_routes", "get_settings",
     "get_pilot", "get_logbook", "find_duplicates", "aircraft_with_registration", "get_passport", "get_hangar",
     "get_routes", "spotter_photo", "aircraft_flights", "get_aircraft_photo", "app_version", "simbrief_latest",
-    "search_airports", "get_pilot_profile", "airport_at", "map_airports", "airport_card", "divert_options", "flight_screenshots", "screenshots_since", "photos", "airport_weather", "online_network", "online_pilot", "wx_categories", "wx_advisories", "wind_grid", "us_airspace", "pln_text",
+    "search_airports", "get_pilot_profile", "airport_at", "map_airports", "airport_card", "divert_options", "flight_screenshots", "screenshots_since", "photos", "airport_weather", "online_network", "online_pilot", "wx_categories", "wx_advisories", "wind_grid", "us_airspace", "pln_text", "pfd_watch",
 ];
 /// Commands that change something: only when editing is allowed.
 const EDIT: &[&str] = &[

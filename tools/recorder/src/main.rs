@@ -168,6 +168,7 @@ fn replay(path: &str) {
                     tracker = None;
                 }
             }
+            SimMessage::Instruments(_) => {}
             SimMessage::Disconnected { reason } => {
                 if let Some(f) = tracker.take().and_then(|mut t| t.end(&reason)) {
                     print_summary(&f, &refdata);

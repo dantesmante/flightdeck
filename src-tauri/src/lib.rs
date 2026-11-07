@@ -324,6 +324,15 @@ async fn wx_categories() -> CmdResult<wx::Categories> {
     tauri::async_runtime::spawn_blocking(wx::categories).await.map_err(err)
 }
 
+/// A PFD is open: feed it for the next few seconds (the window asks again
+/// while it stays open).
+#[tauri::command]
+fn pfd_watch(state: tauri::State<AppState>) -> CmdResult<()> {
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0);
+    state.shared.lock().unwrap().pfd_until_ms = now + 6_000;
+    Ok(())
+}
+
 /// US Class B, C and D airspace as GeoJSON text (FAA, every 28 days).
 #[tauri::command]
 async fn us_airspace(state: tauri::State<'_, AppState>) -> CmdResult<String> {
@@ -1459,6 +1468,7 @@ pub(crate) async fn dispatch(app: &tauri::AppHandle, cmd: &str, a: serde_json::V
         "wx_categories" => ok(to_value(wx_categories().await?)),
         "wind_grid" => ok(to_value(wind_grid(arg(&a, "level")?).await?)),
         "us_airspace" => ok(to_value(us_airspace(st()).await?)),
+        "pfd_watch" => ok(to_value(pfd_watch(st())?)),
         "pln_text" => ok(to_value(pln_text(st(), arg(&a, "route")?)?)),
         "wx_advisories" => ok(to_value(wx_advisories().await?)),
         "online_pilot" => ok(to_value(online_pilot(arg(&a, "net")?, arg(&a, "callsign")?))),
@@ -1630,6 +1640,7 @@ pub fn run() {
             wx_categories,
             wind_grid,
             us_airspace,
+            pfd_watch,
             pln_text,
             save_pln,
             wx_advisories,

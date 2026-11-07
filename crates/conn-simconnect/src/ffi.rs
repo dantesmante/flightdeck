@@ -30,6 +30,8 @@ pub const DATATYPE_STRING256: u32 = 9;
 pub const PERIOD_ONCE: u32 = 1;
 pub const PERIOD_SIM_FRAME: u32 = 3;
 pub const PERIOD_SECOND: u32 = 4;
+/// SIMCONNECT_DATA_REQUEST_FLAG_CHANGED: only when the value changes.
+pub const DATA_REQUEST_FLAG_CHANGED: u32 = 1;
 
 pub const OBJECT_ID_USER: u32 = 0;
 pub const UNUSED: u32 = u32::MAX;
@@ -150,8 +152,13 @@ impl Api {
     }
 
     pub fn request_data(&self, h: Handle, req: u32, def: u32, period: u32) -> HResult {
+        self.request_data_flags(h, req, def, period, 0)
+    }
+
+    /// With flags, e.g. DATA_REQUEST_FLAG_CHANGED: sent only when it changes.
+    pub fn request_data_flags(&self, h: Handle, req: u32, def: u32, period: u32, flags: u32) -> HResult {
         // SAFETY: plain integer arguments.
-        unsafe { (self.request_data_on_sim_object)(h, req, def, OBJECT_ID_USER, period, 0, 0, 0, 0) }
+        unsafe { (self.request_data_on_sim_object)(h, req, def, OBJECT_ID_USER, period, flags, 0, 0, 0) }
     }
 
     pub fn subscribe(&self, h: Handle, event: u32, name: &str) -> HResult {

@@ -101,6 +101,28 @@ pub struct Telemetry {
     pub camera_state: Option<u8>,
 }
 
+/// Cockpit instrument values beyond position and attitude (MSFS). Each is
+/// `None` until the sim has sent it.
+#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
+pub struct Instruments {
+    /// Altitude on the altimeter (corrected for its pressure setting), ft.
+    pub ind_alt_ft: Option<f64>,
+    pub hdg_mag_deg: Option<f64>,
+    pub tas_kt: Option<f64>,
+    /// Ground track, true degrees.
+    pub track_true_deg: Option<f64>,
+    /// Slip ball, -1 (left) to 1 (right).
+    pub ball: Option<f64>,
+    /// Altimeter setting, inches of mercury.
+    pub baro_inhg: Option<f64>,
+    /// Autopilot selected altitude, heading, speed and vertical speed.
+    pub sel_alt_ft: Option<f64>,
+    pub sel_hdg_deg: Option<f64>,
+    pub sel_spd_kt: Option<f64>,
+    pub sel_vs_fpm: Option<f64>,
+    pub ap_on: Option<bool>,
+}
+
 /// What the connector knows about the loaded aircraft.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct AircraftInfo {
@@ -151,6 +173,8 @@ pub enum SimMessage {
     },
     Aircraft(AircraftInfo),
     Telemetry(Telemetry),
+    /// The cockpit instruments, for the PFD (MSFS), after each sample.
+    Instruments(Instruments),
     /// The sim closed or the link dropped.
     Disconnected { reason: String },
 }

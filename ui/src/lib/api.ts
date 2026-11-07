@@ -170,6 +170,37 @@ export interface Screenshot {
   taken_ms: number;
 }
 
+/** What a PFD draws, about 15 times a second while one is open ("pfd" event). */
+export interface Pfd {
+  t_ms: number;
+  lat: number;
+  lon: number;
+  alt_msl_ft: number;
+  /** On the altimeter (its pressure setting applied where the sim says). */
+  alt_ft: number;
+  agl_ft: number;
+  ias_kt: number;
+  tas_kt: number | null;
+  gs_kt: number;
+  vs_fpm: number;
+  pitch_deg: number;
+  bank_deg: number;
+  /** Magnetic where the sim says, else true. */
+  hdg_deg: number;
+  hdg_true_deg: number;
+  track_true_deg: number | null;
+  ball: number | null;
+  g_load: number;
+  on_ground: boolean;
+  paused: boolean;
+  baro_inhg: number | null;
+  sel_alt_ft: number | null;
+  sel_hdg_deg: number | null;
+  sel_spd_kt: number | null;
+  sel_vs_fpm: number | null;
+  ap_on: boolean | null;
+}
+
 /** A screenshot in the Photos tab: its flight, and where it was taken. */
 export interface Photo extends Screenshot {
   flight_id: number | null;
@@ -920,6 +951,8 @@ export const api = {
   windGrid: (level: string) => call<WindGrid>("wind_grid", { level }),
   /** US Class B, C and D airspace, GeoJSON text (FAA, 28-day cycle). */
   usAirspace: () => call<string>("us_airspace"),
+  /** A PFD is open: keep its feed coming for a few more seconds. */
+  pfdWatch: () => call<void>("pfd_watch"),
   /** A drawn route as an MSFS .PLN: [file name, text]. */
   plnText: (route: PlnRoute) => call<[string, string]>("pln_text", { route }),
   /** Save a drawn route as an MSFS .PLN (PC only): the path, or null if cancelled. */

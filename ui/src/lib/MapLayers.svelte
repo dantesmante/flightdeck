@@ -27,8 +27,11 @@
     onmeasure?: () => void;
     /** The US airspace layer's data: loading, ready or not reachable. */
     airspaceState?: "idle" | "loading" | "ok" | "error";
+    /** The PFD window: open, and the button to open or close it. */
+    pfdOpen?: boolean;
+    onpfd?: () => void;
   }
-  let { three, on, onthree, ontoggle, radarTime, radarError, parkedLayer = false, airportDetail = 1, ondetail, windLevel = "auto", onwindlevel, cardOpen = false, measuring = false, onmeasure, airspaceState = "idle" }: Props = $props();
+  let { three, on, onthree, ontoggle, radarTime, radarError, parkedLayer = false, airportDetail = 1, ondetail, windLevel = "auto", onwindlevel, cardOpen = false, measuring = false, onmeasure, airspaceState = "idle", pfdOpen = false, onpfd }: Props = $props();
   const DETAIL = ["Major airports only", "Major and regional airports", "All airports and airstrips"];
 
   /** The Layers panel's tabs: airports and flights, weather, the map itself. */
@@ -47,7 +50,7 @@
   const IN_TAB: Record<Menu, string[]> = {
     traffic: ["world", "airports", "routes", "airspace", "parked", "vatsim-atc", "vatsim-pilots", "ivao-atc", "ivao-pilots"],
     weather: ["radar", "wx-cat", "wx-adv", "wind", "wx-wind"],
-    map: ["night", "satellite", "terrain", "borders"],
+    map: ["night", "satellite", "terrain", "borders", "roads"],
   };
   const tabOn = (t: Menu) => IN_TAB[t].some((k) => on.has(k)) || (t === "traffic" && !on.has("aeroway-off")) || (t === "map" && three);
   /** The panel is open on this tab. */
@@ -112,6 +115,14 @@
       </defs>
       <path d="M0 64 L22 30 L34 42 L56 12 L74 36 L88 26 L120 58 V64 Z" fill="url(#la-ridge)" opacity="0.85" />
       <path d="M0 64 L30 46 L48 54 L70 40 L96 52 L120 46 V64 Z" fill="#3a3e43" />
+    {:else if kind === "roads"}
+      <path d="M-4 54 C 30 44, 60 40, 124 30" fill="none" stroke="#15171a" stroke-width="7" />
+      <path d="M-4 54 C 30 44, 60 40, 124 30" fill="none" stroke="#f08c3c" stroke-width="4" />
+      <path d="M40 -4 C 44 20, 50 40, 70 70" fill="none" stroke="#e8c55c" stroke-width="2.6" />
+      <path d="M0 18 L 120 8" fill="none" stroke="#a4abb3" stroke-width="1.6" />
+      <path d="M58 26 q 7 -2 14 0 v 7 q -1 7 -7 10 q -6 -3 -7 -10 z" fill="#1d4fa0" stroke="#fff" stroke-width="1" />
+      <path d="M58.4 26.2 q 6.6 -1.8 13.2 0 v 3.6 h -13.2 z" fill="#c8102e" />
+      <text x="65" y="38.5" text-anchor="middle" font-size="6.5" font-weight="700" fill="#fff">94</text>
     {:else if kind === "borders"}
       <path d="M0 22 L30 26 L44 10 L60 18 L82 8 L120 16 M44 10 L50 40 L36 64 M50 40 L84 44 L96 64 M84 44 L120 38" fill="none" stroke="#9aa0a8" stroke-width="1.6" />
     {:else if kind === "routes"}
@@ -239,6 +250,12 @@
       <span>Measure</span>
     </button>
   {/if}
+  {#if onpfd}
+    <button class="layers-btn" class:open={pfdOpen} aria-pressed={pfdOpen} title="Primary flight display" onclick={onpfd}>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M3 13l18-3M9 11.5l3 1.5 3-1.5" /></svg>
+      <span>PFD</span>
+    </button>
+  {/if}
   <button class="layers-btn" class:open={!!open} aria-expanded={!!open} onclick={togglePanel}>
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l9 5-9 5-9-5 9-5zM3 13l9 5 9-5" /></svg>
     <span>Layers</span>
@@ -270,6 +287,7 @@
       {@render card("satellite", "Satellite", on.has("satellite"), () => ontoggle("satellite"))}
       {@render card("terrain", "Topographic", on.has("terrain"), () => ontoggle("terrain"))}
       {@render card("borders", "Strong borders", on.has("borders"), () => ontoggle("borders"))}
+      {@render card("roads", "Roads", on.has("roads"), () => ontoggle("roads"))}
     </div>
     <p class="credit">Satellite Esri · Terrain AWS Terrain Tiles · Map OpenFreeMap, OpenStreetMap</p>
     {:else if open === "weather"}
