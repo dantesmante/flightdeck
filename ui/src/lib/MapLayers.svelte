@@ -35,9 +35,13 @@
     hasAircraft?: boolean;
     /** Roads' opacity, 0.15 to 1. */
     roadsOpacity?: number;
+    /** Range rings: how many, and their spacing ("auto", "5", "10", "15" nm). */
+    ringCount?: number;
+    ringSet?: string;
+    onrings?: (count: number, set: string) => void;
     onroadsopacity?: (o: number) => void;
   }
-  let { three, on, onthree, ontoggle, radarTime, radarError, parkedLayer = false, airportDetail = 1, ondetail, windLevel = "auto", onwindlevel, cardOpen = false, measuring = false, onmeasure, airspaceState = "idle", pfdOpen = false, onpfd, obstaclesState = "idle", hasAircraft = false, roadsOpacity = 1, onroadsopacity }: Props = $props();
+  let { three, on, onthree, ontoggle, radarTime, radarError, parkedLayer = false, airportDetail = 1, ondetail, windLevel = "auto", onwindlevel, cardOpen = false, measuring = false, onmeasure, airspaceState = "idle", pfdOpen = false, onpfd, obstaclesState = "idle", hasAircraft = false, roadsOpacity = 1, onroadsopacity, ringCount = 2, ringSet = "auto", onrings }: Props = $props();
   const DETAIL = ["Major airports only", "Major and regional airports", "All airports and airstrips"];
 
   /** The Layers panel's tabs: airports and flights, weather, the map itself. */
@@ -56,7 +60,7 @@
   const IN_TAB: Record<Menu, string[]> = {
     traffic: ["world", "airports", "routes", "airspace", "parked", "vatsim-atc", "vatsim-pilots", "ivao-atc", "ivao-pilots"],
     weather: ["radar", "wx-cat", "wx-adv", "wind", "wx-wind"],
-    map: ["night", "satellite", "terrain", "borders", "roads", "taws", "obstacles"],
+    map: ["night", "satellite", "terrain", "borders", "roads", "taws", "obstacles", "rings"],
   };
   const tabOn = (t: Menu) => IN_TAB[t].some((k) => on.has(k)) || (t === "traffic" && !on.has("aeroway-off")) || (t === "map" && three);
   /** The panel is open on this tab. */
@@ -133,9 +137,13 @@
         <path d="M100 56 L104 40 L108 56" />
       </g>
       <circle cx="36" cy="53" r="1.6" fill="#fff" /><circle cx="78" cy="53" r="1.8" fill="#ecc428" /><circle cx="104" cy="53" r="1.4" fill="#fff" />
-    {:else if kind === "soon"}
-      <rect x="40" y="16" width="40" height="38" rx="6" fill="none" stroke="#5a5f66" stroke-width="1.6" stroke-dasharray="4 3" />
-      <path d="M60 28 v14 M53 35 h14" stroke="#5a5f66" stroke-width="1.8" stroke-linecap="round" />
+    {:else if kind === "rings"}
+      <rect width="120" height="70" fill="#1b2a1f" />
+      <g fill="none" stroke="#fff" stroke-width="1.4" opacity="0.9">
+        <circle cx="60" cy="40" r="14" /><circle cx="60" cy="40" r="30" />
+      </g>
+      <circle cx="60" cy="40" r="4" fill="#4aa3ff" stroke="#fff" stroke-width="1.2" />
+      <text x="34" y="20" fill="#fff" font-size="8" font-weight="700" transform="rotate(-45 34 20)">20NM</text>
     {:else if kind === "roads"}
       <path d="M-4 54 C 30 44, 60 40, 124 30" fill="none" stroke="#15171a" stroke-width="7" />
       <path d="M-4 54 C 30 44, 60 40, 124 30" fill="none" stroke="#f08c3c" stroke-width="4" />
@@ -258,6 +266,10 @@
   <span class="note">{on.has("taws") && !hasAircraft ? "Needs the sim" : "100 mi around you"}</span>
 {/snippet}
 
+{#snippet ringsNote()}
+  <span class="note">{on.has("rings") && !hasAircraft ? "Needs the sim" : "Around your aircraft"}</span>
+{/snippet}
+
 {#snippet obstNote()}
   <span class="note">
     {#if on.has("obstacles") && obstaclesState === "loading"}Loading from the FAA…{:else if on.has("obstacles") && obstaclesState === "error"}FAA not reachable{:else}US only · 200 ft+{/if}
@@ -321,11 +333,26 @@
       {@render card("roads", "Roads", on.has("roads"), () => ontoggle("roads"))}
       {@render card("taws", "Terrain", on.has("taws"), () => ontoggle("taws"), tawsNote)}
       {@render card("obstacles", "Obstacles", on.has("obstacles"), () => ontoggle("obstacles"), obstNote)}
-      <div class="card soon" aria-disabled="true">
-        <span class="thumb">{@render art("soon")}</span>
-        <span class="text"><span class="label">Coming soon</span><span class="note">Another layer</span></span>
-      </div>
+      {@render card("rings", "Range rings", on.has("rings"), () => ontoggle("rings"), ringsNote)}
     </div>
+    {#if on.has("rings")}
+      <div class="detail rings">
+        <span class="lbl">Range rings</span>
+        <div class="levels" role="radiogroup" aria-label="Number of rings">
+          {#each [2, 3] as n (n)}
+            <button role="radio" aria-checked={ringCount === n} class:on={ringCount === n} onclick={() => onrings?.(n, ringSet)}>{n} rings</button>
+          {/each}
+        </div>
+        <span class="lbl">Distances (NM)</span>
+        <div class="levels" role="radiogroup" aria-label="Ring distances">
+          {#each ["auto", "5", "10", "15"] as v (v)}
+            <button role="radio" aria-checked={ringSet === v} class:on={ringSet === v} onclick={() => onrings?.(ringCount, v)}>
+              {v === "auto" ? "Auto" : Array.from({ length: ringCount }, (_, i) => (i + 1) * Number(v)).join(", ")}
+            </button>
+          {/each}
+        </div>
+      </div>
+    {/if}
     {#if on.has("roads")}
       <div class="detail">
         <label for="roads-op">Roads <span>{Math.round(roadsOpacity * 100)}%</span></label>
@@ -411,10 +438,6 @@
 {/if}
 
 <style>
-  .card.soon {
-    opacity: 0.55;
-    cursor: default;
-  }
   .detail {
     margin: 8px 2px 0;
   }
@@ -431,6 +454,18 @@
     width: 100%;
     margin: 4px 0 0;
     accent-color: var(--amber);
+  }
+  .detail.rings .lbl {
+    display: block;
+    margin: 8px 2px 0;
+    font-size: 13px;
+    color: var(--ink);
+  }
+  .detail.rings .lbl:first-child {
+    margin-top: 0;
+  }
+  .detail.rings .levels {
+    margin-top: 5px;
   }
   .ticks {
     display: flex;

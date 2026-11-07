@@ -4,20 +4,27 @@
   // and the heading rose, with the autopilot's selected values. Plain SVG,
   // drawn by the processor; the graphics card does next to nothing.
   //
+  // Laid out like the G1000 in MSFS: the attitude centre sits about a third
+  // of the way down, the tapes start just under the top edge, and the
+  // heading rose fills the lower part. The frame is anchored to the top of
+  // the window, so a taller window shows more ground and rose, never more
+  // empty sky.
+  //
   // With `svt` the sky and ground are left out, for the terrain view drawn
-  // beneath it. Pitch is drawn at the terrain camera's scale (the map's
-  // 36.87° field of view across the 500 units of height), so the horizon
-  // lines up with the terrain's.
+  // beneath it. Pitch is drawn at the terrain camera's scale (36.87° across
+  // 500 units), with the camera's centre moved up to CY (Svt.svelte), so the
+  // horizon lines up with the terrain's.
   import type { Pfd } from "../api";
+  import { PFD_CY, PFD_H, PFD_K, PFD_W } from "./layout";
 
   let { d, svt = false }: { d: Pfd | null; svt?: boolean } = $props();
 
-  const W = 800;
-  const H = 500;
+  const W = PFD_W;
+  const H = PFD_H;
   const CX = 400;
-  const CY = 250;
+  const CY = PFD_CY;
   /** Units per degree of pitch. */
-  const K = H / 36.87;
+  const K = PFD_K;
 
   const pitch = $derived(d?.pitch_deg ?? 0);
   const bank = $derived(d?.bank_deg ?? 0);
@@ -69,7 +76,7 @@
 
   // --- Heading rose ----------------------------------------------------------
   const RX = CX;
-  const RY = 560;
+  const RY = CY + 310;
   const RR = 150;
   const rose = Array.from({ length: 72 }, (_, i) => i * 5);
   const LABELS: Record<number, string> = { 0: "N", 90: "E", 180: "S", 270: "W" };
@@ -83,7 +90,7 @@
   const altTens = $derived(String(Math.round((Math.abs(alt) % 100) / 20) * 20 % 100).padStart(2, "0"));
 </script>
 
-<svg viewBox="0 0 {W} {H}" class="pfd" class:svt role="img" aria-label="Primary flight display" overflow="visible">
+<svg viewBox="0 0 {W} {H}" preserveAspectRatio="xMidYMin meet" class="pfd" class:svt role="img" aria-label="Primary flight display" overflow="visible">
   <defs>
     <linearGradient id="pfd-sky" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#0b3fd6" />

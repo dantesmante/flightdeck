@@ -175,7 +175,11 @@ MIT licensed.
   ahead (synthetic vision, from the free Terrain Tiles, with water in dark
   blue and airports in concrete grey with runway and taxiway centrelines
   from OpenStreetMap; on the ground the view sits at eye height on the
-  runway, never under it), which costs the PC nothing; on the PC a note says so. **Split** docks the PFD to the
+  runway, never under it, and the runway runs from under the nose to its
+  vanishing point), which costs the PC nothing; on the PC a note says so.
+  Laid out like the G1000 in MSFS: the horizon sits about a third of the
+  way down, the tapes start just under the top, and the heading rose fills
+  the lower part. **Split** docks the PFD to the
   right half of the Map tab with the map on the left (the flight card
   folds away until you open it; leaving split brings it back). The PFD
   belongs to the Map tab: other tabs hide it, and it is back when you
@@ -192,13 +196,21 @@ MIT licensed.
   400 ft or more above you, black elsewhere. Drawn for about 100 miles
   around the aircraft (from zoom 6 in), following it as it flies, so only
   those elevation tiles are fetched; recoloured every 50 ft. Needs the sim
-  connected. From the free Terrain Tiles.
+  connected. From the free Terrain Tiles. With **Topographic** on too, its
+  relief shading and contour lines (in white) lie over the colours.
 - **Obstacles** (Layers → Map, US only): towers, antennas, wind turbines
   and stacks of 200 ft or more from the FAA's Digital Obstacle File
   (public domain, fetched at most every 28 days), with the chart symbol
   (rays when lit), coloured against your altitude like Terrain, and the
-  top's height (height above ground) when zoomed in. A ninth tile is kept
-  for a layer to come.
+  top's height (height above ground) when zoomed in.
+- **Range rings** (Layers → Map): 2 or 3 rings around the aircraft,
+  labelled in nautical miles, at 5, 10, 15 nm steps or **Auto** (spaced
+  to suit the zoom: 1, 2, 5, 10, 20, 40, 80 or 160 nm). Needs the sim
+  connected.
+- **Your aircraft** is on the map whenever the sim is connected, even with
+  no flight started: white with a dark outline, showing only where it is
+  (nothing is recorded, and the map doesn't follow it unless you ask).
+  Once a flight is being tracked it turns amber as before.
 - **Measure** (left of Layers): click points on the map to
   measure a route, leg by leg, in nautical miles with the course of each
   leg, and the total in miles and kilometres too. Great-circle distances.

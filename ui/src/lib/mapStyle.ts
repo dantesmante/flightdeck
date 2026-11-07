@@ -234,15 +234,29 @@ export function showTerrain(map: maplibregl.Map, on: boolean, satellite: boolean
     }
   }
   for (const id of ids) if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", on ? "visible" : "none");
-  if (!on || !map.getLayer("terrain-hillshade")) return;
-  // Darker, quieter shading on the night chart; lighter over the pictures.
-  setPaint(map, "terrain-hillshade", "hillshade-exaggeration", satellite ? 0.3 : 0.45);
-  setPaint(map, "terrain-hillshade", "hillshade-shadow-color", satellite ? "rgba(0, 0, 0, 0.45)" : "#000000");
-  setPaint(map, "terrain-hillshade", "hillshade-highlight-color", satellite ? "rgba(255, 255, 255, 0.25)" : "rgba(210, 214, 220, 0.18)");
-  setPaint(map, "terrain-hillshade", "hillshade-accent-color", satellite ? "rgba(0, 0, 0, 0.2)" : "#000000");
-  setPaint(map, "terrain-contours", "line-color", satellite ? "rgba(255, 245, 225, 0.45)" : "rgba(196, 184, 150, 0.32)");
-  setPaint(map, "terrain-contour-labels", "text-color", satellite ? "#fff5e1" : "#b8ad8d");
-  setPaint(map, "terrain-contour-labels", "text-halo-color", satellite ? "rgba(0, 0, 0, 0.7)" : "#141516");
+  onSatellite.set(map, satellite);
+  stackTerrain(map);
+}
+const onSatellite = new WeakMap<maplibregl.Map, boolean>();
+
+/** The Topographic layer always sits over the Terrain (TAWS) colours, so
+ * both can be on at once, with its shading and lines tuned to what lies
+ * under them: the night chart, satellite pictures or the TAWS colours. */
+function stackTerrain(map: maplibregl.Map) {
+  if (map.getLayer("fd-taws") && map.getLayer("terrain-hillshade")) map.moveLayer("fd-taws", "terrain-hillshade");
+  if (!map.getLayer("terrain-hillshade") || map.getLayoutProperty("terrain-hillshade", "visibility") === "none") return;
+  const satellite = onSatellite.get(map) ?? false;
+  const taws = !!map.getLayer("fd-taws") && map.getLayoutProperty("fd-taws", "visibility") !== "none";
+  // Darker, quieter shading on the night chart; lighter over the pictures
+  // and over the TAWS colours (whose black must stay black).
+  const light = satellite || taws;
+  setPaint(map, "terrain-hillshade", "hillshade-exaggeration", taws ? 0.25 : satellite ? 0.3 : 0.45);
+  setPaint(map, "terrain-hillshade", "hillshade-shadow-color", light ? "rgba(0, 0, 0, 0.45)" : "#000000");
+  setPaint(map, "terrain-hillshade", "hillshade-highlight-color", light ? "rgba(255, 255, 255, 0.25)" : "rgba(210, 214, 220, 0.18)");
+  setPaint(map, "terrain-hillshade", "hillshade-accent-color", light ? "rgba(0, 0, 0, 0.2)" : "#000000");
+  setPaint(map, "terrain-contours", "line-color", taws ? "rgba(255, 255, 255, 0.55)" : satellite ? "rgba(255, 245, 225, 0.45)" : "rgba(196, 184, 150, 0.32)");
+  setPaint(map, "terrain-contour-labels", "text-color", light ? "#fff5e1" : "#b8ad8d");
+  setPaint(map, "terrain-contour-labels", "text-halo-color", light ? "rgba(0, 0, 0, 0.7)" : "#141516");
 }
 
 /** Country borders and region lines: faint by default, or picked out
@@ -880,8 +894,10 @@ export function showTaws(map: maplibregl.Map, on: boolean, altFt: number | null,
     );
     tawsAt.set(map, [lon, lat]);
   }
+  const was = map.getLayer("fd-taws") ? map.getLayoutProperty("fd-taws", "visibility") !== "none" : false;
   for (const id of TAWS_IDS) if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", show ? "visible" : "none");
   if (show && map.getLayer("fd-taws")) map.setPaintProperty("fd-taws", "color-relief-color", tawsRamp(altFt!, onGround));
+  if (was !== show || !at) stackTerrain(map);
 }
 
 // --- Obstacles -------------------------------------------------------------------
@@ -991,4 +1007,84 @@ export function showObstacles(map: maplibregl.Map, on: boolean, altFt: number | 
     map.setPaintProperty("fd-obst", "icon-color", obstColor(altFt, onGround));
     map.setPaintProperty("fd-obst-label", "text-color", obstColor(altFt, onGround));
   }
+}
+
+// --- Range rings -------------------------------------------------------------
+// Circles around the aircraft at set distances (nautical miles), labelled on
+// the ring at the upper left like an EFB's. Drawn as plain lines: no cost to
+// speak of.
+const RING_IDS = ["fd-rings", "fd-rings-label"];
+const NM_M = 1852;
+
+/** Ring spacing for "auto": the widest spacing whose outer ring still fits
+ * comfortably in the view, from 1, 2, 5, 10, 20, 40, 80, 160 nm. */
+export function autoRingStep(zoom: number, lat: number, viewPx: number, count: number): number {
+  const nmPerPx = (40075016.686 * Math.cos((lat * Math.PI) / 180)) / (512 * 2 ** zoom) / NM_M;
+  const fit = viewPx * 0.42 * nmPerPx;
+  const steps = [1, 2, 5, 10, 20, 40, 80, 160];
+  let best = steps[0];
+  for (const s of steps) if (s * count <= fit) best = s;
+  return best;
+}
+
+/** A point `nm` from [lon, lat] on a true bearing (great circle). */
+function destination([lon, lat]: [number, number], nm: number, brgDeg: number): [number, number] {
+  const R = 6371008.8;
+  const d = (nm * NM_M) / R;
+  const b = (brgDeg * Math.PI) / 180;
+  const p1 = (lat * Math.PI) / 180;
+  const l1 = (lon * Math.PI) / 180;
+  const p2 = Math.asin(Math.sin(p1) * Math.cos(d) + Math.cos(p1) * Math.sin(d) * Math.cos(b));
+  const l2 = l1 + Math.atan2(Math.sin(b) * Math.sin(d) * Math.cos(p1), Math.cos(d) - Math.sin(p1) * Math.sin(p2));
+  return [(((l2 * 180) / Math.PI + 540) % 360) - 180, (p2 * 180) / Math.PI];
+}
+
+/** Range rings on or off around `at` [lon, lat], at each distance in `nm`. */
+export function showRings(map: maplibregl.Map, on: boolean, at: [number, number] | null, nm: number[]) {
+  if (!map.getSource("fd-rings")) {
+    map.addSource("fd-rings", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+    // Under the aircraft and the flown line, over the map.
+    const before = (map.getStyle().layers ?? []).find((l) => l.id.startsWith("routes") || l.id === "plan-line")?.id;
+    map.addLayer(
+      {
+        id: "fd-rings",
+        type: "line",
+        source: "fd-rings",
+        filter: ["==", ["geometry-type"], "LineString"],
+        layout: { visibility: "none" },
+        paint: { "line-color": "rgba(255, 255, 255, 0.85)", "line-width": 1.6 },
+      },
+      before,
+    );
+    map.addLayer(
+      {
+        id: "fd-rings-label",
+        type: "symbol",
+        source: "fd-rings",
+        filter: ["==", ["geometry-type"], "Point"],
+        layout: {
+          visibility: "none",
+          "text-field": ["get", "label"],
+          "text-font": ["Noto Sans Bold"],
+          "text-size": 11,
+          "text-rotate": -45,
+          "text-allow-overlap": true,
+          "text-rotation-alignment": "viewport",
+        },
+        paint: { "text-color": "#ffffff", "text-halo-color": "#111214", "text-halo-width": 3 },
+      },
+      before,
+    );
+  }
+  const show = on && at != null;
+  for (const id of RING_IDS) if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", show ? "visible" : "none");
+  if (!show) return;
+  const features: GeoJSON.Feature[] = [];
+  for (const r of nm) {
+    const ring: [number, number][] = [];
+    for (let b = 0; b <= 360; b += 3) ring.push(destination(at!, r, b));
+    features.push({ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: ring } });
+    features.push({ type: "Feature", properties: { label: `${r} NM` }, geometry: { type: "Point", coordinates: destination(at!, r, 315) } });
+  }
+  (map.getSource("fd-rings") as maplibregl.GeoJSONSource).setData({ type: "FeatureCollection", features });
 }

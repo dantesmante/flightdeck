@@ -9,7 +9,7 @@
   import WxCard, { CATEGORY, WX_GROUP } from "./WxCard.svelte";
   import type { WxAdvisoryProps } from "./api";
   import type { Net, NetworkData } from "./api";
-  import { showRoads, setRoadsOpacity, showTaws, showObstacles, C as BASE, STYLE, addAirportLayout, addRegionLines, approachLines, offlineStyle, runwayEnds, setBorders, showAirportLayout, showSatellite, showTerrain, tintMap } from "./mapStyle";
+  import { showRoads, setRoadsOpacity, showTaws, showObstacles, showRings, autoRingStep, C as BASE, STYLE, addAirportLayout, addRegionLines, approachLines, offlineStyle, runwayEnds, setBorders, showAirportLayout, showSatellite, showTerrain, tintMap } from "./mapStyle";
   import MapLayers from "./MapLayers.svelte";
   import { shots as shotStore, type PlacedShot } from "./shots.svelte";
   import { WindParticles } from "./wind/particles";
@@ -27,8 +27,9 @@
   interface Props {
     /** Live track with altitude. */
     live: Pt[];
-    /** Current aircraft position and heading, if flying. */
-    aircraft: { lon: number; lat: number; hdg: number } | null;
+    /** Current aircraft position and heading while the sim is connected;
+     * `tracking` while a flight is being recorded. */
+    aircraft: { lon: number; lat: number; hdg: number; tracking?: boolean } | null;
     /** Departure point of the live flight. */
     origin: [number, number] | null;
     /** A saved flight's track to show instead of the live one. */
@@ -239,6 +240,22 @@
     const pos = posStep;
     if (!loaded || !map) return;
     showTaws(map, on && !offline, alt, ground, pos);
+  });
+  // Range rings around the aircraft (Layers → Map): 2 or 3 rings, at set
+  // distances or spaced to suit the zoom ("auto").
+  const ringCount = $derived(prefs.s.map_rings_count === "3" ? 3 : 2);
+  const ringSet = $derived(["5", "10", "15"].includes(prefs.s.map_rings_nm ?? "") ? prefs.s.map_rings_nm! : "auto");
+  const ringStep = $derived.by(() => {
+    if (ringSet !== "auto") return Number(ringSet);
+    const el = map?.getContainer();
+    return autoRingStep(zoomNow, acPos?.[1] ?? 0, el ? Math.min(el.clientWidth, el.clientHeight) : 800, ringCount);
+  });
+  $effect(() => {
+    const on = layers.has("rings") && !bare;
+    const pos = acPos;
+    const nm = Array.from({ length: ringCount }, (_, i) => (i + 1) * ringStep);
+    if (!loaded || !map) return;
+    showRings(map, on, pos, nm);
   });
   let obstData: GeoJSON.FeatureCollection | null = null;
   let obstState = $state<"idle" | "loading" | "ok" | "error">("idle");
@@ -1906,7 +1923,7 @@
     (map.getSource("routes") as GeoJSONSource | undefined)?.setData(
       routeFeatures(open == null ? list : list.filter((r) => r.flight_id !== open)),
     );
-    if (!fittedRoutes && list.length && !aircraft && !history && !untrack(() => plan)) {
+    if (!fittedRoutes && list.length && !aircraft?.tracking && !history && !untrack(() => plan)) {
       fittedRoutes = true;
       fit(list.flatMap((r) => [r.from, r.to]), 6);
     }
@@ -1952,13 +1969,22 @@
       return;
     }
     const at: [number, number] = [aircraft.lon, aircraft.lat];
+    const tracking = !!aircraft.tracking;
     if (!marker) {
       marker = new maplibregl.Marker({ element: planeEl(), rotationAlignment: "map" }).setLngLat(at).addTo(map);
-      map.jumpTo({ center: at, zoom: Math.max(map.getZoom(), 8) });
+      // Only shown, not tracked: don't pull the map away from what you're
+      // looking at, except on the Map tab when it opens.
+      follow = tracking;
+      if (tracking || untrack(() => planner)) map.jumpTo({ center: at, zoom: Math.max(map.getZoom(), 8) });
     }
+    // A flight starts: follow it, as before.
+    if (tracking && !wasTracking) follow = true;
+    wasTracking = tracking;
+    marker.getElement().classList.toggle("idle", !tracking);
     marker.setLngLat(at).setRotation(aircraft.hdg);
     if (follow) map.easeTo({ center: at, duration: 450, easing: (t) => t });
   });
+  let wasTracking = false;
 
   // Parked aircraft: one tag per airport listing every aircraft left
   // there, shown only when the layer is switched on.
@@ -2156,6 +2182,12 @@
   hasAircraft={acAltFt != null}
   {roadsOpacity}
   onroadsopacity={(o) => setPref("map_roads_opacity", o.toFixed(2))}
+  {ringCount}
+  {ringSet}
+  onrings={(count, set) => {
+    setPref("map_rings_count", String(count));
+    setPref("map_rings_nm", set);
+  }}
   pfdOpen={pfdState.open}
   onpfd={planner ? () => (pfdState.open = !pfdState.open) : undefined}
 />
@@ -2230,6 +2262,15 @@
   }
   .map :global(.plane) {
     filter: drop-shadow(0 0 6px rgba(240, 178, 58, 0.55));
+  }
+  /* Shown but not tracked: white with a dark grey outline. */
+  .map :global(.plane.idle) {
+    filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.55));
+  }
+  .map :global(.plane.idle path) {
+    fill: #f4f5f7;
+    stroke: #3b3e44;
+    stroke-width: 2;
   }
   .map :global(.parked) {
     display: flex;

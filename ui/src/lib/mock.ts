@@ -394,6 +394,8 @@ export async function mockCall<T>(cmd: string, _args?: Record<string, unknown>):
           hdg_deg: hdg, hdg_true_deg: (hdg + 15) % 360, track_true_deg: (hdg + 18) % 360, ball: Math.sin(t / 5) * 0.15, g_load: 1.05,
           on_ground: false, paused: false, baro_inhg: 29.92, sel_alt_ft: 10000, sel_hdg_deg: 20, sel_spd_kt: 130, sel_vs_fpm: 500, ap_on: true,
         };
+        // Tests can pin the aircraft somewhere: window.__pfdOverride.
+        Object.assign(frame, (window as unknown as { __pfdOverride?: object }).__pfdOverride ?? {});
         for (const cb of listeners.pfd ?? []) cb(frame);
       }, 66);
     }

@@ -68,9 +68,11 @@
   }
   let session = -1;
 
+  // The aircraft is always on the map while the sim is connected: white
+  // when only shown, the usual amber once a flight is being tracked.
   const aircraft = $derived(
-    status?.telemetry && status.live
-      ? { lon: status.telemetry.lon, lat: status.telemetry.lat, hdg: status.telemetry.hdg_true_deg }
+    status?.telemetry
+      ? { lon: status.telemetry.lon, lat: status.telemetry.lat, hdg: status.telemetry.hdg_true_deg, tracking: !!status.live }
       : null,
   );
   const origin = $derived<[number, number] | null>(status?.live ? [status.live.dep_lon, status.live.dep_lat] : null);

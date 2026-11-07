@@ -244,7 +244,7 @@
   }
   .screen {
     position: relative;
-    aspect-ratio: 8 / 5;
+    aspect-ratio: 20 / 17;
     overflow: hidden;
   }
   .over {

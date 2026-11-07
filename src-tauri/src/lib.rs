@@ -908,6 +908,8 @@ const SETTING_KEYS: &[&str] = &[
     "map_layers",
     "map_airport_detail",
     "map_roads_opacity",
+    "map_rings_count",
+    "map_rings_nm",
     "map_wind_level",
     "show_demo",
     "backup_on_close",
