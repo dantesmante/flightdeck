@@ -33,6 +33,12 @@ MIT licensed.
   previews it as a dashed purple line. During a flight the same card shows
   the flight; fold it down to see more of the map.
   A plan can also be added mid-flight with **Add a flight plan**.
+  A planned flight (Start a flight or SimBrief) is kept until it is flown:
+  loading the sim, reloading it or spawning at the airport never replaces
+  it. Tracking starts without power only within 10 nm of the planned
+  origin; elsewhere it waits for power or an engine as usual. A flight left
+  running in the sim (never parked) ends when you start the next one, and
+  going back to the MSFS menus counts as a pause for the flight under way.
 - **Boarding pass**: the active flight shows as a boarding pass with the
   callsign and airline, registration and type, the aircraft's picture when
   it is in your hangar, the route, block out and takeoff times, the ETA,
@@ -176,7 +182,9 @@ MIT licensed.
   blue and airports in concrete grey with runway and taxiway centrelines
   from OpenStreetMap; on the ground the view sits at eye height on the
   runway, never under it, and the runway runs from under the nose to its
-  vanishing point), which costs the PC nothing; on the PC a note says so.
+  vanishing point; past the 40 km of terrain drawn, the ground colour
+  fills down from the horizon, banked with the aircraft), which costs the
+  PC nothing; on the PC a note says so.
   Laid out like the G1000 in MSFS: the horizon sits about a third of the
   way down, the tapes start just under the top, and the heading rose fills
   the lower part. **Split** docks the PFD to the
@@ -253,8 +261,10 @@ MIT licensed.
   SimBrief's own altitudes.
 - **Smart taxi**: after you land, the map zooms in on the airport around
   you with the Runways layer on (switched on if it was off), and once you
-  slow to taxi speed (under 30 kt, with FlightDeck on screen) a blinking
-  yellow "SMART TAXI" shows at the bottom of the map for 15 seconds. Runways
+  slow to taxi speed (under 30 kt) a blinking yellow "SMART TAXI" shows at
+  the bottom of the map. On the sim PC it keeps blinking until you look at
+  FlightDeck (bring it up or move the mouse over it), then stays 15
+  seconds; on a tablet or phone the 15 seconds start straight away. Runways
   switched on this way go off again when you switch the battery off,
   unless you've switched them off yourself.
 - Drawing a route stops the map following the aircraft, so you can move

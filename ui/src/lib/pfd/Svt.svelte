@@ -183,6 +183,8 @@
     const f = (250 * scale) / Math.tan(((36.87 / 2) * Math.PI) / 180);
     const cy = PFD_CY * scale;
     return {
+      f,
+      cy,
       fov: (2 * Math.atan(h / 2 / f) * 180) / Math.PI,
       padding: { top: Math.max(0, 2 * cy - h), bottom: Math.max(0, h - 2 * cy), left: 0, right: 0 },
     };
@@ -234,15 +236,45 @@
     tr.overrideNearFarZ(tr.pixelsPerMeter * NEAR_M, tr.pixelsPerMeter * FAR_M);
     map.triggerRepaint();
   });
+  // Past the far plane (40 km) the terrain stops, and from a few thousand
+  // feet up that leaves a band under the horizon with nothing drawn in it.
+  // A ground plane behind the map, on the true horizon and banked with the
+  // aircraft, fills it with the ground's colour.
+  const ground = $derived.by(() => {
+    if (!view || !d) return "";
+    const off = view.f * Math.tan((Math.max(-80, Math.min(80, d.pitch_deg)) * Math.PI) / 180);
+    return `translate(${w / 2}px, ${view.cy}px) rotate(${-d.bank_deg}deg) translate(-50%, ${off}px)`;
+  });
   type Tr = { clearNearFarZOverride(): void; overrideNearFarZ(n: number, f: number): void; pixelsPerMeter: number; farZ: number };
 </script>
 
-<div class="svt" bind:this={el} bind:clientWidth={w} bind:clientHeight={h}></div>
+<div class="svt" bind:clientWidth={w} bind:clientHeight={h}>
+  <div class="ground" style:transform={ground} class:shown={!!ground}></div>
+  <div class="map" bind:this={el}></div>
+</div>
 
 <style>
   .svt {
     position: absolute;
     inset: 0;
-    background: linear-gradient(#0d47e0, #8db4ff 50%, #3d6b2a 50%);
+    overflow: hidden;
+    background: linear-gradient(#0d47e0, #8db4ff);
+  }
+  .map {
+    position: absolute;
+    inset: 0;
+  }
+  .ground {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 400%;
+    height: 400%;
+    transform-origin: 0 0;
+    background: #3d6b2a;
+    display: none;
+  }
+  .ground.shown {
+    display: block;
   }
 </style>

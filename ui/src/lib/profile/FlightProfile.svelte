@@ -517,7 +517,7 @@
     {#if route}
       {#if glide}
         <span class="route">{route.dest.icao} · 3°</span>
-        <RunwayPicker compact icao={route.dest.icao} value={destRwy} onchange={(r) => r && onrunway(r)} />
+        <RunwayPicker compact icao={destIcao} value={destRwy} onchange={(r) => r && onrunway(r)} />
         <span class="read">
           <span class="k">To threshold</span>
           <b>{acToThr != null ? `${nm(acToThr)} nm` : "–"}</b>

@@ -22,8 +22,12 @@
 
   let ends = $state.raw<RunwayEnds | null>(null);
   let wx = $state.raw<AirportWeather | null>(null);
+  // By value: a prop like `route.dest.icao` is read again whenever the
+  // parent's route object is rebuilt (twice a second in flight), and
+  // fetching again each time made the list blink.
+  const airport = $derived(icao);
   $effect(() => {
-    const id = icao;
+    const id = airport;
     ends = null;
     wx = null;
     if (!id) return;

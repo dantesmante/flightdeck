@@ -258,6 +258,13 @@ struct Engine {
     /// button) before starting another, so parking does not begin a new one.
     need_reset: bool,
     plan: Option<FlightPlan>,
+    /// Flights tracked so far (one more each time a tracker starts).
+    flights: u64,
+    /// The flight `plan` and `armed` belong to: `flights` for the one under
+    /// way, `flights + 1` for the next. Only that flight may use them up, so
+    /// an earlier flight that ends late (the sim reloads, a teleport) never
+    /// takes a plan set up for the next one.
+    plan_for: u64,
     /// The hangar aircraft chosen with "Fly this aircraft", if any.
     forced: Option<HangarRow>,
     /// Last power and camera state seen, to log only when they change.
@@ -272,6 +279,8 @@ struct Engine {
 
 /// How long the aircraft must sit in the world before a flight can start.
 const IN_WORLD_MS: i64 = 5_000;
+/// "Start a flight" begins without power only this close to the planned origin.
+const ORIGIN_NM: f64 = 10.0;
 
 /// Watches for an aircraft really spawned in the world: on the ground,
 /// unpaused, out of the menus, in the same place, for a few seconds. The
@@ -337,6 +346,8 @@ pub fn spawn(
                 forced: None,
                 need_reset: false,
                 plan: None,
+                flights: 0,
+                plan_for: 0,
                 last_power: None,
                 last_camera: None,
                 last_paused: None,
@@ -377,9 +388,18 @@ impl Engine {
                     self.disconnect();
                 }
             }
-            Command::EndFlight => self.end_flight("ended by pilot"),
+            Command::EndFlight => {
+                self.end_flight("ended by pilot");
+                self.armed = false;
+            }
             Command::StartFlight { plan, aircraft } => {
+                // A new flight: one that flew already (never parked, left in
+                // the sim) is over, and is saved with its own plan.
+                if self.tracker.as_ref().is_some_and(|t| !t.is_finished() && t.has_flown()) {
+                    self.end_flight("new flight started");
+                }
                 self.armed = true;
+                self.plan_for = self.owner();
                 if let Some(a) = &aircraft {
                     log::info!("start a flight in {} (aircraft #{})", a.registration, a.id);
                 }
@@ -391,7 +411,10 @@ impl Engine {
                     self.plan = plan;
                 }
             }
-            Command::SetPlan(plan) => self.plan = plan,
+            Command::SetPlan(plan) => {
+                self.plan = plan;
+                self.plan_for = self.owner();
+            }
             Command::Divert(to) => {
                 if let Some(p) = self.plan.as_mut() {
                     if p.diverted_from.is_none() {
@@ -522,16 +545,23 @@ impl Engine {
             self.last_camera = Some(s.camera_state);
             self.last_paused = Some(s.paused);
         }
+        let msfs = matches!(sim, SimKind::Msfs2020 | SimKind::Msfs2024);
+        // MSFS camera states for the menus, world map and hangar: never
+        // a flight, whatever the aircraft behind them reports.
+        let in_menu = msfs && s.camera_state.is_some_and(|c| matches!(c, 11..=15 | 21));
+        // A flight under way while the sim is in its menus (loading another
+        // flight, say): the aircraft there is not this flight's, so it counts
+        // as a pause, and a new spawn far away ends the flight as a teleport.
+        let mut s = s;
+        if in_menu && self.tracker.as_ref().is_some_and(|t| !t.is_finished()) {
+            s.paused = true;
+        }
         if self.tracker.as_ref().is_none_or(Tracker::is_finished) {
             // No flight yet. In the MSFS menus the sim still sends a position
             // (often in the air), so only start once the pilot is really in
             // the aircraft: it has power or an engine running, or the pilot
             // pressed "Start a flight". Sims that do not report power (demo,
             // X-Plane) start straight away.
-            let msfs = matches!(sim, SimKind::Msfs2020 | SimKind::Msfs2024);
-            // MSFS camera states for the menus, world map and hangar: never
-            // a flight, whatever the aircraft behind them reports.
-            let in_menu = msfs && s.camera_state.is_some_and(|c| matches!(c, 11..=15 | 21));
             // MSFS: only once the aircraft is spawned on the ground in the world.
             let in_world = !msfs || self.in_world.update(&s, in_menu);
             let signal = !s.paused && !in_menu && (s.engines_running > 0 || s.powered.unwrap_or(!msfs));
@@ -541,7 +571,13 @@ impl Engine {
             // "Start a flight" skips the power check but still waits for a
             // real cockpit: not paused, and on the ground or powered (the
             // menus can report an unpowered aircraft hanging in the air).
-            let armed_ready = self.armed && !s.paused && !in_menu && (signal || s.on_ground) && in_world;
+            // It also waits for the planned origin when the plan has one, so
+            // a flight planned at the last airport does not start there.
+            let at_origin = self.plan.as_ref().filter(|_| self.plan_for > self.flights).is_none_or(|p| {
+                let o = &p.origin;
+                (o.lat == 0.0 && o.lon == 0.0) || telemetry::geo::distance_nm(o.lat, o.lon, s.lat, s.lon) <= ORIGIN_NM
+            });
+            let armed_ready = self.armed && !s.paused && !in_menu && (signal || s.on_ground) && in_world && at_origin;
             if !(armed_ready || (signal && in_world && !self.need_reset)) {
                 self.last_sample = Some(s);
                 return;
@@ -557,6 +593,7 @@ impl Engine {
                 .ok();
             self.dep = None;
             self.session += 1;
+            self.flights += 1;
             self.shared.lock().unwrap().track.clear();
             self.tail.clear();
         }
@@ -611,11 +648,25 @@ impl Engine {
         }
     }
 
+    /// Which flight a plan set now is for: the one under way, else the next.
+    fn owner(&self) -> u64 {
+        if self.tracker.as_ref().is_some_and(|t| !t.is_finished()) {
+            self.flights
+        } else {
+            self.flights + 1
+        }
+    }
+
     fn store(&mut self, f: &FlightSummary) {
-        let plan = self.plan.take();
+        // The plan and "Start a flight" are this flight's only if they were
+        // set for it; one set up for the next flight stays.
+        let mine = self.plan_for <= self.flights;
+        let plan = if mine { self.plan.take() } else { None };
         let forced = self.forced.take().map(|a| a.id);
-        self.shared.lock().unwrap().briefing = None;
-        self.armed = false;
+        if mine {
+            self.shared.lock().unwrap().briefing = None;
+            self.armed = false;
+        }
         self.need_reset = true;
         // The sim gave no usable type code: take it from the flight plan.
         let mut filled;
@@ -681,7 +732,8 @@ impl Engine {
         self.shared.lock().unwrap().track.clear();
         self.tail.clear();
         self.dep = None;
-        self.armed = false;
+        // A planned flight that has not flown yet stays planned: the sim
+        // going away (or reloading) does not undo "Start a flight".
         if had_flight {
             self.forced = None;
         }

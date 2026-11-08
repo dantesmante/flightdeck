@@ -254,21 +254,33 @@
     });
   });
   let smartPending = $state(0);
-  let pageShown = $state(typeof document === "undefined" || document.visibilityState === "visible");
-  const onVis = () => (pageShown = document.visibilityState === "visible");
-  if (typeof document !== "undefined") document.addEventListener("visibilitychange", onVis);
-  $effect(() => {
-    if (!smartPending) return;
-    // Given up on after 5 minutes (FlightDeck never looked at).
-    if (Date.now() - smartPending > 300000) {
-      smartPending = 0;
-      return;
-    }
-    if ((acGs ?? 0) > 30 || !pageShown) return;
-    smartPending = 0;
-    smartTaxi = true;
+  // The 15 s count starts once the pilot is looking at FlightDeck: on the
+  // sim PC the sim has the focus while flying, so the note blinks until
+  // FlightDeck is brought up or the mouse moves over it (a tablet or phone
+  // has the focus already). Never longer than 20 minutes.
+  let smartCounting = false;
+  function smartLook() {
+    if (!smartTaxi || smartCounting) return;
+    smartCounting = true;
     clearTimeout(smartTimer);
     smartTimer = setTimeout(() => (smartTaxi = false), 15000);
+  }
+  const looks = ["focus", "pointermove", "pointerdown", "keydown", "touchstart"] as const;
+  const onVis = () => document.visibilityState === "visible" && document.hasFocus() && smartLook();
+  if (typeof window !== "undefined") {
+    for (const ev of looks) window.addEventListener(ev, smartLook, { passive: true });
+    document.addEventListener("visibilitychange", onVis);
+  }
+  $effect(() => {
+    if (!smartPending) return;
+    // Shown once the rollout is over.
+    if ((acGs ?? 0) > 30) return;
+    smartPending = 0;
+    smartTaxi = true;
+    smartCounting = false;
+    clearTimeout(smartTimer);
+    smartTimer = setTimeout(() => (smartTaxi = false), 20 * 60000);
+    if (document.visibilityState === "visible" && document.hasFocus()) smartLook();
   });
   // The pilot switched the runways off themselves: leave them be.
   $effect(() => {
@@ -287,7 +299,10 @@
   });
   onDestroy(() => {
     clearTimeout(smartTimer);
-    if (typeof document !== "undefined") document.removeEventListener("visibilitychange", onVis);
+    if (typeof window !== "undefined") {
+      for (const ev of looks) window.removeEventListener(ev, smartLook);
+      document.removeEventListener("visibilitychange", onVis);
+    }
   });
 
   /** The airport whose card is open. */
@@ -2356,7 +2371,7 @@
   </div>
 {/if}
 {#if smartTaxi}
-  <div class="smart-taxi" style:left="calc(50% + {insetLeft / 2}px)" role="status">Smart taxi</div>
+  <div class="smart-taxi" style:left="calc(50% + {insetLeft / 2}px)" style:bottom="{insetBottom + 26}px" role="status">Smart taxi</div>
 {/if}
 {#if aircraft && !follow && !history}
   <button class="follow" style:left="{16 + insetLeft}px" onclick={() => (follow = true)}>Follow aircraft</button>
@@ -2467,7 +2482,7 @@
     position: absolute;
     bottom: 26px;
     transform: translateX(-50%);
-    z-index: 3;
+    z-index: 6;
     pointer-events: none;
     font: 700 26px var(--cond, "Oswald", sans-serif);
     letter-spacing: 0.12em;
