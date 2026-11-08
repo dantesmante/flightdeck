@@ -290,16 +290,16 @@
     <button role="radio" aria-checked={!three} class:on={!three} onclick={() => onthree(false)}>2D</button>
     <button role="radio" aria-checked={three} class:on={three} onclick={() => onthree(true)}>3D</button>
   </div>
-  {#if onprofile}
-    <button class="layers-btn" class:open={profileOpen} aria-pressed={profileOpen} title="Vertical profile of the route" onclick={() => ((open = null), onprofile())}>
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 20h18" /><path d="M3 17l4-5 3 2 4-6 3 3 4-2" /><path d="M4 9.5L8 6h9l3 3.5" stroke-dasharray="2 2" /></svg>
-      <span>Profile</span>
-    </button>
-  {/if}
   {#if onmeasure}
     <button class="layers-btn" class:open={measuring} aria-pressed={measuring} title="Measure distances" onclick={() => ((open = null), onmeasure())}>
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 16.5L16.5 3 21 7.5 7.5 21z" /><path d="M7 12.5l1.8 1.8M10 9.5l2.6 2.6M13 6.5l1.8 1.8" /></svg>
       <span>Measure</span>
+    </button>
+  {/if}
+  {#if onprofile}
+    <button class="layers-btn" class:open={profileOpen} aria-pressed={profileOpen} title="Vertical profile of the route" onclick={() => ((open = null), onprofile())}>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 20h18" /><path d="M3 17l4-5 3 2 4-6 3 3 4-2" /><path d="M4 9.5L8 6h9l3 3.5" stroke-dasharray="2 2" /></svg>
+      <span>Profile</span>
     </button>
   {/if}
   {#if onpfd}

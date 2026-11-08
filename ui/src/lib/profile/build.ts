@@ -6,7 +6,7 @@
 
 export interface ProfileRoute {
   origin: { icao: string; lat: number; lon: number };
-  dest: { icao: string; lat: number; lon: number };
+  dest: { icao: string; lat: number; lon: number; runway?: string };
   fixes: { ident: string; lat: number; lon: number; alt_ft: number; stage?: string }[];
   /** Planned cruise altitude, feet (0: not known). */
   cruise_ft: number;
@@ -66,23 +66,60 @@ export function pointAt(pts: RoutePoint[], d: number): [number, number] {
   return [pts[0].lon, pts[0].lat];
 }
 
-/** Climb and descent gradients for routes with no planned climb or
- * descent of their own (drawn routes): about 300 ft per nm up, the usual
- * 3° (318 ft per nm) down. */
-const CLIMB_FT_NM = 300;
+// --- Planned climb and descent --------------------------------------------------
+// For a route without SimBrief's own altitudes (typed in or drawn), worked
+// out from the cruise altitude with the usual rules of thumb:
+//  - Climb: about 350 ft per nm below 10,000 ft, 250 ft per nm up to
+//    FL240 and 180 ft per nm above (a jet climbs fewer feet per mile as it
+//    gets higher and faster; a light aircraft rarely goes that high).
+//  - Descent: the 3-to-1 rule, a 3° path (318 ft per nm) all the way to
+//    the runway, with 5 nm level at 10,000 ft to slow to 250 kt when coming
+//    down from above it.
+// On a route too short to reach the cruise altitude, the climb and the
+// descent simply meet.
+
+/** Feet per nm of climb at an altitude. */
+const climbGradient = (alt: number) => (alt < 10000 ? 350 : alt < 24000 ? 250 : 180);
 const DESCENT_FT_NM = 318;
+const SLOW_DOWN_NM = 5;
+
+/** Altitude reached `d` nm after leaving `from` ft, climbing to `top`. */
+export function climbAlt(from: number, top: number, d: number): number {
+  let alt = from;
+  let left = d;
+  while (left > 0 && alt < top) {
+    const g = climbGradient(alt);
+    // Up to the next band edge (10,000 or 24,000) or the top.
+    const edge = Math.min(top, alt < 10000 ? 10000 : alt < 24000 ? 24000 : top);
+    const need = (edge - alt) / g;
+    if (need >= left) return alt + left * g;
+    alt = edge;
+    left -= need;
+  }
+  return Math.min(alt, top);
+}
+
+/** Highest the aircraft may be `d` nm before landing at `to` ft, on the
+ * way down from `top`. */
+export function descentAlt(to: number, top: number, d: number): number {
+  const slow = top > 11000 && to < 10000;
+  const toTen = (10000 - to) / DESCENT_FT_NM;
+  if (!slow || d <= toTen) return Math.min(top, to + d * DESCENT_FT_NM);
+  if (d <= toTen + SLOW_DOWN_NM) return 10000;
+  return Math.min(top, 10000 + (d - toTen - SLOW_DOWN_NM) * DESCENT_FT_NM);
+}
 
 /**
  * Planned altitude along the route as [distance, altitude] corners, from
  * the origin's to the destination's elevation. SimBrief's fixes carry its
- * own climb and descent; a route flown at one altitude throughout gets a
- * climb out of the origin and a 3° descent into the destination.
+ * own climb and descent; a route flown at one altitude throughout gets the
+ * climb and descent above.
  */
 export function plannedPath(pts: RoutePoint[], cruiseFt: number, origElev: number, destElev: number): [number, number][] {
   const total = pts[pts.length - 1].d;
   const alts = pts.slice(1, -1).map((p) => p.alt).filter((a) => !Number.isNaN(a));
   const cruise = cruiseFt > 0 ? cruiseFt : alts.length ? Math.max(...alts) : 0;
-  if (cruise <= 0) return [];
+  if (cruise <= 0 || total <= 0) return [];
   const shaped = alts.length > 1 && new Set(alts.map((a) => Math.round(a / 100))).size > 1;
   if (shaped) {
     const out: [number, number][] = [[0, origElev]];
@@ -90,23 +127,14 @@ export function plannedPath(pts: RoutePoint[], cruiseFt: number, origElev: numbe
     out.push([total, destElev]);
     return out;
   }
-  // One altitude throughout: ramps up and down, meeting in the middle on a
-  // route too short to reach it.
-  let toc = Math.max(0, (cruise - origElev) / CLIMB_FT_NM);
-  let tod = total - Math.max(0, (cruise - destElev) / DESCENT_FT_NM);
-  let top = cruise;
-  if (toc > tod) {
-    // Where the climb and descent lines cross.
-    const x = (destElev + DESCENT_FT_NM * total - origElev) / (CLIMB_FT_NM + DESCENT_FT_NM);
-    toc = tod = Math.max(0, Math.min(total, x));
-    top = origElev + CLIMB_FT_NM * toc;
+  // Sampled finely enough to show every bend (a few hundred points).
+  const n = 300;
+  const out: [number, number][] = [];
+  for (let i = 0; i <= n; i++) {
+    const d = (total * i) / n;
+    out.push([d, Math.min(cruise, climbAlt(origElev, cruise, d), descentAlt(destElev, cruise, total - d))]);
   }
-  return [
-    [0, origElev],
-    [toc, top],
-    [tod, top],
-    [total, destElev],
-  ];
+  return out;
 }
 
 /** Planned altitude at distance d. */
@@ -317,3 +345,112 @@ export function airspaceAlong(pts: RoutePoint[], fc: GeoJSON.FeatureCollection, 
   // Big boxes first, so smaller ones draw on top of them.
   return out.sort((a, b) => b.ceiling - b.floor - (a.ceiling - a.floor));
 }
+
+// --- Airspace as one shape ---------------------------------------------------------
+
+export interface Rect {
+  x0: number;
+  x1: number;
+  /** Top and bottom on screen (y0 < y1). */
+  y0: number;
+  y1: number;
+}
+
+/**
+ * Overlapping and touching boxes (class B shelves, say) as one shape: an SVG
+ * fill path covering their union and an outline path around it only, with
+ * no lines between the boxes. Also where each separate stretch of it starts,
+ * for a label.
+ */
+export function unionShape(rects: Rect[]): { fill: string; edge: string; labels: { x: number; y: number }[] } {
+  if (!rects.length) return { fill: "", edge: "", labels: [] };
+  const uniq = (v: number[]) => [...new Set(v.map((n) => Math.round(n * 10) / 10))].sort((a, b) => a - b);
+  const xs = uniq(rects.flatMap((r) => [r.x0, r.x1]));
+  const ys = uniq(rects.flatMap((r) => [r.y0, r.y1]));
+  const nx = xs.length - 1;
+  const ny = ys.length - 1;
+  const on: boolean[][] = [];
+  for (let i = 0; i < nx; i++) {
+    on.push([]);
+    const cx = (xs[i] + xs[i + 1]) / 2;
+    for (let j = 0; j < ny; j++) {
+      const cy = (ys[j] + ys[j + 1]) / 2;
+      on[i].push(rects.some((r) => cx > r.x0 && cx < r.x1 && cy > r.y0 && cy < r.y1));
+    }
+  }
+  const at = (i: number, j: number) => i >= 0 && i < nx && j >= 0 && j < ny && on[i][j];
+  // Fill: each column's covered runs, a hair wider so neighbours meet
+  // without a seam (one path, so the overlap isn't darker).
+  let fill = "";
+  for (let i = 0; i < nx; i++) {
+    for (let j = 0; j < ny; j++) {
+      if (!on[i][j]) continue;
+      let k = j;
+      while (k + 1 < ny && on[i][k + 1]) k++;
+      fill += `M${xs[i] - 0.3} ${ys[j]}H${xs[i + 1] + 0.3}V${ys[k + 1]}H${xs[i] - 0.3}Z`;
+      j = k;
+    }
+  }
+  // Outline: cell sides with the inside on one side only, joined into
+  // straight runs.
+  let edge = "";
+  for (let i = 0; i <= nx; i++) {
+    for (let j = 0; j < ny; j++) {
+      if (at(i - 1, j) === at(i, j)) continue;
+      let k = j;
+      while (k + 1 < ny && at(i - 1, k + 1) !== at(i, k + 1)) k++;
+      edge += `M${xs[i]} ${ys[j]}V${ys[k + 1]}`;
+      j = k;
+    }
+  }
+  for (let j = 0; j <= ny; j++) {
+    for (let i = 0; i < nx; i++) {
+      if (at(i, j - 1) === at(i, j)) continue;
+      let k = i;
+      while (k + 1 < nx && at(k + 1, j - 1) !== at(k + 1, j)) k++;
+      edge += `M${xs[i]} ${ys[j]}H${xs[k + 1]}`;
+      i = k;
+    }
+  }
+  // A label at the top left of each separate stretch along the route.
+  const labels: { x: number; y: number }[] = [];
+  let inRun = false;
+  for (let i = 0; i < nx; i++) {
+    const top = on[i].indexOf(true);
+    if (top >= 0 && !inRun) labels.push({ x: xs[i], y: ys[top] });
+    inRun = top >= 0;
+  }
+  return { fill, edge, labels };
+}
+
+/** Initial great-circle bearing from a to b, degrees true. */
+export function bearingDeg(aLat: number, aLon: number, bLat: number, bLon: number): number {
+  const p1 = rad(aLat);
+  const p2 = rad(bLat);
+  const dl = rad(bLon - aLon);
+  const y = Math.sin(dl) * Math.cos(p2);
+  const x = Math.cos(p1) * Math.sin(p2) - Math.sin(p1) * Math.cos(p2) * Math.cos(dl);
+  return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+}
+
+/** The point `nm` from (lat, lon) on a true bearing: [lon, lat]. */
+export function destinationNm(lat: number, lon: number, brgDeg: number, nm: number): [number, number] {
+  const d = nm / R_NM;
+  const b = rad(brgDeg);
+  const p1 = rad(lat);
+  const l1 = rad(lon);
+  const p2 = Math.asin(Math.sin(p1) * Math.cos(d) + Math.cos(p1) * Math.sin(d) * Math.cos(b));
+  const l2 = l1 + Math.atan2(Math.sin(b) * Math.sin(d) * Math.cos(p1), Math.cos(d) - Math.sin(p1) * Math.sin(p2));
+  return [((((l2 * 180) / Math.PI) + 540) % 360) - 180, (p2 * 180) / Math.PI];
+}
+
+/** Smallest difference between two headings, degrees (0–180). */
+export function headingGap(a: number, b: number): number {
+  const d = Math.abs((((a - b) % 360) + 540) % 360 - 180);
+  return d;
+}
+
+/** Feet per nm of a 3° glidepath. */
+export const GLIDE_FT_NM = 6076.12 * Math.tan((3 * Math.PI) / 180);
+/** Threshold crossing height, ft. */
+export const TCH_FT = 50;

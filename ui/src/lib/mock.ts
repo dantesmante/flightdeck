@@ -511,6 +511,19 @@ export async function mockCall<T>(cmd: string, _args?: Record<string, unknown>):
     const d = Number(_args?.detail ?? 1);
     return AIRPORTS.filter((_, i) => d >= 3 || i % (d === 2 ? 2 : 4) === 0).map((a, i) => [a.icao, a.name, Math.min(2, i % 3), a.lon, a.lat]) as T;
   }
+  if (cmd === "runway_ends") {
+    // Portland: 10R/28L and 10L/28R.
+    if (_args?.ident !== "KPDX") return null as T;
+    return {
+      elevation_ft: 31,
+      ends: [
+        { ident: "10R", lat: 45.5889, lon: -122.6094, heading_deg: 100.5 },
+        { ident: "28L", lat: 45.5823, lon: -122.5671, heading_deg: 280.5 },
+        { ident: "10L", lat: 45.5942, lon: -122.6012, heading_deg: 100.5 },
+        { ident: "28R", lat: 45.5891, lon: -122.5693, heading_deg: 280.5 },
+      ],
+    } as T;
+  }
   if (cmd === "airport_card") {
     const a = AIRPORTS.find((x) => x.icao === _args?.ident) ?? AIRPORTS[0];
     return {
@@ -592,4 +605,23 @@ export function mockListen(event: string, cb: (p: unknown) => void) {
 /** Tell the interface the status changed, as the app does. */
 function pushStatus() {
   for (const cb of listeners.status ?? []) cb({ ...status, track_tail: [] });
+}
+
+// Tests: a landing (Smart taxi) and the battery switch, and the aircraft
+// put somewhere. Mock only.
+if (typeof window !== "undefined") {
+  const w = window as unknown as Record<string, unknown>;
+  w.__fdLand = () => {
+    status.last_landing = { t_ms: Date.now(), vs_fpm: -120, vs_source: "sim", g_peak: 1.2, gs_kt: 60, headwind_kt: 4, crosswind_kt: 2, bounces: 0, touch_and_go: false };
+    if (status.telemetry) status.telemetry = { ...status.telemetry, on_ground: true, powered: true };
+    pushStatus();
+  };
+  w.__fdPower = (on: boolean) => {
+    if (status.telemetry) status.telemetry = { ...status.telemetry, powered: on };
+    pushStatus();
+  };
+  w.__fdAt = (lat: number, lon: number, alt: number, onGround = false) => {
+    if (status.telemetry) status.telemetry = { ...status.telemetry, lat, lon, alt_msl_ft: alt, on_ground: onGround };
+    pushStatus();
+  };
 }

@@ -4,20 +4,37 @@
   // survey), FAA obstacles and US class B/C/D airspace along the way, and
   // the aircraft, side on, flying left to right. Plain SVG drawn to the
   // panel's size; the data is worked out once per route.
-  import { api } from "../api";
+  //
+  // It zooms and scrolls sideways only, like a sound editor: the wheel
+  // zooms where the pointer is, dragging (or a sideways swipe) scrolls.
+  //
+  // Glidepath: the final approach on its own, the aircraft on the left, the
+  // runway threshold on the right and a 3° path drawn back from it. It opens
+  // by itself once the aircraft is within 10 nm of the destination in the
+  // air, or with its button.
+  import { onDestroy } from "svelte";
+  import { api, type RunwayEnd, type RunwayEnds } from "../api";
   import {
     airspaceAlong,
     altAt,
+    bearingDeg,
+    destinationNm,
+    gcNm,
+    GLIDE_FT_NM,
     groundFt,
     groundZoom,
+    headingGap,
     obstaclesAlong,
     plannedPath,
     pointAt,
     project,
     routePoints,
+    TCH_FT,
+    unionShape,
     type ProfileAirspace,
     type ProfileObstacle,
     type ProfileRoute,
+    type RoutePoint,
   } from "./build";
 
   let {
@@ -27,46 +44,45 @@
   }: {
     route: ProfileRoute | null;
     /** The aircraft while the sim is connected; `tracking` while a flight is recorded. */
-    aircraft: { lat: number; lon: number; alt: number; tracking: boolean } | null;
+    aircraft: { lat: number; lon: number; alt: number; onGround: boolean; tracking: boolean } | null;
     onclose: () => void;
   } = $props();
 
-  // --- Data ------------------------------------------------------------------
+  // --- The route -----------------------------------------------------------
   const pts = $derived(route ? routePoints(route) : []);
   const total = $derived(pts.length ? pts[pts.length - 1].d : 0);
   /** The route's identity: work out the ground and the rest again only when it changes. */
   const key = $derived(pts.map((p) => `${p.ident}${p.lat.toFixed(4)}${p.lon.toFixed(4)}${Math.round(p.alt || 0)}`).join("|"));
 
-  let ground = $state<{ d: number; ft: number | null }[]>([]);
+  type Ground = { d: number; ft: number | null }[];
+  /** Ground under a line of points, sampled `n` times at tile zoom z. */
+  function sampleGround(p: RoutePoint[], n: number, z: number, set: (g: Ground) => void): () => void {
+    const t = p[p.length - 1].d;
+    let gone = false;
+    const step = Math.max(t / n, 0.05);
+    const ds: number[] = [];
+    for (let d = 0; d < t; d += step) ds.push(d);
+    ds.push(t);
+    groundFt(ds.map((d) => pointAt(p, d)), z).then((ft) => {
+      if (!gone) set(ds.map((d, i) => ({ d, ft: ft[i] })));
+    });
+    return () => (gone = true);
+  }
+
+  let ground = $state<Ground>([]);
   let groundBusy = $state(false);
   $effect(() => {
     void key;
     const p = pts;
-    const t = total;
     ground = [];
-    if (p.length < 2 || t <= 0) return;
-    let gone = false;
-    const step = Math.max(0.25, t / 400);
-    const ds: number[] = [];
-    for (let d = 0; d < t; d += step) ds.push(d);
-    ds.push(t);
+    if (p.length < 2 || total <= 0) return;
     groundBusy = true;
-    groundFt(
-      ds.map((d) => pointAt(p, d)),
-      groundZoom(t),
-    ).then((ft) => {
-      if (gone) return;
-      ground = ds.map((d, i) => ({ d, ft: ft[i] }));
-      groundBusy = false;
-    });
-    return () => {
-      gone = true;
-    };
+    return sampleGround(p, 400, groundZoom(total), (g) => ((ground = g), (groundBusy = false)));
   });
 
   // Obstacles and airspace: the same FAA files the map layers use, loaded
   // once (they are cached on the PC).
-  let obstFc: GeoJSON.FeatureCollection | null = null;
+  let obstFc = $state<GeoJSON.FeatureCollection | null>(null);
   let aspFc: GeoJSON.FeatureCollection | null = null;
   let obstacles = $state<ProfileObstacle[]>([]);
   let airspace = $state<ProfileAirspace[]>([]);
@@ -81,7 +97,7 @@
     (async () => {
       try {
         obstFc ??= JSON.parse(await api.usObstacles()) as GeoJSON.FeatureCollection;
-        if (!gone) obstacles = obstaclesAlong(p, obstFc);
+        if (!gone) obstacles = obstaclesAlong(p, obstFc!);
       } catch {
         if (!gone) faaNote = "FAA obstacles not reachable";
       }
@@ -97,10 +113,10 @@
     };
   });
 
-  const elevAt = (d: number): number | null => {
-    if (!ground.length) return null;
-    let best = ground[0];
-    for (const g of ground) if (Math.abs(g.d - d) < Math.abs(best.d - d)) best = g;
+  const elevIn = (g: Ground, d: number): number | null => {
+    if (!g.length) return null;
+    let best = g[0];
+    for (const p of g) if (Math.abs(p.d - d) < Math.abs(best.d - d)) best = p;
     return best.ft;
   };
   const origElev = $derived(ground[0]?.ft ?? 0);
@@ -115,74 +131,240 @@
     return { ...at, alt: aircraft.alt, tracking: aircraft.tracking, near: at.off <= 25 };
   });
 
+  // Layers of the chart, switched in its header.
+  let show = $state({ terrain: true, obst: true, asp: true });
+
   // Highest ground or obstacle top (ahead of the aircraft while it flies the
   // route), and the cruise altitude's margin over it.
+  const ahead = $derived(!!(ac?.near && ac.tracking));
   const highest = $derived.by(() => {
-    const from = ac?.near && ac.tracking ? ac.d : 0;
+    const from = ahead ? ac!.d : 0;
     let h = -Infinity;
     for (const g of ground) if (g.d >= from && g.ft != null && g.ft > h) h = g.ft;
     if (show.obst) for (const o of obstacles) if (o.d >= from && o.amsl > h) h = o.amsl;
     return Number.isFinite(h) ? h : null;
   });
-  const ahead = $derived(!!(ac?.near && ac.tracking));
 
-  // Layers of the chart, switched in its header.
-  let show = $state({ terrain: true, obst: true, asp: true });
+  // --- Glidepath -------------------------------------------------------------
+  let mode = $state<"route" | "glide">("route");
+  const FINAL_NM = 10;
+  let ends = $state<RunwayEnds | null>(null);
+  $effect(() => {
+    const icao = route?.dest.icao;
+    ends = null;
+    if (!icao) return;
+    let gone = false;
+    api.runwayEnds(icao).then(
+      (r) => !gone && (ends = r),
+      () => {},
+    );
+    return () => (gone = true);
+  });
+  const toDest = $derived(aircraft && route ? gcNm(aircraft.lat, aircraft.lon, route.dest.lat, route.dest.lon) : null);
+  // Opens by itself once per approach: within 10 nm in the air; ready again
+  // after going back beyond 15 nm.
+  let autoDone = false;
+  $effect(() => {
+    if (toDest == null || !aircraft) return;
+    if (toDest > 15) autoDone = false;
+    else if (!autoDone && toDest <= FINAL_NM && !aircraft.onGround && aircraft.tracking) {
+      autoDone = true;
+      mode = "glide";
+    }
+  });
+
+  /** The runway being flown to: the plan's (or the one the aircraft is lined
+   * up with), kept unless another fits clearly better. */
+  let rwyIdent = "";
+  const rwy = $derived.by<RunwayEnd | null>(() => {
+    if (!route) return null;
+    const list = ends?.ends ?? [];
+    const planned = route.dest.runway ? list.find((e) => e.ident === route.dest.runway) : undefined;
+    if (planned) return planned;
+    if (!list.length) {
+      // No surveyed runways: the airport itself, approached from where the
+      // aircraft is (or along the route's last leg).
+      const from = aircraft ?? pts[pts.length - 2] ?? null;
+      const hdg = from ? bearingDeg(from.lat, from.lon, route.dest.lat, route.dest.lon) : 0;
+      return { ident: route.dest.icao, lat: route.dest.lat, lon: route.dest.lon, heading_deg: hdg };
+    }
+    const ref = aircraft ?? pts[Math.max(0, pts.length - 2)];
+    if (!ref) return list[0];
+    // Lined up: the aircraft out on the extended centreline, behind the threshold.
+    const score = (e: RunwayEnd) => {
+      const brg = bearingDeg(e.lat, e.lon, ref.lat, ref.lon);
+      const angle = headingGap(brg, (e.heading_deg + 180) % 360);
+      const dist = gcNm(e.lat, e.lon, ref.lat, ref.lon);
+      return angle + Math.abs(Math.sin((angle * Math.PI) / 180) * dist) * 20;
+    };
+    let best = list[0];
+    for (const e of list) if (score(e) < score(best)) best = e;
+    const keep = list.find((e) => e.ident === rwyIdent);
+    const pick = keep && score(keep) < score(best) + 8 ? keep : best;
+    rwyIdent = pick.ident;
+    return pick;
+  });
+  const thrElev = $derived(ends?.elevation_ft ?? destElev);
+  /** The approach shown: R nm of extended centreline out to the threshold.
+   * Wider when the aircraft is farther out; kept steady otherwise. */
+  let R = $state(10);
+  const acToThr = $derived(aircraft && rwy ? gcNm(aircraft.lat, aircraft.lon, rwy.lat, rwy.lon) : null);
+  let glideOpen = false;
+  $effect(() => {
+    if (mode !== "glide") {
+      glideOpen = false;
+      return;
+    }
+    const d = acToThr;
+    // A little past the aircraft, so it starts near the left edge.
+    const want = d == null ? 10 : Math.max(3, Math.min(30, Math.ceil(d * 1.12 + 0.3)));
+    if (!glideOpen || d == null || d > R * 0.95 || want < R * 0.5) R = want;
+    glideOpen = true;
+  });
+  const gPts = $derived.by<RoutePoint[]>(() => {
+    if (!rwy) return [];
+    const [lon, lat] = destinationNm(rwy.lat, rwy.lon, (rwy.heading_deg + 180) % 360, R);
+    return [
+      { ident: "", lat, lon, d: 0, alt: NaN },
+      { ident: rwy.ident, lat: rwy.lat, lon: rwy.lon, d: R, alt: NaN },
+    ];
+  });
+  const gKey = $derived(gPts.map((p) => `${p.lat.toFixed(4)},${p.lon.toFixed(4)}`).join("|"));
+  let gGround = $state<Ground>([]);
+  $effect(() => {
+    void gKey;
+    const p = gPts;
+    gGround = [];
+    if (mode !== "glide" || p.length < 2) return;
+    return sampleGround(p, 200, R <= 12 ? 12 : 11, (g) => (gGround = g));
+  });
+  const gObst = $derived(mode === "glide" && obstFc && gPts.length ? obstaclesAlong(gPts, obstFc, 1) : []);
+  /** The 3° path: threshold crossing height, rising 318 ft per nm. */
+  const glideAt = (d: number) => thrElev + TCH_FT + (R - d) * GLIDE_FT_NM;
+  const gAc = $derived.by(() => {
+    if (!aircraft || gPts.length < 2 || acToThr == null) return null;
+    const at = project(gPts, aircraft.lat, aircraft.lon);
+    return { d: R - acToThr, off: at.off, alt: aircraft.alt, tracking: aircraft.tracking, near: at.off <= 3 && acToThr <= R * 1.05 };
+  });
+  const deviation = $derived(gAc?.near ? gAc.alt - glideAt(gAc.d) : null);
+
+  // --- What's on the chart, for either view -----------------------------------
+  const glide = $derived(mode === "glide" && gPts.length > 1);
+  const span = $derived(glide ? R : total);
+  const G = $derived(glide ? gGround : ground);
+  const O = $derived(glide ? gObst : obstacles);
+  const plan = $derived<[number, number][]>(glide ? [[0, glideAt(0)], [R, thrElev + TCH_FT]] : path);
+  const A = $derived(glide ? gAc : ac);
+  const elevAt = (d: number) => elevIn(G, d);
+
+  // --- Sideways zoom and scroll ----------------------------------------------
+  let view = $state({ a: 0, b: 1 });
+  let viewFor = "";
+  $effect(() => {
+    // A new route or view: show all of it.
+    const k = `${glide ? "g" + gKey : "r" + key}`;
+    if (k !== viewFor) {
+      viewFor = k;
+      view = { a: 0, b: span || 1 };
+    } else if (view.b > span || view.a < 0) view = { a: 0, b: span || 1 };
+  });
+  const zoomed = $derived(span > 0 && view.b - view.a < span * 0.999);
+  const minSpan = $derived(Math.min(span, glide ? 0.5 : 2));
+  function setView(a: number, b: number) {
+    let w = Math.max(minSpan, Math.min(span, b - a));
+    a = Math.max(0, Math.min(span - w, a));
+    if (!Number.isFinite(a) || w <= 0) return;
+    view = { a, b: a + w };
+  }
+  function zoomAt(d: number, factor: number) {
+    const w = (view.b - view.a) * factor;
+    const t = (d - view.a) / (view.b - view.a);
+    setView(d - t * w, d - t * w + w);
+  }
+  const zoomBy = (factor: number) => zoomAt((view.a + view.b) / 2, factor);
+  const fit = () => setView(0, span);
 
   // --- Chart -------------------------------------------------------------------
   let w = $state(0);
   let h = $state(0);
-  const M = { l: 58, r: 18, t: 30, b: 42 };
+  const M = $derived({ l: 58, r: 18, t: 30, b: zoomed ? 52 : 42 });
   const cw = $derived(Math.max(10, w - M.l - M.r));
   const ch = $derived(Math.max(10, h - M.t - M.b));
-  const yMax = $derived.by(() => {
-    let top = Math.max(cruise, highest ?? 0, ac?.near ? ac.alt : 0, 1000);
-    for (const a of airspace) if (show.asp) top = Math.max(top, Math.min(a.ceiling, cruise * 1.4 || a.ceiling));
-    const step = niceStep(top * 1.15, 5);
-    return Math.ceil((top * 1.12) / step) * step;
+  const yMin = $derived.by(() => {
+    if (!glide) return 0;
+    let lo = thrElev;
+    for (const g of G) if (g.ft != null && g.ft < lo) lo = g.ft;
+    return Math.max(0, Math.floor((lo - 150) / 100) * 100);
   });
-  const x = (d: number) => M.l + (total > 0 ? (d / total) * cw : 0);
-  const y = (ft: number) => M.t + (1 - Math.max(0, ft) / yMax) * ch;
+  const yMax = $derived.by(() => {
+    let top: number;
+    if (glide) {
+      top = Math.max(glideAt(view.a), A?.near ? A.alt : 0, thrElev + 500);
+      for (const o of O) if (o.d >= view.a) top = Math.max(top, o.amsl);
+    } else {
+      top = Math.max(cruise, highest ?? 0, A?.near ? A.alt : 0, 1000);
+      for (const a of airspace) if (show.asp) top = Math.max(top, Math.min(a.ceiling, cruise * 1.4 || a.ceiling));
+    }
+    const step = niceStep((top - yMin) * 1.15, 5);
+    return yMin + Math.ceil(((top - yMin) * 1.12) / step) * step;
+  });
+  const x = (d: number) => M.l + ((d - view.a) / (view.b - view.a)) * cw;
+  const y = (ft: number) => M.t + (1 - (Math.max(yMin, ft) - yMin) / (yMax - yMin)) * ch;
+  const dAt = (px: number) => view.a + ((px - M.l) / cw) * (view.b - view.a);
 
-  function niceStep(span: number, n: number): number {
-    const raw = span / n;
-    for (const s of [1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 2500, 5000, 10000, 20000, 25000, 50000]) if (s >= raw) return s;
+  function niceStep(range: number, n: number): number {
+    const raw = range / n;
+    for (const s of [0.1, 0.2, 0.25, 0.5, 1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 2500, 5000, 10000, 20000, 25000, 50000]) if (s >= raw) return s;
     return 100000;
   }
   const yTicks = $derived.by(() => {
-    const step = niceStep(yMax, Math.max(2, Math.floor(ch / 42)));
+    const step = niceStep(yMax - yMin, Math.max(2, Math.floor(ch / 42)));
     const out: number[] = [];
-    for (let v = 0; v <= yMax + 1; v += step) out.push(v);
+    for (let v = Math.ceil(yMin / step) * step; v <= yMax + 1; v += step) out.push(v);
     return out;
   });
   const xTicks = $derived.by(() => {
-    if (total <= 0) return [];
-    const step = niceStep(total, Math.max(2, Math.floor(cw / 70)));
+    if (span <= 0) return [];
+    const step = niceStep(view.b - view.a, Math.max(2, Math.floor(cw / 70)));
     const out: number[] = [];
-    for (let v = 0; v <= total + 1e-6; v += step) out.push(v);
+    for (let v = Math.ceil((view.a - 1e-9) / step) * step; v <= view.b + 1e-6; v += step) out.push(Math.round(v * 1000) / 1000);
     return out;
   });
-  const fl = (ft: number) => `FL${String(Math.round(ft / 100)).padStart(3, "0")}`;
+  const fl = (ft: number) => (glide ? fmt(ft) : `FL${String(Math.round(ft / 100)).padStart(3, "0")}`);
   const fmt = (n: number) => Math.round(n).toLocaleString("en-US");
-  const nm = (n: number) => (n < 10 && n % 1 ? n.toFixed(1) : String(Math.round(n)));
+  const nm = (n: number) => (n < 10 && Math.abs(n % 1) > 0.01 ? n.toFixed(1) : String(Math.round(n)));
 
   const groundPath = $derived.by(() => {
-    const g = ground.filter((p) => p.ft != null) as { d: number; ft: number }[];
+    const g = G.filter((p) => p.ft != null && p.d >= view.a - span / 200 && p.d <= view.b + span / 200) as { d: number; ft: number }[];
     if (g.length < 2) return "";
-    let s = `M ${x(g[0].d)} ${y(0)}`;
+    let s = `M ${x(g[0].d)} ${y(yMin)}`;
     for (const p of g) s += ` L ${x(p.d)} ${y(p.ft)}`;
-    return s + ` L ${x(g[g.length - 1].d)} ${y(0)} Z`;
+    return s + ` L ${x(g[g.length - 1].d)} ${y(yMin)} Z`;
   });
-  const planLine = $derived(path.map(([d, a]) => `${x(d)},${y(a)}`).join(" "));
+  const planLine = $derived(plan.map(([d, a]) => `${x(d)},${y(a)}`).join(" "));
+
+  /** Airspace by class, each as one merged shape. */
+  const aspShapes = $derived.by(() => {
+    if (glide || !show.asp) return [];
+    return (["B", "C", "D"] as const).map((cls) => ({
+      cls,
+      ...unionShape(
+        airspace
+          .filter((a) => a.cls === cls && a.to > view.a && a.from < view.b)
+          .map((a) => ({ x0: x(a.from), x1: x(a.to), y0: y(Math.min(a.ceiling, yMax)), y1: y(a.floor) })),
+      ),
+    }));
+  });
 
   /** Fix names along the top, leaving out those that would overlap. */
   const fixLabels = $derived.by(() => {
+    if (glide) return [];
     const out: { d: number; ident: string }[] = [];
-    // Clear of the airport names at both ends.
-    let last = M.l + 4;
+    let last = M.l + (view.a === 0 ? 40 : 0);
+    const end = M.l + cw - (view.b >= span - 1e-6 ? 44 : 0);
     for (const p of pts.slice(1, -1)) {
       const px = x(p.d);
-      if (px - last < 44 || px > M.l + cw - 44) continue;
+      if (px < M.l || px - last < 44 || px > end) continue;
       out.push({ d: p.d, ident: p.ident });
       last = px;
     }
@@ -190,45 +372,134 @@
   });
 
   function obstColor(o: ProfileObstacle): string {
-    const plan = altAt(path, o.d);
-    if (Number.isNaN(plan)) return "#ffffff";
-    return o.amsl >= plan - 100 ? "#ff3b30" : o.amsl >= plan - 1000 ? "#ecc428" : "#ffffff";
+    const p = altAt(plan, o.d);
+    if (Number.isNaN(p)) return "#ffffff";
+    return o.amsl >= p - 100 ? "#ff3b30" : o.amsl >= p - 1000 ? "#ecc428" : "#ffffff";
   }
 
-  // Hover: distance, plan and ground under the pointer.
+  // --- Pointer: hover readout, drag to scroll, wheel and pinch to zoom -------
+  let svgEl = $state<SVGSVGElement | null>(null);
   let hoverD = $state<number | null>(null);
-  function move(e: PointerEvent) {
-    const r = (e.currentTarget as SVGElement).getBoundingClientRect();
-    const px = e.clientX - r.left;
-    hoverD = px < M.l || px > M.l + cw || total <= 0 ? null : ((px - M.l) / cw) * total;
+  const touches = new Map<number, number>();
+  let drag: { x: number; a: number; b: number } | null = null;
+  let pinch: { dist: number; mid: number; a: number; b: number } | null = null;
+  const localX = (e: { clientX: number }) => e.clientX - (svgEl?.getBoundingClientRect().left ?? 0);
+  function down(e: PointerEvent) {
+    touches.set(e.pointerId, localX(e));
+    (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
+    if (touches.size === 1) drag = { x: localX(e), a: view.a, b: view.b };
+    else if (touches.size === 2) {
+      const [p, q] = [...touches.values()];
+      pinch = { dist: Math.abs(p - q) || 1, mid: dAt((p + q) / 2), a: view.a, b: view.b };
+      drag = null;
+    }
   }
+  function move(e: PointerEvent) {
+    const px = localX(e);
+    if (touches.has(e.pointerId)) touches.set(e.pointerId, px);
+    if (pinch && touches.size >= 2) {
+      const [p, q] = [...touches.values()];
+      const f = pinch.dist / (Math.abs(p - q) || 1);
+      const wNew = (pinch.b - pinch.a) * f;
+      const t = ((p + q) / 2 - M.l) / cw;
+      setView(pinch.mid - t * wNew, pinch.mid - t * wNew + wNew);
+      hoverD = null;
+      return;
+    }
+    if (drag) {
+      const dd = ((px - drag.x) / cw) * (drag.b - drag.a);
+      if (Math.abs(px - drag.x) > 2) setView(drag.a - dd, drag.b - dd);
+    }
+    hoverD = e.pointerType === "touch" && drag ? null : px < M.l || px > M.l + cw || span <= 0 ? null : dAt(px);
+  }
+  function up(e: PointerEvent) {
+    touches.delete(e.pointerId);
+    if (touches.size < 2) pinch = null;
+    if (touches.size === 0) drag = null;
+  }
+  // The wheel needs a listener that may cancel the page's own scrolling.
+  $effect(() => {
+    const el = svgEl;
+    if (!el) return;
+    const wheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const scrollX = e.shiftKey ? e.deltaY : e.deltaX;
+      if (Math.abs(scrollX) > Math.abs(e.deltaY) || e.shiftKey) {
+        const dd = (scrollX / cw) * (view.b - view.a);
+        setView(view.a + dd, view.b + dd);
+      } else zoomAt(dAt(localX(e)), Math.exp(e.deltaY * (e.deltaMode === 1 ? 0.05 : 0.0015)));
+    };
+    el.addEventListener("wheel", wheel, { passive: false });
+    return () => el.removeEventListener("wheel", wheel);
+  });
+  // The scroll bar under the chart, while zoomed in.
+  let barDrag: { x: number; a: number } | null = null;
+  function barDown(e: PointerEvent) {
+    e.stopPropagation();
+    (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
+    barDrag = { x: e.clientX, a: view.a };
+  }
+  function barMove(e: PointerEvent) {
+    if (!barDrag) return;
+    e.stopPropagation();
+    const dd = ((e.clientX - barDrag.x) / cw) * span;
+    setView(barDrag.a + dd, barDrag.a + dd + (view.b - view.a));
+  }
+  const barUp = () => (barDrag = null);
+  onDestroy(() => touches.clear());
 </script>
 
 <section class="profile" aria-label="Flight profile">
   <header>
-    <h3>Flight profile</h3>
+    <h3>{glide ? "Glidepath" : "Flight profile"}</h3>
     {#if route}
-      <span class="route">{route.origin.icao} → {route.dest.icao} · {nm(total)} nm</span>
-      <span class="read">
-        <span class="k">{ahead ? "Highest ahead" : "Highest"}</span>
-        <b>{highest != null ? `${fmt(highest)} ft` : groundBusy ? "…" : "–"}</b>
-      </span>
-      {#if cruise > 0}
-        <span class="read" title="Cruise altitude above the highest ground or obstacle">
-          <span class="k">Clearance</span>
-          <b class:warn={highest != null && cruise - highest < 1000}>{highest != null ? `${fmt(cruise - highest)} ft` : "–"}</b>
+      {#if glide && rwy}
+        <span class="route">{route.dest.icao} {rwy.ident !== route.dest.icao ? `RWY ${rwy.ident}` : ""} · 3°</span>
+        <span class="read">
+          <span class="k">To threshold</span>
+          <b>{acToThr != null ? `${nm(acToThr)} nm` : "–"}</b>
         </span>
+        <span class="read" title="Height above (+) or below (−) the 3° glidepath">
+          <span class="k">Glidepath</span>
+          <b class:warn={deviation != null && Math.abs(deviation) > 300}>
+            {deviation == null ? "–" : Math.abs(deviation) < 50 ? "On path" : `${deviation > 0 ? "+" : "−"}${fmt(Math.abs(deviation))} ft`}
+          </b>
+        </span>
+        {#if gAc && !gAc.near && acToThr != null && acToThr <= R * 1.05}<span class="note">{nm(gAc.off)} nm off the centreline</span>{/if}
+      {:else}
+        <span class="route">{route.origin.icao} → {route.dest.icao} · {nm(total)} nm</span>
+        <span class="read">
+          <span class="k">{ahead ? "Highest ahead" : "Highest"}</span>
+          <b>{highest != null ? `${fmt(highest)} ft` : groundBusy ? "…" : "–"}</b>
+        </span>
+        {#if cruise > 0}
+          <span class="read" title="Cruise altitude above the highest ground or obstacle">
+            <span class="k">Clearance</span>
+            <b class:warn={highest != null && cruise - highest < 1000}>{highest != null ? `${fmt(cruise - highest)} ft` : "–"}</b>
+          </span>
+        {/if}
+        {#if ac && !ac.near}<span class="note">Aircraft {Math.round(ac.off)} nm off the route</span>{/if}
       {/if}
-      {#if ac && !ac.near}<span class="note">Aircraft {Math.round(ac.off)} nm off the route</span>{/if}
       {#if faaNote}<span class="note">{faaNote}</span>{/if}
     {/if}
     <span class="grow"></span>
     {#if route}
+      <div class="chips" role="group" aria-label="Zoom">
+        <button class="sq" aria-label="Zoom out" onclick={() => zoomBy(1.6)} disabled={!zoomed}>−</button>
+        <button class="sq" aria-label="Zoom in" onclick={() => zoomBy(1 / 1.6)} disabled={view.b - view.a <= minSpan + 1e-6}>+</button>
+        <button onclick={fit} disabled={!zoomed}>Fit</button>
+      </div>
       <div class="chips" role="group" aria-label="Show in the profile">
         <button aria-pressed={show.terrain} class:on={show.terrain} onclick={() => (show.terrain = !show.terrain)}>Terrain</button>
-        <button aria-pressed={show.obst} class:on={show.obst} onclick={() => (show.obst = !show.obst)} title="FAA obstacles within 2 nm of the route (US only)">Obstacles</button>
-        <button aria-pressed={show.asp} class:on={show.asp} onclick={() => (show.asp = !show.asp)} title="Class B, C and D airspace (US only)">Airspace</button>
+        <button aria-pressed={show.obst} class:on={show.obst} onclick={() => (show.obst = !show.obst)} title="FAA obstacles near the route (US only)">Obstacles</button>
+        {#if !glide}
+          <button aria-pressed={show.asp} class:on={show.asp} onclick={() => (show.asp = !show.asp)} title="Class B, C and D airspace (US only)">Airspace</button>
+        {/if}
       </div>
+      <button class="glide-btn" class:on={glide} aria-pressed={glide} onclick={() => (mode = glide ? "route" : "glide")} title="The final approach with a 3° glidepath">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6l18 12" stroke-dasharray="3 2" /><path d="M15 19h7" /></svg>
+        Glidepath
+      </button>
     {/if}
     <button class="x" aria-label="Close the flight profile" onclick={onclose}>
       <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" /></svg>
@@ -241,12 +512,25 @@
         No route yet. Load a SimBrief plan, or set an origin and destination (or draw a route) in Start a flight, and its profile shows here.
       </p>
     {:else if w > 0 && h > 0}
-      <svg width={w} height={h} role="img" aria-label="Vertical profile of the route" onpointermove={move} onpointerleave={() => (hoverD = null)}>
+      <svg
+        bind:this={svgEl}
+        width={w}
+        height={h}
+        role="img"
+        aria-label={glide ? "Final approach with a 3° glidepath" : "Vertical profile of the route"}
+        class:grab={zoomed}
+        onpointerdown={down}
+        onpointermove={move}
+        onpointerup={up}
+        onpointercancel={up}
+        onpointerleave={() => (hoverD = null)}
+      >
         <defs>
           <linearGradient id="fp-sky" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0" stop-color="#16244a" />
             <stop offset="1" stop-color="#22396a" />
           </linearGradient>
+          <clipPath id="fp-plot"><rect x={M.l} y={M.t - 14} width={cw} height={ch + 14} /></clipPath>
         </defs>
         <rect x={M.l} y={M.t} width={cw} height={ch} fill="url(#fp-sky)" />
 
@@ -256,76 +540,117 @@
           <text x={M.l - 8} y={y(v) + 4} text-anchor="end" class="axis">{fl(v)}</text>
         {/each}
 
-        <!-- Airspace. -->
-        {#if show.asp}
-          {#each airspace as a, i (i)}
-            {@const top = Math.min(a.ceiling, yMax)}
-            <rect x={x(a.from)} y={y(top)} width={Math.max(1, x(a.to) - x(a.from))} height={Math.max(1, y(a.floor) - y(top))} class="asp {a.cls}" />
-            {#if x(a.to) - x(a.from) > 26}
-              <text x={x(a.from) + 5} y={y(top) + 13} class="asp-l {a.cls}">{a.cls}</text>
+        <g clip-path="url(#fp-plot)">
+          <!-- Airspace: one shape per class. -->
+          {#each aspShapes as s (s.cls)}
+            {#if s.fill}
+              <path d={s.fill} class="asp-fill {s.cls}" />
+              <path d={s.edge} class="asp-edge {s.cls}" />
+              {#each s.labels as l, i (i)}
+                <text x={l.x + 5} y={l.y + 13} class="asp-l {s.cls}">{s.cls}</text>
+              {/each}
             {/if}
           {/each}
-        {/if}
 
-        <!-- Ground. -->
-        {#if show.terrain && groundPath}
-          <path d={groundPath} class="ground" />
-        {/if}
+          <!-- Ground. -->
+          {#if show.terrain && groundPath}
+            <path d={groundPath} class="ground" />
+          {/if}
 
-        <!-- Obstacles. -->
-        {#if show.obst}
-          {#each obstacles as o, i (i)}
-            {@const g = elevAt(o.d)}
-            <!-- Standing on the drawn ground, which is coarser than the FAA's survey. -->
-            {@const base = g ?? Math.max(0, o.amsl - o.agl)}
-            <line x1={x(o.d)} x2={x(o.d)} y1={y(base)} y2={y(Math.max(o.amsl, base + o.agl * 0.5))} stroke={obstColor(o)} class="obst" />
+          <!-- Obstacles. -->
+          {#if show.obst}
+            {#each O as o, i (i)}
+              {#if o.d >= view.a && o.d <= view.b}
+                {@const g = elevAt(o.d)}
+                <!-- Standing on the drawn ground, which is coarser than the FAA's survey. -->
+                {@const base = g ?? Math.max(0, o.amsl - o.agl)}
+                <line x1={x(o.d)} x2={x(o.d)} y1={y(base)} y2={y(Math.max(o.amsl, base + o.agl * 0.5))} stroke={obstColor(o)} class="obst" />
+              {/if}
+            {/each}
+          {/if}
+
+          <!-- Planned path, or the 3° glidepath (dashed) back from the threshold. -->
+          {#if planLine}
+            <polyline points={planLine} class="plan" class:gs={glide} />
+          {/if}
+          {#if glide}
+            <!-- The runway, at the right edge. -->
+            <line x1={x(R) - 3} x2={x(R) + 30} y1={y(thrElev)} y2={y(thrElev)} class="rwy" />
+          {/if}
+
+          <!-- Fixes along the top. -->
+          {#each fixLabels as f (f.d)}
+            <line x1={x(f.d)} x2={x(f.d)} y1={M.t} y2={M.t + 5} class="tick" />
+            <text x={x(f.d)} y={M.t - 6} text-anchor="middle" class="fix">{f.ident}</text>
           {/each}
+        </g>
+        {#if glide}
+          {#if view.b >= span - 1e-6}<text x={M.l + cw} y={M.t - 8} text-anchor="end" class="apt">{rwy && rwy.ident !== route.dest.icao ? `RWY ${rwy.ident}` : route.dest.icao}</text>{/if}
+        {:else}
+          {#if view.a <= 1e-6}<text x={M.l} y={M.t - 8} class="apt">{route.origin.icao}</text>{/if}
+          {#if view.b >= span - 1e-6}<text x={M.l + cw} y={M.t - 8} text-anchor="end" class="apt">{route.dest.icao}</text>{/if}
         {/if}
 
-        <!-- Planned path. -->
-        {#if planLine}
-          <polyline points={planLine} class="plan" />
-        {/if}
-
-        <!-- Fixes along the top. -->
-        {#each fixLabels as f (f.d)}
-          <line x1={x(f.d)} x2={x(f.d)} y1={M.t} y2={M.t + 5} class="tick" />
-          <text x={x(f.d)} y={M.t - 6} text-anchor="middle" class="fix">{f.ident}</text>
-        {/each}
-        <text x={M.l} y={M.t - 8} class="apt">{route.origin.icao}</text>
-        <text x={M.l + cw} y={M.t - 8} text-anchor="end" class="apt">{route.dest.icao}</text>
-
-        <!-- Distance: flown from the origin, and to go. -->
+        <!-- Distance: flown from the origin and to go (glidepath: to the threshold). -->
         {#each xTicks as v (v)}
+          {@const anchor = x(v) - M.l < 14 ? "start" : M.l + cw - x(v) < 14 ? "end" : "middle"}
           <line x1={x(v)} x2={x(v)} y1={M.t + ch} y2={M.t + ch + 5} class="tick" />
-          {@const anchor = v === 0 ? "start" : x(total) - x(v) < 14 ? "end" : "middle"}
-          <text x={x(v)} y={M.t + ch + 17} text-anchor={anchor} class="axis">{nm(v)}</text>
-          <text x={x(v)} y={M.t + ch + 33} text-anchor={anchor} class="axis dim">{nm(Math.max(0, total - v))}</text>
+          {#if glide}
+            <text x={x(v)} y={M.t + ch + 17} text-anchor={anchor} class="axis">{nm(Math.max(0, span - v))}</text>
+          {:else}
+            <text x={x(v)} y={M.t + ch + 17} text-anchor={anchor} class="axis">{nm(v)}</text>
+            <text x={x(v)} y={M.t + ch + 33} text-anchor={anchor} class="axis dim">{nm(Math.max(0, span - v))}</text>
+          {/if}
         {/each}
-        <text x={M.l - 8} y={M.t + ch + 17} text-anchor="end" class="axis dim">NM</text>
-        <text x={M.l - 8} y={M.t + ch + 33} text-anchor="end" class="axis dim">To go</text>
+        {#if glide}
+          <text x={M.l - 8} y={M.t + ch + 17} text-anchor="end" class="axis dim">To go</text>
+        {:else}
+          <text x={M.l - 8} y={M.t + ch + 17} text-anchor="end" class="axis dim">NM</text>
+          <text x={M.l - 8} y={M.t + ch + 33} text-anchor="end" class="axis dim">To go</text>
+        {/if}
+
+        <!-- Scroll bar while zoomed in. -->
+        {#if zoomed}
+          <rect x={M.l} y={h - 10} width={cw} height="6" rx="3" class="bar" />
+          <rect
+            x={M.l + (view.a / span) * cw}
+            y={h - 11}
+            width={Math.max(14, ((view.b - view.a) / span) * cw)}
+            height="8"
+            rx="4"
+            class="thumb"
+            role="scrollbar"
+            aria-controls="fp-plot"
+            aria-valuenow={Math.round(view.a)}
+            tabindex="-1"
+            onpointerdown={barDown}
+            onpointermove={barMove}
+            onpointerup={barUp}
+            onpointercancel={barUp}
+          />
+        {/if}
 
         <!-- Pointer readout. -->
         {#if hoverD != null}
-          {@const plan = altAt(path, hoverD)}
+          {@const p = altAt(plan, hoverD)}
           {@const g = elevAt(hoverD)}
           {@const hx = x(hoverD)}
           {@const left = hx > M.l + cw - 170}
           <line x1={hx} x2={hx} y1={M.t} y2={M.t + ch} class="hover" />
           <g transform="translate({left ? hx - 162 : hx + 8} {M.t + 8})">
-            <rect width="154" height={Number.isNaN(plan) ? 36 : 52} rx="5" class="tip" />
-            <text x="9" y="16" class="tip-t">{nm(hoverD)} nm · {nm(Math.max(0, total - hoverD))} to go</text>
-            {#if !Number.isNaN(plan)}<text x="9" y="31" class="tip-t">Plan {fmt(plan)} ft</text>{/if}
-            <text x="9" y={Number.isNaN(plan) ? 30 : 46} class="tip-t">Ground {g != null ? `${fmt(g)} ft` : "–"}</text>
+            <rect width="154" height={Number.isNaN(p) ? 36 : 52} rx="5" class="tip" />
+            <text x="9" y="16" class="tip-t">{glide ? `${nm(span - hoverD)} nm to threshold` : `${nm(hoverD)} nm · ${nm(Math.max(0, span - hoverD))} to go`}</text>
+            {#if !Number.isNaN(p)}<text x="9" y="31" class="tip-t">{glide ? "Glidepath" : "Plan"} {fmt(p)} ft</text>{/if}
+            <text x="9" y={Number.isNaN(p) ? 30 : 46} class="tip-t">Ground {g != null ? `${fmt(g)} ft` : "–"}</text>
           </g>
         {/if}
 
         <!-- The aircraft, side on, flying to the right. -->
-        {#if ac?.near}
-          {@const ax = x(Math.min(total, Math.max(0, ac.d)))}
-          {@const ay = y(ac.alt)}
+        {#if A?.near && A.d >= view.a - 0.01 && A.d <= view.b + 0.01}
+          {@const ax = x(Math.min(span, Math.max(0, A.d)))}
+          {@const ay = y(A.alt)}
           <line x1={ax} x2={ax} y1={ay} y2={M.t + ch} class="ac-guide" />
-          <g transform="translate({ax} {ay})" class="ac" class:idle={!ac.tracking}>
+          <g transform="translate({ax} {ay})" class="ac" class:idle={!A.tracking}>
             <path d="M -15 -1.5 L -12 -9 L -9.5 -9 L -6.5 -2.5 L 9 -2.5 C 13 -2.5 15.5 -1.2 15.5 0.3 C 15.5 1.8 13 2.6 9 2.6 L -12.5 2.6 C -14.5 2.6 -15.5 1 -15 -1.5 Z M -3.5 2.2 L 2.5 2.2 L -1.5 8 L -4.5 8 Z M -14.5 -0.5 L -9 -0.5 L -12.5 3.8 L -15 3.8 Z" />
           </g>
         {/if}
@@ -401,6 +726,40 @@
     color: var(--ink-dim, #a8adb4);
     font: 600 11.5px "Inter", system-ui, sans-serif;
     cursor: pointer;
+  }
+  .chips button:disabled {
+    opacity: 0.4;
+    cursor: default;
+  }
+  .chips button.sq {
+    width: 26px;
+    padding: 3px 0;
+    font-size: 14px;
+    line-height: 1;
+  }
+  .glide-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 11px;
+    border: 1px solid var(--rule, #34373c);
+    border-radius: 999px;
+    background: transparent;
+    color: var(--ink, #eceef1);
+    font: 600 12px "Inter", system-ui, sans-serif;
+    cursor: pointer;
+  }
+  .glide-btn svg {
+    width: 16px;
+    height: 16px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+  }
+  .glide-btn.on {
+    border-color: var(--amber, #f0b23a);
+    background: rgba(240, 178, 58, 0.16);
+    color: var(--amber, #f0b23a);
   }
   .chips button.on {
     border-color: #4f8dff;
@@ -497,19 +856,51 @@
     stroke-width: 3;
     stroke-linejoin: round;
   }
-  .asp {
-    stroke-width: 1.4;
+  /* The 3° glidepath, projected back from the runway. */
+  .plan.gs {
+    stroke: #f2f4f7;
+    stroke-width: 2;
+    stroke-dasharray: 9 6;
   }
-  .asp.B {
+  .rwy {
+    stroke: #e8eaed;
+    stroke-width: 5;
+  }
+  .bar {
+    fill: rgba(255, 255, 255, 0.08);
+  }
+  .thumb {
+    fill: rgba(255, 255, 255, 0.38);
+    cursor: grab;
+  }
+  svg.grab {
+    cursor: grab;
+  }
+  svg.grab:active {
+    cursor: grabbing;
+  }
+  /* Airspace: one fill and one outline per class. */
+  .asp-fill.B {
     fill: rgba(79, 141, 255, 0.16);
+  }
+  .asp-fill.C {
+    fill: rgba(176, 72, 214, 0.26);
+  }
+  .asp-fill.D {
+    fill: rgba(79, 141, 255, 0.08);
+  }
+  .asp-edge {
+    fill: none;
+    stroke-width: 1.5;
+    stroke-linecap: square;
+  }
+  .asp-edge.B {
     stroke: #4f8dff;
   }
-  .asp.C {
-    fill: rgba(176, 72, 214, 0.26);
+  .asp-edge.C {
     stroke: #c060e0;
   }
-  .asp.D {
-    fill: rgba(79, 141, 255, 0.08);
+  .asp-edge.D {
     stroke: #4f8dff;
     stroke-dasharray: 5 3;
   }

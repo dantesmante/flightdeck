@@ -373,6 +373,19 @@ fn airport_card(state: tauri::State<AppState>, ident: String) -> CmdResult<Optio
     Ok(airports::card(&state.refdata, &flights, &ident))
 }
 
+/// An airport's elevation and runway thresholds, for the profile's
+/// glidepath view.
+#[derive(serde::Serialize)]
+struct RunwayEnds {
+    elevation_ft: i32,
+    ends: Vec<refdata::RunwayEnd>,
+}
+#[tauri::command]
+fn runway_ends(state: tauri::State<AppState>, ident: String) -> Option<RunwayEnds> {
+    let a = state.refdata.airport(&ident)?;
+    Some(RunwayEnds { elevation_ft: a.elevation_ft, ends: state.refdata.runway_ends_of(&a.ident) })
+}
+
 /// Back up everything to a file the pilot chooses. Returns where.
 #[tauri::command]
 async fn backup_save(app: tauri::AppHandle) -> CmdResult<Option<String>> {
@@ -1491,6 +1504,7 @@ pub(crate) async fn dispatch(app: &tauri::AppHandle, cmd: &str, a: serde_json::V
         "divert" => ok(to_value(divert(st(), arg(&a, "icao")?)?)),
         "divert_options" => ok(to_value(divert_options(st(), arg(&a, "lat")?, arg(&a, "lon")?, arg(&a, "skip")?))),
         "airport_card" => ok(to_value(airport_card(st(), arg(&a, "ident")?)?)),
+        "runway_ends" => ok(to_value(runway_ends(st(), arg(&a, "ident")?))),
         "airport_weather" => ok(to_value(airport_weather(st(), arg(&a, "ident")?).await?)),
         "get_settings" => ok(to_value(get_settings(st())?)),
         "set_setting" => ok(to_value(set_setting(st(), arg(&a, "key")?, arg(&a, "value")?)?)),
@@ -1659,6 +1673,7 @@ pub fn run() {
             wx_advisories,
             online_pilot,
             airport_card,
+            runway_ends,
             divert_options,
             divert,
             flight_screenshots,

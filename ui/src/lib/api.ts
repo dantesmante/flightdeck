@@ -30,6 +30,18 @@ export interface Place {
   region: string;
 }
 
+export interface RunwayEnd {
+  ident: string;
+  lat: number;
+  lon: number;
+  /** True heading of a landing on this end. */
+  heading_deg: number;
+}
+export interface RunwayEnds {
+  elevation_ft: number;
+  ends: RunwayEnd[];
+}
+
 export interface Telemetry {
   t_ms: number;
   lat: number;
@@ -45,6 +57,8 @@ export interface Telemetry {
   fuel_kg: number;
   paused: boolean;
   sim_rate: number;
+  /** Electrical power (battery or a live bus); null when the sim doesn't say. */
+  powered?: boolean | null;
 }
 
 export interface LandingReport {
@@ -964,6 +978,8 @@ export const api = {
   onlinePilot: (net: Net, callsign: string) => call<NetPilot | null>("online_pilot", { net, callsign }),
   mapAirports: (detail: number) => call<MapAirport[]>("map_airports", { detail }),
   airportCard: (ident: string) => call<AirportCardData | null>("airport_card", { ident }),
+  /** An airport's elevation and runway thresholds (glidepath view). */
+  runwayEnds: (ident: string) => call<RunwayEnds | null>("runway_ends", { ident }),
   airportWeather: (ident: string) => call<AirportWeather | null>("airport_weather", { ident }),
   efbInfo: () => call<EfbInfo>("efb_info"),
   efbInstall: (folder: string | null = null) => call<EfbInfo>("efb_install", { folder }),

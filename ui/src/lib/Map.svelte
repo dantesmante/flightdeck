@@ -31,6 +31,10 @@
     /** Current aircraft position and heading while the sim is connected;
      * `tracking` while a flight is being recorded. */
     aircraft: { lon: number; lat: number; hdg: number; tracking?: boolean } | null;
+    /** When the flight last touched down to land (not a touch-and-go): Smart taxi. */
+    landedAt?: number | null;
+    /** The aircraft's electrical power, while the sim says. */
+    powered?: boolean | null;
     /** Departure point of the live flight. */
     origin: [number, number] | null;
     /** A saved flight's track to show instead of the live one. */
@@ -82,6 +86,8 @@
   let {
     live,
     aircraft,
+    landedAt = null,
+    powered = null,
     origin,
     history,
     routes = [],
@@ -211,6 +217,56 @@
     else next.add(key);
     setPref("map_layers", [...next].join(","));
   }
+  // --- Smart taxi ------------------------------------------------------------
+  // After landing: zoom in on the airport around the aircraft with the
+  // Runways layer on (switched on if it was off), and a blinking "SMART
+  // TAXI" note for 15 s. A layer switched on this way goes off again when
+  // the aircraft's battery is switched off, unless the pilot has switched
+  // it off already.
+  let smartTaxi = $state(false);
+  let autoRunways = false;
+  const mountedAt = Date.now();
+  let lastLanding: number | null = null;
+  let smartTimer: ReturnType<typeof setTimeout> | undefined;
+  $effect(() => {
+    const t = landedAt;
+    if (t == null || t === lastLanding) return;
+    lastLanding = t;
+    // Not for a landing made before FlightDeck was opened.
+    if (t < mountedAt - 5000) return;
+    untrack(() => {
+      if (bare || !map || !aircraft) return;
+      if (layers.has("aeroway-off")) {
+        toggleLayer("aeroway-off");
+        autoRunways = true;
+      }
+      // Following would cut the zoom short (it re-centres on every update):
+      // follow again once there.
+      follow = false;
+      map.easeTo({ center: [aircraft.lon, aircraft.lat], zoom: Math.max(map.getZoom(), 15.3), duration: 1500 });
+      map.once("moveend", () => (follow = true));
+      smartTaxi = true;
+      clearTimeout(smartTimer);
+      smartTimer = setTimeout(() => (smartTaxi = false), 15000);
+    });
+  });
+  // The pilot switched the runways off themselves: leave them be.
+  $effect(() => {
+    if (layers.has("aeroway-off")) autoRunways = false;
+  });
+  let wasPowered: boolean | null = null;
+  $effect(() => {
+    const p = powered;
+    if (wasPowered === true && p === false && autoRunways) {
+      autoRunways = false;
+      untrack(() => {
+        if (!layers.has("aeroway-off")) toggleLayer("aeroway-off");
+      });
+    }
+    if (p != null) wasPowered = p;
+  });
+  onDestroy(() => clearTimeout(smartTimer));
+
   /** The airport whose card is open. */
   let openAirport = $state<string | null>(null);
   /** A SIGMET or AIRMET whose card is open. */
@@ -596,6 +652,11 @@
    * and the points clicked so far. */
   const drawOn = $derived(planner && (drawing.stage === "origin" || drawing.stage === "route"));
   const drawRoute = $derived(planner && drawing.stage === "route");
+  // Drawing a route: stop following the aircraft, so the map can be moved
+  // to wherever the route goes.
+  $effect(() => {
+    if (drawOn) untrack(() => (follow = false));
+  });
   /** Points clicked on the map are being traced (measuring or drawing). */
   const tracing = $derived(measuring || drawRoute);
   const linePts = $derived<[number, number][]>(
@@ -2159,6 +2220,9 @@
     </div>
   </div>
 {/if}
+{#if smartTaxi}
+  <div class="smart-taxi" style:left="calc(50% + {insetLeft / 2}px)" role="status">Smart taxi</div>
+{/if}
 {#if aircraft && !follow && !history}
   <button class="follow" style:left="{16 + insetLeft}px" onclick={() => (follow = true)}>Follow aircraft</button>
 {/if}
@@ -2262,6 +2326,31 @@
     right: var(--inset-r, 0px);
     bottom: var(--inset-b, 0px);
     transition: right 0.25s ease, bottom 0.25s ease;
+  }
+  /* Smart taxi: yellow with a black border, 2 s on, 2 s off. */
+  .smart-taxi {
+    position: absolute;
+    bottom: 26px;
+    transform: translateX(-50%);
+    z-index: 3;
+    pointer-events: none;
+    font: 700 22px var(--cond, "Oswald", sans-serif);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #ffd21f;
+    -webkit-text-stroke: 1.2px #000;
+    text-shadow:
+      0 0 3px #000,
+      0 2px 4px rgba(0, 0, 0, 0.8);
+    animation: smart-blink 4s steps(1, end) infinite;
+  }
+  @keyframes smart-blink {
+    0% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0;
+    }
   }
   .map :global(.plane) {
     filter: drop-shadow(0 0 6px rgba(240, 178, 58, 0.55));

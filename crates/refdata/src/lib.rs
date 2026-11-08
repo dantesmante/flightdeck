@@ -90,6 +90,17 @@ struct Runway {
     ends: [(String, f64, f64); 2],
 }
 
+/// One end of a runway: where its threshold is, and the true heading of a
+/// landing on it.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct RunwayEnd {
+    /// e.g. "10R".
+    pub ident: String,
+    pub lat: f64,
+    pub lon: f64,
+    pub heading_deg: f64,
+}
+
 /// Where a touchdown was on a runway.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RunwayHit {
@@ -337,6 +348,23 @@ impl RefData {
             .map(|&i| &self.airports[i as usize])
     }
 
+    /// Every runway end at an airport with surveyed ends (both ends of each
+    /// runway), for the glidepath view.
+    pub fn runway_ends_of(&self, ident: &str) -> Vec<RunwayEnd> {
+        let mut out = Vec::new();
+        for r in self.runways.iter().filter(|r| r.airport.eq_ignore_ascii_case(ident)) {
+            for (from, to) in [(&r.ends[0], &r.ends[1]), (&r.ends[1], &r.ends[0])] {
+                out.push(RunwayEnd {
+                    ident: from.0.clone(),
+                    lat: from.1,
+                    lon: from.2,
+                    heading_deg: geo::bearing_deg(from.1, from.2, to.1, to.2),
+                });
+            }
+        }
+        out
+    }
+
     /// The runway a touchdown at this position and true heading was made
     /// on, and how far from its centerline. None when no known runway lines
     /// up with the heading within a few hundred feet (grass strips, water,
@@ -426,6 +454,16 @@ mod tests {
     fn data() -> &'static RefData {
         static D: OnceLock<RefData> = OnceLock::new();
         D.get_or_init(RefData::load)
+    }
+
+    #[test]
+    fn runway_ends_point_down_the_runway() {
+        let ends = data().runway_ends_of("KSEA");
+        let r16l = ends.iter().find(|e| e.ident == "16L").expect("16L at KSEA");
+        assert!((r16l.heading_deg - 180.0).abs() < 5.0, "{r16l:?}");
+        let r34r = ends.iter().find(|e| e.ident == "34R").expect("34R at KSEA");
+        assert!(r34r.heading_deg < 5.0 || r34r.heading_deg > 355.0, "{r34r:?}");
+        assert!(r34r.lat < r16l.lat, "34R's threshold is at the south end");
     }
 
     #[test]

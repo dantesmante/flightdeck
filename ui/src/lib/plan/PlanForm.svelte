@@ -43,7 +43,8 @@
   let drawn = $state<PlanFix[] | null>(null);
   let drawnFor = { o: "", d: "" };
   let rules = $state<"VFR" | "IFR">("VFR");
-  let cruiseFt = $state(5500);
+  /** Cruise altitude typed in (ft), for a route without SimBrief's own. */
+  let cruiseFt = $state<number | null>(null);
   let saved = $state<string | null>(null);
   let saving = $state(false);
   // Another origin or destination than the route was drawn for: it no
@@ -60,8 +61,8 @@
     // The route itself: drawn, or SimBrief's while its airports are kept.
     const simbrief = !!base && origin?.icao === base.origin.icao && dest?.icao === base.destination.icao;
     draft.fixes = drawn ?? (simbrief ? base!.fixes : []);
-    // The flight profile's cruise: the drawn route's, or SimBrief's.
-    draft.cruise_ft = drawn ? cruiseFt : simbrief ? base!.cruise_ft : 0;
+    // The flight profile's cruise: SimBrief's, or the one typed in.
+    draft.cruise_ft = simbrief ? base!.cruise_ft : (cruiseFt ?? 0);
   });
   // An airport sent from the map's right-click menu.
   $effect(() => {
@@ -118,7 +119,7 @@
       kind: p.icao ? "apt" : "ltlg",
       lat: p.lat,
       lon: p.lon,
-      alt_ft: cruiseFt,
+      alt_ft: cruiseFt ?? 0,
       stage: "CRZ",
       procedure: false,
     }));
@@ -137,7 +138,8 @@
     const pt = (s: Spot) => ({ ident: s.icao, name: s.name, lat: s.lat, lon: s.lon, airport: true });
     return {
       rules,
-      cruise_ft: cruiseFt,
+      // The sim wants one: a usual light-aircraft altitude if none was typed.
+      cruise_ft: cruiseFt ?? 5500,
       origin: pt(origin),
       destination: pt(dest),
       waypoints: drawn.map((f) => ({ ident: f.ident, name: "", lat: f.lat, lon: f.lon, airport: f.kind === "apt" })),
@@ -299,7 +301,7 @@
       destination: { icao: dest.icao, name: dest.name, lat: dest.lat, lon: dest.lon, runway: keep?.destination.runway ?? "" },
       alternate: altn?.icao ?? "",
       route: drawn ? [origin.icao, ...drawn.map((f) => f.ident), dest.icao].join(" ") : (keep?.route ?? ""),
-      cruise_ft: drawn ? cruiseFt : (keep?.cruise_ft ?? 0),
+      cruise_ft: keep ? keep.cruise_ft : (cruiseFt ?? 0),
       distance_nm: drawn ? Math.round(routeNm ?? 0) : keep?.distance_nm || Math.round(direct ?? 0),
       ete_min: keep?.ete_min ?? 0,
       aircraft_icao: ac?.icao_type || base?.aircraft_icao || "",
@@ -308,7 +310,7 @@
       block_fuel_kg: keep?.block_fuel_kg ?? 0,
       sched_out_ms: keep?.sched_out_ms ?? null,
       sched_in_ms: keep?.sched_in_ms ?? null,
-      fixes: drawn ? drawn.map((f) => ({ ...f, alt_ft: cruiseFt })) : (keep?.fixes ?? []),
+      fixes: drawn ? drawn.map((f) => ({ ...f, alt_ft: cruiseFt ?? 0 })) : (keep?.fixes ?? []),
       ofp: keep?.ofp ?? null,
     };
   }
@@ -427,6 +429,18 @@
         <span class="mark icon alt" aria-hidden="true">{@render glyph(90)}</span>
         <AirportField label="Alternate" placeholder="Alternate" value={altn} onchange={(v) => (altn = v)} />
       </li>
+      {#if !(sameRoute && base)}
+        <!-- Cruise altitude: the flight profile climbs to it and descends from it. -->
+        <li class="pt cruise-row">
+          <span class="mark icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M4 18h3l4-8h9v2h-8l-4 8H4z" /></svg>
+          </span>
+          <label class="cruise">
+            <input type="number" min="500" max="60000" step="500" placeholder="Cruise altitude" bind:value={cruiseFt} class="num" aria-label="Cruise altitude in feet" />
+            ft
+          </label>
+        </li>
+      {/if}
     </ol>
 
     {#if mode === "start" && aircraftId > 0}
@@ -451,11 +465,6 @@
             <button type="button" role="radio" aria-checked={rules === "IFR"} class:on={rules === "IFR"} onclick={() => (rules = "IFR")}>IFR</button>
           </span>
         </div>
-        <label class="cruise">
-          Cruise
-          <input type="number" min="500" max="60000" step="500" bind:value={cruiseFt} class="num" />
-          ft
-        </label>
         <div class="row">
           <button type="button" class="pln" disabled={saving} onclick={savePln}>
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 19h14" /></svg>
@@ -956,8 +965,12 @@
     font-size: 13px;
     color: var(--ink-dim);
   }
+  .cruise-row .cruise {
+    flex: 1;
+    min-width: 0;
+  }
   .cruise input {
-    width: 90px;
+    width: 150px;
     padding: 5px 8px;
     border-radius: 6px;
     border: 1px solid #464b52;

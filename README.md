@@ -211,7 +211,7 @@ MIT licensed.
   no flight started: white with a dark outline, showing only where it is
   (nothing is recorded, and the map doesn't follow it unless you ask).
   Once a flight is being tracked it turns amber as before.
-- **Profile** (left of Measure): the vertical profile of your route in
+- **Profile** (between Measure and PFD): the vertical profile of your route in
   the bottom half of the Map tab, with the map above (under the map's
   half when the PFD is split beside it), sized to the window. It shows the
   planned climb, cruise and descent (SimBrief's own altitudes at each fix;
@@ -225,7 +225,32 @@ MIT licensed.
   and **Clearance** (cruise altitude above it) sit in its header, with
   switches for Terrain, Obstacles and Airspace; point at the chart for the
   distance, planned altitude and ground there. It follows the flight's plan,
-  or the route being set up in Start a flight.
+  or the route being set up in Start a flight. It **zooms and scrolls
+  sideways** like a sound editor: the wheel (or a pinch) zooms where you
+  point, dragging or a sideways swipe scrolls, and − / + / **Fit** sit in
+  its header, with a scroll bar under the chart while zoomed in. Airspace
+  shows as one shape per class (shelves merged, one outline).
+  **Glidepath** (its button, or by itself once you are within 10 nm of the
+  destination in the air) shows just the final approach: you on the left,
+  the runway threshold on the right, and a dashed 3° path (50 ft over the
+  threshold, 318 ft per nm) projected back from it, with your distance to
+  the threshold and how far above or below the path you are. The runway is
+  the plan's, or the one you are lined up with (thresholds from the
+  built-in airport data).
+- **Cruise altitude** (Start a flight, after Alternate) for a route typed
+  in or drawn: the profile climbs to it and descends from it by rules of
+  thumb. Climb about 350 ft per nm below 10,000 ft, 250 ft per nm up to
+  FL240, 180 above; descent on a 3° path (the 3-to-1 rule), with 5 nm
+  level at 10,000 ft to slow to 250 kt when coming down from above it.
+  A short route's climb and descent simply meet. SimBrief plans use
+  SimBrief's own altitudes.
+- **Smart taxi**: after you land, the map zooms in on the airport around
+  you with the Runways layer on (switched on if it was off) and a blinking
+  yellow "SMART TAXI" at the bottom of the map for 15 seconds. Runways
+  switched on this way go off again when you switch the battery off,
+  unless you've switched them off yourself.
+- Drawing a route stops the map following the aircraft, so you can move
+  the map freely while you draw.
 - **Measure** (left of Layers): click points on the map to
   measure a route, leg by leg, in nautical miles with the course of each
   leg, and the total in miles and kilometres too. Great-circle distances.
