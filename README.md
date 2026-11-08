@@ -259,6 +259,25 @@ MIT licensed.
   level at 10,000 ft to slow to 250 kt when coming down from above it.
   A short route's climb and descent simply meet. SimBrief plans use
   SimBrief's own altitudes.
+- **Taxi assist** (test version; **Taxi** button, left of Profile): a bar
+  at the top shows the taxiways nearest the aircraft as yellow bubbles;
+  tap them in the order ATC gives them. After each one only the taxiways
+  and runways that meet it are offered. A runway bubble (red) asks
+  **Cross** or **Hold short**; finish with the gate (blue; type its number
+  under **Gate…**) or, departing, a runway to hold short of. The readback
+  shows the clearance (tap an item to take it out). FlightDeck works out
+  the path that follows the taxiways in that order and draws it as a blue
+  dotted line; a red bar marks each hold short and the line beyond stays
+  grey until you press **Cleared to cross** (or taxi past it). Runways
+  the path crosses that the clearance does not mention are ringed in
+  amber. **Go** turns the bar into GPS-style directions ("Exit via B2",
+  "Right on B · 750 ft", "Hold short RWY 10L/28R", "Gate D5") that move on
+  as you taxi, with "Off route" beyond 40 m. Taxiways, runways and gates
+  come from OpenStreetMap (the base map's tiles, fetched for about 3.5 km
+  around the aircraft; the network is joined up in a background worker);
+  names follow the real charts, which can differ from the sim's scenery.
+  The sim's own taxi network is planned next.
+- Gate numbers show with the Runways layer from zoom 15.
 - **Smart taxi**: after you land, the map zooms in on the airport around
   you with the Runways layer on (switched on if it was off), and once you
   slow to taxi speed (under 30 kt) a blinking yellow "SMART TAXI" shows at

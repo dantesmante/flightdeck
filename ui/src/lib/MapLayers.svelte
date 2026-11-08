@@ -39,12 +39,14 @@
     /** The flight profile under the map: open, and its button (Map tab only). */
     profileOpen?: boolean;
     onprofile?: () => void;
+    taxiOpen?: boolean;
+    ontaxi?: () => void;
     ringCount?: number;
     ringSet?: string;
     onrings?: (count: number, set: string) => void;
     onroadsopacity?: (o: number) => void;
   }
-  let { three, on, onthree, ontoggle, radarTime, radarError, parkedLayer = false, airportDetail = 1, ondetail, windLevel = "auto", onwindlevel, cardOpen = false, measuring = false, onmeasure, airspaceState = "idle", pfdOpen = false, onpfd, obstaclesState = "idle", hasAircraft = false, roadsOpacity = 1, onroadsopacity, ringCount = 2, ringSet = "auto", onrings, profileOpen = false, onprofile }: Props = $props();
+  let { three, on, onthree, ontoggle, radarTime, radarError, parkedLayer = false, airportDetail = 1, ondetail, windLevel = "auto", onwindlevel, cardOpen = false, measuring = false, onmeasure, airspaceState = "idle", pfdOpen = false, onpfd, obstaclesState = "idle", hasAircraft = false, roadsOpacity = 1, onroadsopacity, ringCount = 2, ringSet = "auto", onrings, profileOpen = false, onprofile, taxiOpen = false, ontaxi }: Props = $props();
   const DETAIL = ["Major airports only", "Major and regional airports", "All airports and airstrips"];
 
   /** The Layers panel's tabs: airports and flights, weather, the map itself. */
@@ -294,6 +296,12 @@
     <button class="layers-btn" class:open={measuring} aria-pressed={measuring} title="Measure distances" onclick={() => ((open = null), onmeasure())}>
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 16.5L16.5 3 21 7.5 7.5 21z" /><path d="M7 12.5l1.8 1.8M10 9.5l2.6 2.6M13 6.5l1.8 1.8" /></svg>
       <span>Measure</span>
+    </button>
+  {/if}
+  {#if ontaxi}
+    <button class="layers-btn" class:open={taxiOpen} aria-pressed={taxiOpen} title="Taxi assist: follow ATC's taxi instructions" onclick={() => ((open = null), ontaxi())}>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 21V9a4 4 0 014-4h10" /><path d="M15 1l4 4-4 4" /><circle cx="5" cy="21" r="0.6" /></svg>
+      <span>Taxi</span>
     </button>
   {/if}
   {#if onprofile}

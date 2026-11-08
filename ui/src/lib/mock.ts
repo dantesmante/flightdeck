@@ -1,6 +1,7 @@
 // Browser-only stand-in for the Rust backend: one flight in progress and a
 // short history, so the UI can be developed with `npm run ui`.
 
+import { mockTaxiLayout } from "./taxi/mockLayout";
 import { RANKS, type FlightPlan, type FlightRow, type FlightScore, type FullStatus, type PilotProfile, type Totals } from "./api";
 
 const now = Date.now();
@@ -642,8 +643,9 @@ if (typeof window !== "undefined") {
     if (status.telemetry) status.telemetry = { ...status.telemetry, powered: on };
     pushStatus();
   };
-  w.__fdAt = (lat: number, lon: number, alt: number, onGround = false) => {
-    if (status.telemetry) status.telemetry = { ...status.telemetry, lat, lon, alt_msl_ft: alt, on_ground: onGround };
+  w.__fdAt = (lat: number, lon: number, alt: number, onGround = false, hdg?: number) => {
+    if (status.telemetry) status.telemetry = { ...status.telemetry, lat, lon, alt_msl_ft: alt, on_ground: onGround, ...(hdg != null ? { hdg_true_deg: hdg, hdg_deg: hdg } : {}) };
     pushStatus();
   };
+  w.__fdTaxiLayout = mockTaxiLayout;
 }

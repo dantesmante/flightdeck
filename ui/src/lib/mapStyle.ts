@@ -437,7 +437,7 @@ export function addAirportLayout(map: maplibregl.Map) {
     id: "fd-gate-label",
     type: "symbol",
     ...src,
-    minzoom: 16,
+    minzoom: 15,
     filter: ["all", cls("gate"), ["has", "ref"]],
     layout: { "text-field": ["get", "ref"], "text-font": ["Noto Sans Regular"], "text-size": 11 },
     paint: { "text-color": "#c9ccd1", "text-halo-color": "#16171a", "text-halo-width": 1.6 },

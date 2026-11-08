@@ -23,6 +23,8 @@
   import { drawing, pick } from "./flyStore.svelte";
   import { pfdState } from "./pfd/store.svelte";
   import { profileState } from "./profile/store.svelte";
+  import { taxiState } from "./taxi/store.svelte";
+  import TaxiAssist from "./taxi/TaxiAssist.svelte";
   import { altColor, altGradient, altLabel, altRange, lonLat, sideOnBearing, wallFeatures, wallScale, type Pt } from "./track";
 
   interface Props {
@@ -2376,6 +2378,9 @@
 {#if aircraft && !follow && !history}
   <button class="follow" style:left="{16 + insetLeft}px" onclick={() => (follow = true)}>Follow aircraft</button>
 {/if}
+{#if taxiState.open && loaded && !bare}
+  <TaxiAssist getMap={() => map!} lat={aircraft?.lat ?? null} lon={aircraft?.lon ?? null} hdg={aircraft?.hdg ?? null} {insetLeft} onclose={() => (taxiState.open = false)} />
+{/if}
 {#if !bare}
 <MapLayers
   {three}
@@ -2403,6 +2408,8 @@
     setPref("map_rings_count", String(count));
     setPref("map_rings_nm", set);
   }}
+  taxiOpen={taxiState.open}
+  ontaxi={() => (taxiState.open = !taxiState.open)}
   profileOpen={profileState.open}
   onprofile={planner ? () => (profileState.open = !profileState.open) : undefined}
   pfdOpen={pfdState.open}
