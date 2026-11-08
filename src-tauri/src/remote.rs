@@ -592,7 +592,7 @@ const VIEW: &[&str] = &[
 ];
 /// Commands that change something: only when editing is allowed.
 const EDIT: &[&str] = &[
-    "delete_flight", "start_demo", "stop_demo", "end_flight", "cancel_flight", "start_flight", "set_plan", "divert", "set_setting",
+    "delete_flight", "start_demo", "stop_demo", "end_flight", "cancel_flight", "start_flight", "set_plan", "divert", "set_landing_runway", "set_setting",
     "set_pilot", "update_log_entry", "update_flight", "add_manual_entry", "update_aircraft", "add_aircraft",
     "delete_aircraft", "delete_flights", "set_aircraft_favorite", "set_aircraft_photo", "import_volanta",
     "import_elevatex", "preview_import", "add_sample_flights", "remove_sample_flights", "set_banner", "set_pilot_photo",

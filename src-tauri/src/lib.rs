@@ -570,6 +570,17 @@ fn divert(state: tauri::State<AppState>, icao: String) -> CmdResult<()> {
     )
 }
 
+/// The runway the pilot means to land on, for the flight under way
+/// (changeable at any time; the profile's glideslope uses it).
+#[tauri::command]
+fn set_landing_runway(state: tauri::State<AppState>, runway: String) -> CmdResult<()> {
+    let r = runway.trim().to_ascii_uppercase();
+    if r.len() > 4 || !r.chars().all(|c| c.is_ascii_alphanumeric()) {
+        return Err(format!("{r} is not a runway"));
+    }
+    send(&state, Command::SetLandingRunway(r))
+}
+
 /// The nearest airports fit for a diversion from a position.
 #[tauri::command]
 fn divert_options(state: tauri::State<AppState>, lat: f64, lon: f64, skip: Option<String>) -> Vec<airports::DivertOption> {
@@ -1502,6 +1513,7 @@ pub(crate) async fn dispatch(app: &tauri::AppHandle, cmd: &str, a: serde_json::V
         "delete_screenshot" => ok(to_value(delete_screenshot(st(), arg(&a, "id")?, arg(&a, "file_too")?).await?)),
         "screenshots_since" => ok(to_value(screenshots_since(st(), arg(&a, "sinceMs")?)?)),
         "divert" => ok(to_value(divert(st(), arg(&a, "icao")?)?)),
+        "set_landing_runway" => ok(to_value(set_landing_runway(st(), arg(&a, "runway")?)?)),
         "divert_options" => ok(to_value(divert_options(st(), arg(&a, "lat")?, arg(&a, "lon")?, arg(&a, "skip")?))),
         "airport_card" => ok(to_value(airport_card(st(), arg(&a, "ident")?)?)),
         "runway_ends" => ok(to_value(runway_ends(st(), arg(&a, "ident")?))),
@@ -1676,6 +1688,7 @@ pub fn run() {
             runway_ends,
             divert_options,
             divert,
+            set_landing_runway,
             flight_screenshots,
             photos,
             delete_screenshot,

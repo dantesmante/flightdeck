@@ -401,6 +401,19 @@ export async function mockCall<T>(cmd: string, _args?: Record<string, unknown>):
     }
     return null as T;
   }
+  if (cmd === "us_obstacles" && typeof localStorage !== "undefined" && localStorage.getItem("fd.bigObst")) {
+    // Tests: a file the size of the FAA's (about 100,000 obstacles over 200 ft), a few thousand near Seattle–Portland.
+    let seed = 7;
+    const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    const features = Array.from({ length: 100000 }, (_, i) => {
+      const near = i % 25 === 0;
+      const lat = near ? 45.5 + rnd() * 2.1 : 25 + rnd() * 24;
+      const lon = near ? -122.9 + rnd() * 0.8 : -124 + rnd() * 57;
+      const agl = 200 + Math.floor(rnd() * 1500);
+      return { type: "Feature", properties: { t: "TOWER", agl, amsl: agl + Math.floor(rnd() * 3000), lit: true, n: 1 }, geometry: { type: "Point", coordinates: [lon, lat] } };
+    });
+    return JSON.stringify({ type: "FeatureCollection", features }) as T;
+  }
   if (cmd === "us_obstacles") {
     // Towers scattered along Seattle–Portland.
     const features = Array.from({ length: 60 }, (_, i) => {
@@ -511,6 +524,11 @@ export async function mockCall<T>(cmd: string, _args?: Record<string, unknown>):
     const d = Number(_args?.detail ?? 1);
     return AIRPORTS.filter((_, i) => d >= 3 || i % (d === 2 ? 2 : 4) === 0).map((a, i) => [a.icao, a.name, Math.min(2, i % 3), a.lon, a.lat]) as T;
   }
+  if (cmd === "set_landing_runway") {
+    if (status.plan) status.plan = { ...status.plan, destination: { ...status.plan.destination, runway: String(_args?.runway ?? "") } };
+    pushStatus();
+    return undefined as T;
+  }
   if (cmd === "runway_ends") {
     // Portland: 10R/28L and 10L/28R.
     if (_args?.ident !== "KPDX") return null as T;
@@ -613,7 +631,11 @@ if (typeof window !== "undefined") {
   const w = window as unknown as Record<string, unknown>;
   w.__fdLand = () => {
     status.last_landing = { t_ms: Date.now(), vs_fpm: -120, vs_source: "sim", g_peak: 1.2, gs_kt: 60, headwind_kt: 4, crosswind_kt: 2, bounces: 0, touch_and_go: false };
-    if (status.telemetry) status.telemetry = { ...status.telemetry, on_ground: true, powered: true };
+    if (status.telemetry) status.telemetry = { ...status.telemetry, on_ground: true, powered: true, gs_kt: 70 };
+    pushStatus();
+  };
+  w.__fdGs = (kt: number) => {
+    if (status.telemetry) status.telemetry = { ...status.telemetry, gs_kt: kt };
     pushStatus();
   };
   w.__fdPower = (on: boolean) => {

@@ -9,7 +9,7 @@ export const fly = $state<{ item: HangarItem | null }>({ item: null });
  * The origin and destination being typed into Start a flight, before the
  * flight is started: the map previews that route.
  */
-export const draft = $state<{ origin: Spot | null; dest: Spot | null; fixes: PlanFix[]; cruise_ft: number }>({ origin: null, dest: null, fixes: [], cruise_ft: 0 });
+export const draft = $state<{ origin: Spot | null; dest: Spot | null; fixes: PlanFix[]; cruise_ft: number; runway: string }>({ origin: null, dest: null, fixes: [], cruise_ft: 0, runway: "" });
 
 /**
  * An airport sent to the flight planner from the map (right-click, "Set
@@ -27,6 +27,8 @@ export interface RoutePt {
   /** The airport's code; empty for a user waypoint. */
   icao: string;
   name: string;
+  /** An altitude set for this point, feet (else the cruise). */
+  alt?: number | null;
 }
 
 /**

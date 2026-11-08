@@ -20,6 +20,9 @@ pub struct Point {
     /// An airport (else a user waypoint).
     #[serde(default)]
     pub airport: bool,
+    /// The altitude to cross it at, feet (user waypoints; else the cruise).
+    #[serde(default)]
+    pub alt_ft: Option<f64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -115,7 +118,8 @@ pub fn write(r: &Route, elevation: impl Fn(&str) -> Option<f64>) -> String {
         }
         o.push_str(&format!("        <ATCWaypoint id=\"{}\">\n", esc(&id)));
         o.push_str("            <ATCWaypointType>User</ATCWaypointType>\n");
-        o.push_str(&format!("            <WorldPosition>{}</WorldPosition>\n", world_position(w.lat, w.lon, cruise)));
+        let alt = w.alt_ft.filter(|a| a.is_finite() && *a > 0.0).unwrap_or(cruise);
+        o.push_str(&format!("            <WorldPosition>{}</WorldPosition>\n", world_position(w.lat, w.lon, alt)));
         o.push_str("        </ATCWaypoint>\n");
     }
     airport(&mut o, &arr, r.destination.lat, r.destination.lon, arr_alt);
@@ -135,7 +139,7 @@ mod tests {
     use super::*;
 
     fn route() -> Route {
-        let p = |ident: &str, lat: f64, lon: f64, airport: bool| Point { ident: ident.into(), name: String::new(), lat, lon, airport };
+        let p = |ident: &str, lat: f64, lon: f64, airport: bool| Point { ident: ident.into(), name: String::new(), lat, lon, airport, alt_ft: None };
         Route {
             rules: "VFR".into(),
             cruise_ft: 5500.0,
@@ -151,6 +155,16 @@ mod tests {
         assert_eq!(world_position(-33.9461, 151.1772, 21.0), "S33° 56' 45.96\",E151° 10' 37.92\",+000021.00");
         // Never 60 seconds.
         assert_eq!(world_position(10.0 - 1e-9, 0.0, 0.0), "N10° 0' 0.00\",E0° 0' 0.00\",+000000.00");
+    }
+
+    #[test]
+    fn a_waypoint_can_have_its_own_altitude() {
+        let mut r = route();
+        r.waypoints[0].alt_ft = Some(3500.0);
+        let txt = write(&r, |_| None);
+        assert!(txt.contains("<ATCWaypoint id=\"WP1\">\n            <ATCWaypointType>User</ATCWaypointType>\n            <WorldPosition>N46° 54' 0.00\",W122° 42' 0.00\",+003500.00</WorldPosition>"), "{txt}");
+        // The others stay at the cruise.
+        assert!(txt.contains("W122° 54' 0.00\",+005500.00"), "{txt}");
     }
 
     #[test]

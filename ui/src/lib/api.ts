@@ -117,6 +117,8 @@ export interface PlnPoint {
   lat: number;
   lon: number;
   airport: boolean;
+  /** Altitude to cross it at, ft (else the cruise). */
+  alt_ft?: number | null;
 }
 
 export interface PlanFix {
@@ -979,6 +981,7 @@ export const api = {
   mapAirports: (detail: number) => call<MapAirport[]>("map_airports", { detail }),
   airportCard: (ident: string) => call<AirportCardData | null>("airport_card", { ident }),
   /** An airport's elevation and runway thresholds (glidepath view). */
+  setLandingRunway: (runway: string) => call<void>("set_landing_runway", { runway }),
   runwayEnds: (ident: string) => call<RunwayEnds | null>("runway_ends", { ident }),
   airportWeather: (ident: string) => call<AirportWeather | null>("airport_weather", { ident }),
   efbInfo: () => call<EfbInfo>("efb_info"),

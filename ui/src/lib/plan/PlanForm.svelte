@@ -1,6 +1,7 @@
 <script lang="ts">
   // A simple flight plan: callsign, aircraft, origin, destination and
   // alternate, typed in or imported from SimBrief. Used to start a flight,
+  import RunwayPicker from "./RunwayPicker.svelte";
   // and mid-flight to add a plan.
   import { onDestroy, onMount, untrack } from "svelte";
   import { draft, drawing, pick } from "../flyStore.svelte";
@@ -24,6 +25,16 @@
   let flightNo = $state("");
   let origin = $state<Spot | null>(null);
   let dest = $state<Spot | null>(null);
+  /** The runway to land on at the destination (SimBrief's, or picked). */
+  let landRwy = $state("");
+  // A new destination: SimBrief's runway when it is SimBrief's route, else none yet.
+  let rwyFor = "";
+  $effect(() => {
+    const d = dest?.icao ?? "";
+    if (d === rwyFor) return;
+    rwyFor = d;
+    landRwy = untrack(() => (base && d === base.destination.icao ? base.destination.runway : ""));
+  });
   let altn = $state<Spot | null>(null);
   let fleet = $state<HangarItem[]>([]);
   let aircraftId = $state(-1);
@@ -60,9 +71,10 @@
     draft.dest = dest;
     // The route itself: drawn, or SimBrief's while its airports are kept.
     const simbrief = !!base && origin?.icao === base.origin.icao && dest?.icao === base.destination.icao;
-    draft.fixes = drawn ?? (simbrief ? base!.fixes : []);
+    draft.fixes = drawnFixes ?? (simbrief ? base!.fixes : []);
     // The flight profile's cruise: SimBrief's, or the one typed in.
     draft.cruise_ft = simbrief ? base!.cruise_ft : (cruiseFt ?? 0);
+    draft.runway = landRwy;
   });
   // An airport sent from the map's right-click menu.
   $effect(() => {
@@ -84,17 +96,31 @@
     draft.dest = null;
     draft.fixes = [];
     draft.cruise_ft = 0;
+    draft.runway = "";
     drawing.stage = "off";
   });
 
   // --- Draw route ------------------------------------------------------------
-  function startDrawing() {
+  /** Draw a route, or (`edit`) carry on editing the one drawn. With the
+   * origin known, straight to adding points. */
+  function startDrawing(edit = false) {
     drawing.origin = origin;
-    drawing.pts = [];
+    drawing.pts =
+      edit && drawn && dest
+        ? [
+            ...drawn.map((f) => ({ icao: f.kind === "apt" ? f.ident : "", name: "", lat: f.lat, lon: f.lon, alt: f.stage === "USR" ? f.alt_ft : null })),
+            { icao: dest.icao, name: dest.name, lat: dest.lat, lon: dest.lon },
+          ]
+        : [];
     drawing.note = "";
-    drawing.stage = "origin";
+    drawing.stage = origin ? "route" : "origin";
+    altEdit = false;
     saved = null;
   }
+  /** The altitudes list (Altitudes button) while drawing. */
+  let altEdit = $state(false);
+  /** A drawn route's points with their altitudes: the ones set, else the cruise. */
+  const drawnFixes = $derived(drawn ? drawn.map((f) => ({ ...f, alt_ft: f.stage === "USR" ? f.alt_ft : (cruiseFt ?? 0) })) : null);
   function cancelDrawing() {
     drawing.stage = "off";
     drawing.pts = [];
@@ -119,8 +145,9 @@
       kind: p.icao ? "apt" : "ltlg",
       lat: p.lat,
       lon: p.lon,
-      alt_ft: cruiseFt ?? 0,
-      stage: "CRZ",
+      alt_ft: p.alt ?? cruiseFt ?? 0,
+      // "USR": an altitude set for this point; else it follows the cruise.
+      stage: p.alt ? "USR" : "CRZ",
       procedure: false,
     }));
     origin = { ...drawing.origin };
@@ -142,7 +169,7 @@
       cruise_ft: cruiseFt ?? 5500,
       origin: pt(origin),
       destination: pt(dest),
-      waypoints: drawn.map((f) => ({ ident: f.ident, name: "", lat: f.lat, lon: f.lon, airport: f.kind === "apt" })),
+      waypoints: drawn.map((f) => ({ ident: f.ident, name: "", lat: f.lat, lon: f.lon, airport: f.kind === "apt", alt_ft: f.stage === "USR" ? f.alt_ft : null })),
     };
   }
   async function savePln() {
@@ -298,7 +325,7 @@
       airline: sameNo && base ? base.airline : "",
       flight_number: sameNo && base ? base.flight_number : flightNo.trim().toUpperCase(),
       origin: { icao: origin.icao, name: origin.name, lat: origin.lat, lon: origin.lon, runway: keep?.origin.runway ?? "" },
-      destination: { icao: dest.icao, name: dest.name, lat: dest.lat, lon: dest.lon, runway: keep?.destination.runway ?? "" },
+      destination: { icao: dest.icao, name: dest.name, lat: dest.lat, lon: dest.lon, runway: landRwy },
       alternate: altn?.icao ?? "",
       route: drawn ? [origin.icao, ...drawn.map((f) => f.ident), dest.icao].join(" ") : (keep?.route ?? ""),
       cruise_ft: keep ? keep.cruise_ft : (cruiseFt ?? 0),
@@ -310,7 +337,7 @@
       block_fuel_kg: keep?.block_fuel_kg ?? 0,
       sched_out_ms: keep?.sched_out_ms ?? null,
       sched_in_ms: keep?.sched_in_ms ?? null,
-      fixes: drawn ? drawn.map((f) => ({ ...f, alt_ft: cruiseFt ?? 0 })) : (keep?.fixes ?? []),
+      fixes: drawnFixes ?? keep?.fixes ?? [],
       ofp: keep?.ofp ?? null,
     };
   }
@@ -373,18 +400,25 @@
         <ol class="legs">
           <li>
             <span class="mark icon" aria-hidden="true">{@render glyph(45)}</span>
-            <AirportField label="Origin" placeholder="Add origin" value={drawing.origin} onchange={(v) => (drawing.origin = v)} />
+            <AirportField
+              label="Origin"
+              placeholder="Add origin"
+              value={drawing.origin}
+              onchange={(v) => {
+                drawing.origin = v;
+                if (v) drawing.stage = "route";
+              }}
+            />
           </li>
         </ol>
         {#if drawing.note}<p class="note">{drawing.note}</p>{/if}
         <div class="row">
           <button type="button" class="ghost" onclick={cancelDrawing}>Cancel</button>
-          <button type="button" class="next" disabled={!drawing.origin} onclick={() => (drawing.stage = "route")}>Start drawing</button>
         </div>
       {:else}
         <p class="step">
           Click the map to add waypoints from <b>{drawing.origin?.icao}</b>. Clicking an airport passes over it; end on your
-          destination airport.
+          destination airport. Drag a point to move it, click it to take it out, or drag the line to put one in.
         </p>
         <div class="chain num">
           <span class="apt">{drawing.origin?.icao}</span>
@@ -393,10 +427,38 @@
           {/each}
         </div>
         <p class="total"><b class="num">{Math.round(drawnNm)}</b> nm · {drawing.pts.length} point{drawing.pts.length === 1 ? "" : "s"}</p>
+        {#if altEdit}
+          <!-- Altitudes by point; empty follows the cruise altitude. -->
+          <ol class="alts" aria-label="Waypoint altitudes">
+            {#each drawing.pts as p, i (i)}
+              {#if !(i === drawing.pts.length - 1 && p.icao && lastIsAirport)}
+                <li>
+                  <span class="num" class:apt={!!p.icao}>{p.icao || `WP${drawing.pts.slice(0, i + 1).filter((x) => !x.icao).length}`}</span>
+                  <input
+                    class="num"
+                    type="number"
+                    min="0"
+                    max="60000"
+                    step="100"
+                    placeholder={cruiseFt ? `${cruiseFt}` : "Cruise"}
+                    value={p.alt ?? ""}
+                    oninput={(e) => {
+                      const v = (e.currentTarget as HTMLInputElement).valueAsNumber;
+                      drawing.pts[i].alt = Number.isFinite(v) && v > 0 ? v : null;
+                    }}
+                    aria-label="Altitude at {p.icao || 'waypoint ' + (i + 1)}, feet"
+                  />
+                  <span class="u">ft</span>
+                </li>
+              {/if}
+            {/each}
+          </ol>
+        {/if}
         {#if drawing.pts.length && !lastIsAirport}<p class="note">Finish on an airport: click your destination.</p>{/if}
         <div class="row">
           <button type="button" class="ghost" onclick={cancelDrawing}>Cancel</button>
           <button type="button" class="ghost" disabled={!drawing.pts.length} onclick={() => (drawing.pts = drawing.pts.slice(0, -1))}>Undo</button>
+          <button type="button" class="ghost" class:on={altEdit} aria-pressed={altEdit} disabled={!drawing.pts.length} onclick={() => (altEdit = !altEdit)}>Altitudes</button>
           <button type="button" class="next" disabled={!lastIsAirport} onclick={finishDrawing}>Finish</button>
         </div>
       {/if}
@@ -425,6 +487,18 @@
         <span class="mark icon" aria-hidden="true">{@render glyph(135)}</span>
         <AirportField label="Destination" placeholder="Destination" value={dest} onchange={(v) => (dest = v)} />
       </li>
+      {#if dest}
+        <!-- The runway to land on: the profile's glideslope uses it (changeable in flight too). -->
+        <li class="pt rwy-row">
+          <span class="mark icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M9 3h6l2 18H7z" /><path d="M12 6v2M12 11v2M12 16v2" /></svg>
+          </span>
+          <div class="rwy-pick">
+            <span class="rwy-k">Landing runway</span>
+            <RunwayPicker icao={dest.icao} value={landRwy} onchange={(r) => (landRwy = r)} />
+          </div>
+        </li>
+      {/if}
       <li class="pt dotted">
         <span class="mark icon alt" aria-hidden="true">{@render glyph(90)}</span>
         <AirportField label="Alternate" placeholder="Alternate" value={altn} onchange={(v) => (altn = v)} />
@@ -470,7 +544,8 @@
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 19h14" /></svg>
             {saving ? "Saving…" : "Save as .PLN"}
           </button>
-          <button type="button" class="ghost" onclick={startDrawing}>Redraw</button>
+          <button type="button" class="ghost" onclick={() => startDrawing(true)}>Edit</button>
+          <button type="button" class="ghost" onclick={() => startDrawing()}>Redraw</button>
           <button type="button" class="ghost" onclick={() => (drawn = null)}>Remove</button>
         </div>
         {#if saved}<p class="hint">Saved {saved}. In MSFS 2020 or 2024, load it from the world map's flight plan menu.</p>{/if}
@@ -486,18 +561,21 @@
       {:else if looking}
         <div class="opt wait"><strong>Import from SimBrief</strong><span>Looking for your latest flight…</span></div>
       {:else if latest}
-        <button type="button" class="opt sb" onclick={importSimbrief} disabled={importing}>
-          <strong>{importing ? "Importing…" : base ? "Imported from SimBrief" : "Import from SimBrief"}</strong>
-          <span class="big num">{latest.callsign || `${latest.airline}${latest.flight_number}`} ({latest.origin.icao}–{latest.destination.icao})</span>
-          <span>{[latest.aircraft_icao, latest.distance_nm ? `${distance(latest.distance_nm).value} ${distance(latest.distance_nm).unit}` : "", ago(latest.generated_ms)].filter(Boolean).join(", ")}</span>
-          {#if latest.route}<span class="route num">{latest.route}</span>{/if}
-        </button>
-        {#if base && base.source === "simbrief"}
-          <button type="button" class="ofp" onclick={() => base && openBriefing(base)} disabled={briefing.loading}>
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h7l4 4v14H7zM14 3v4h4M10 11h5M10 14h5M10 17h3" /></svg>
-            {briefing.loading ? "Opening…" : "View OFP"}
+        <!-- One compact row: the flight, then Import (or Imported) and the OFP. -->
+        <div class="sbrow">
+          <button type="button" class="opt sb" onclick={importSimbrief} disabled={importing} title={latest.route || undefined}>
+            <span class="sb-k">SimBrief</span>
+            <span class="sb-main num">{latest.callsign || `${latest.airline}${latest.flight_number}`} · {latest.origin.icao}–{latest.destination.icao}</span>
+            <span class="sb-sub">{[latest.aircraft_icao, latest.distance_nm ? `${distance(latest.distance_nm).value} ${distance(latest.distance_nm).unit}` : "", ago(latest.generated_ms)].filter(Boolean).join(" · ")}</span>
+            <span class="sb-act" class:done={!!base && !importing}>{importing ? "Importing…" : base ? "✓ Imported" : "Import"}</span>
           </button>
-        {/if}
+          {#if base && base.source === "simbrief"}
+            <button type="button" class="ofp" onclick={() => base && openBriefing(base)} disabled={briefing.loading} title="View the OFP">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h7l4 4v14H7zM14 3v4h4M10 11h5M10 14h5M10 17h3" /></svg>
+              {briefing.loading ? "…" : "OFP"}
+            </button>
+          {/if}
+        </div>
       {:else}
         <button type="button" class="opt" onclick={lookSimbrief}>
           <strong>Import from SimBrief</strong>
@@ -514,7 +592,7 @@
           Enter route manually
           <em>Soon</em>
         </button>
-        <button type="button" class="opt small" onclick={startDrawing}>
+        <button type="button" class="opt small" onclick={() => startDrawing()}>
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="6" r="2" /><path d="M7.5 7.5c2 2 1 4 3 6s4 1 6 3" stroke-dasharray="2 2.4" /><path d="M16 16.5l3 3M19 16.5l-3 3" /></svg>
           Draw route
         </button>
@@ -744,22 +822,63 @@
     margin-top: 3px;
     color: var(--ink-faint);
   }
-  .opt.sb span.num {
-    color: #c4b5fd;
+  .sbrow {
+    display: flex;
+    gap: 6px;
+    align-items: stretch;
   }
-  .opt .big {
-    font-size: 18px;
-    letter-spacing: 0.02em;
+  /* SimBrief's flight in one compact block: label and action on the top
+     line, the flight, then its details. */
+  .opt.sb {
+    flex: 1;
+    min-width: 0;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    grid-template-areas: "k act" "main main" "sub sub";
+    align-items: center;
+    gap: 1px 8px;
+    padding: 8px 11px;
+    text-align: left;
   }
-  .opt.sb .route {
-    max-width: 100%;
-    margin-top: 2px;
-    font-size: 12px;
-    color: var(--ink-faint);
+  .sb-k {
+    grid-area: k;
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #a78bfa !important;
+  }
+  .sb-main {
+    grid-area: main;
+    font-size: 15px;
+    color: #c4b5fd !important;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
+  .sb-sub {
+    grid-area: sub;
+    font-size: 12px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .sb-act {
+    grid-area: act;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ink) !important;
+  }
+  .sb-act.done {
+    color: #7ddc9a !important;
+  }
+  .sbrow .ofp {
+    flex-direction: column;
+    gap: 3px;
+    padding: 6px 10px;
+    font-size: 12px;
+  }
+
   .ofp {
     display: inline-flex;
     align-items: center;
@@ -861,6 +980,46 @@
     margin: 0;
     font-size: 12.5px;
     color: var(--amber);
+  }
+  .alts {
+    list-style: none;
+    margin: 0 0 8px;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 4px 10px;
+    max-height: 168px;
+    overflow-y: auto;
+  }
+  .alts li {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .alts span.num {
+    width: 46px;
+    font-size: 12.5px;
+    color: var(--ink-dim);
+  }
+  .alts span.apt {
+    color: var(--amber);
+  }
+  .alts input {
+    width: 72px;
+    padding: 3px 6px;
+    border: 1px solid var(--rule);
+    border-radius: 5px;
+    background: transparent;
+    color: var(--ink);
+    font-size: 13px;
+  }
+  .alts .u {
+    font-size: 11.5px;
+    color: var(--ink-faint);
+  }
+  .draw .row button.ghost.on {
+    border-color: #5aa9ff;
+    color: #a9d1ff;
   }
   .chain {
     display: flex;
@@ -964,6 +1123,17 @@
     gap: 8px;
     font-size: 13px;
     color: var(--ink-dim);
+  }
+  .rwy-pick {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+    flex: 1;
+  }
+  .rwy-k {
+    font-size: 12px;
+    color: var(--ink-faint, #7d828a);
   }
   .cruise-row .cruise {
     flex: 1;

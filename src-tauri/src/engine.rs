@@ -38,6 +38,8 @@ pub enum Command {
     /// Fly to another airport than planned: the plan's destination becomes
     /// this one, remembering the first.
     Divert(crate::simbrief::PlanAirport),
+    /// The runway the pilot means to land on at the destination ("" for none).
+    SetLandingRunway(String),
 }
 
 /// What the UI shows. Sent as the `status` event and from `get_status`.
@@ -399,6 +401,11 @@ impl Engine {
                     p.destination = to;
                     // The planned route and alternate no longer lead there.
                     p.ete_min = 0.0;
+                }
+            }
+            Command::SetLandingRunway(rwy) => {
+                if let Some(p) = self.plan.as_mut() {
+                    p.destination.runway = rwy;
                 }
             }
             Command::CancelFlight => self.cancel_flight(),

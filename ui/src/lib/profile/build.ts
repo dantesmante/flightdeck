@@ -20,6 +20,9 @@ export interface RoutePoint {
   d: number;
   /** Planned altitude, ft (NaN where not planned: the airports). */
   alt: number;
+  /** SimBrief's leg stage ("CLB", "CRZ", "DSC"), or "USR" for an altitude
+   * the pilot set on a drawn route. */
+  stage?: string;
 }
 
 const NM_M = 1852;
@@ -41,7 +44,7 @@ export function routePoints(r: ProfileRoute): RoutePoint[] {
     ...r.fixes
       // SimBrief lists the airports as fixes too; keep them once.
       .filter((f, i, a) => !(i === 0 && f.ident === r.origin.icao) && !(i === a.length - 1 && f.ident === r.dest.icao))
-      .map((f) => ({ ident: f.ident, lat: f.lat, lon: f.lon, alt: f.alt_ft > 0 ? f.alt_ft : NaN })),
+      .map((f) => ({ ident: f.ident, lat: f.lat, lon: f.lon, alt: f.alt_ft > 0 ? f.alt_ft : NaN, stage: f.stage })),
     { ident: r.dest.icao, lat: r.dest.lat, lon: r.dest.lon, alt: NaN },
   ];
   const out: RoutePoint[] = [];
@@ -117,24 +120,40 @@ export function descentAlt(to: number, top: number, d: number): number {
  */
 export function plannedPath(pts: RoutePoint[], cruiseFt: number, origElev: number, destElev: number): [number, number][] {
   const total = pts[pts.length - 1].d;
-  const alts = pts.slice(1, -1).map((p) => p.alt).filter((a) => !Number.isNaN(a));
+  const mid = pts.slice(1, -1);
+  const alts = mid.map((p) => p.alt).filter((a) => !Number.isNaN(a));
   const cruise = cruiseFt > 0 ? cruiseFt : alts.length ? Math.max(...alts) : 0;
   if (cruise <= 0 || total <= 0) return [];
-  const shaped = alts.length > 1 && new Set(alts.map((a) => Math.round(a / 100))).size > 1;
-  if (shaped) {
+  // SimBrief's plan: its own climb and descent, fix by fix.
+  if (mid.some((p) => p.stage === "CLB" || p.stage === "DSC")) {
     const out: [number, number][] = [[0, origElev]];
-    for (const p of pts.slice(1, -1)) if (!Number.isNaN(p.alt)) out.push([p.d, p.alt]);
+    for (const p of mid) if (!Number.isNaN(p.alt)) out.push([p.d, p.alt]);
     out.push([total, destElev]);
     return out;
   }
-  // Sampled finely enough to show every bend (a few hundred points).
-  const n = 300;
-  const out: [number, number][] = [];
-  for (let i = 0; i <= n; i++) {
-    const d = (total * i) / n;
-    out.push([d, Math.min(cruise, climbAlt(origElev, cruise, d), descentAlt(destElev, cruise, total - d))]);
-  }
-  return out;
+  // Otherwise each point's altitude (set by the pilot, else the cruise) is
+  // a target, reached by the climb and descent above: between points the
+  // altitude changes evenly, never faster than the climb out of the origin
+  // or later than the descent into the destination allows.
+  const targets = mid.map((p) => [p.d, Number.isNaN(p.alt) ? cruise : p.alt] as [number, number]);
+  const top = Math.max(cruise, ...targets.map((t) => t[1]));
+  const target = (d: number) => {
+    if (!targets.length) return cruise;
+    if (d <= targets[0][0]) return targets[0][1];
+    for (let i = 1; i < targets.length; i++) {
+      const [x0, y0] = targets[i - 1];
+      const [x1, y1] = targets[i];
+      if (d <= x1) return x1 > x0 ? y0 + ((y1 - y0) * (d - x0)) / (x1 - x0) : y1;
+    }
+    return targets[targets.length - 1][1];
+  };
+  // Sampled finely enough to show every bend, and at each point exactly.
+  const ds = new Set<number>();
+  for (let i = 0; i <= 300; i++) ds.add((total * i) / 300);
+  for (const t of targets) ds.add(t[0]);
+  return [...ds]
+    .sort((a, b) => a - b)
+    .map((d) => [d, Math.min(target(d), climbAlt(origElev, top, d), descentAlt(destElev, top, total - d))] as [number, number]);
 }
 
 /** Planned altitude at distance d. */
@@ -450,7 +469,7 @@ export function headingGap(a: number, b: number): number {
   return d;
 }
 
-/** Feet per nm of a 3° glidepath. */
+/** Feet per nm of a 3° glideslope. */
 export const GLIDE_FT_NM = 6076.12 * Math.tan((3 * Math.PI) / 180);
 /** Threshold crossing height, ft. */
 export const TCH_FT = 50;

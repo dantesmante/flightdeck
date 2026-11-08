@@ -35,6 +35,8 @@
     landedAt?: number | null;
     /** The aircraft's electrical power, while the sim says. */
     powered?: boolean | null;
+    /** Ground speed, kt (Smart taxi waits for the rollout to end). */
+    acGs?: number | null;
     /** Departure point of the live flight. */
     origin: [number, number] | null;
     /** A saved flight's track to show instead of the live one. */
@@ -88,6 +90,7 @@
     aircraft,
     landedAt = null,
     powered = null,
+    acGs = null,
     origin,
     history,
     routes = [],
@@ -245,10 +248,27 @@
       follow = false;
       map.easeTo({ center: [aircraft.lon, aircraft.lat], zoom: Math.max(map.getZoom(), 15.3), duration: 1500 });
       map.once("moveend", () => (follow = true));
-      smartTaxi = true;
-      clearTimeout(smartTimer);
-      smartTimer = setTimeout(() => (smartTaxi = false), 15000);
+      // The note waits for the rollout to end (and for FlightDeck to be
+      // on screen): at touchdown the pilot is looking at the sim.
+      smartPending = Date.now();
     });
+  });
+  let smartPending = $state(0);
+  let pageShown = $state(typeof document === "undefined" || document.visibilityState === "visible");
+  const onVis = () => (pageShown = document.visibilityState === "visible");
+  if (typeof document !== "undefined") document.addEventListener("visibilitychange", onVis);
+  $effect(() => {
+    if (!smartPending) return;
+    // Given up on after 5 minutes (FlightDeck never looked at).
+    if (Date.now() - smartPending > 300000) {
+      smartPending = 0;
+      return;
+    }
+    if ((acGs ?? 0) > 30 || !pageShown) return;
+    smartPending = 0;
+    smartTaxi = true;
+    clearTimeout(smartTimer);
+    smartTimer = setTimeout(() => (smartTaxi = false), 15000);
   });
   // The pilot switched the runways off themselves: leave them be.
   $effect(() => {
@@ -265,7 +285,10 @@
     }
     if (p != null) wasPowered = p;
   });
-  onDestroy(() => clearTimeout(smartTimer));
+  onDestroy(() => {
+    clearTimeout(smartTimer);
+    if (typeof document !== "undefined") document.removeEventListener("visibilitychange", onVis);
+  });
 
   /** The airport whose card is open. */
   let openAirport = $state<string | null>(null);
@@ -692,6 +715,14 @@
       }
       drawing.note = "";
       drawing.origin = await named(hit.ident, hit.at);
+      // Straight on to the route: the next click is its first point.
+      drawing.stage = "route";
+      return;
+    }
+    // A click on a point (not the origin) takes it out.
+    const onPt = pointAt(pt);
+    if (onPt != null) {
+      if (onPt > 0) drawing.pts = drawing.pts.filter((_, i) => i !== onPt - 1);
       return;
     }
     if (hit) {
@@ -700,6 +731,69 @@
       drawing.pts = [...drawing.pts, { icao: "", name: "", lat: at[1], lon: at[0] }];
     }
     drawing.note = "";
+  }
+  /** The route point (0: the origin) under a screen point, while drawing. */
+  function pointAt(pt: maplibregl.PointLike): number | null {
+    if (!map?.getLayer("fd-measure-pts")) return null;
+    const f = map.queryRenderedFeatures(pt, { layers: ["fd-measure-pts"] })[0];
+    return f ? Number(f.properties.idx) : null;
+  }
+  /** The leg (0: from the origin) under a screen point, while drawing. */
+  function legAt(pt: maplibregl.PointLike): number | null {
+    if (!map?.getLayer("fd-measure-mid")) return null;
+    const f = map.queryRenderedFeatures(pt, { layers: ["fd-measure-mid", "fd-measure-leg"] })[0];
+    return f ? Number(f.properties.leg) : null;
+  }
+  // Editing a drawn route: drag a point to move it, drag the line (or its
+  // middle handle) to put a new point in, click a point to take it out.
+  let routeDrag: { i: number; insertLeg: number | null; from: maplibregl.Point; moved: boolean } | null = null;
+  let skipClick = false;
+  function dragStart(e: maplibregl.MapMouseEvent | maplibregl.MapTouchEvent) {
+    if (!drawRoute || !map) return;
+    if ("points" in e && e.points.length !== 1) return;
+    const p = pointAt(e.point);
+    if (p != null && p > 0) routeDrag = { i: p - 1, insertLeg: null, from: e.point, moved: false };
+    else if (p == null) {
+      const leg = legAt(e.point);
+      if (leg == null) return;
+      routeDrag = { i: leg, insertLeg: leg, from: e.point, moved: false };
+    } else return;
+    e.preventDefault();
+    map.dragPan.disable();
+  }
+  function dragMove(e: maplibregl.MapMouseEvent | maplibregl.MapTouchEvent) {
+    const d = routeDrag;
+    if (!d) return;
+    if (!d.moved && Math.hypot(e.point.x - d.from.x, e.point.y - d.from.y) < 4) return;
+    const at = { icao: "", name: "", lat: e.lngLat.lat, lon: e.lngLat.lng };
+    if (!d.moved) {
+      d.moved = true;
+      if (d.insertLeg != null) {
+        const pts = [...drawing.pts];
+        pts.splice(d.insertLeg, 0, at);
+        drawing.pts = pts;
+        return;
+      }
+    }
+    // Keep a point's altitude when it is moved.
+    drawing.pts = drawing.pts.map((p, i) => (i === d.i ? { ...at, alt: p.alt ?? null } : p));
+  }
+  async function dragEnd(e: maplibregl.MapMouseEvent | maplibregl.MapTouchEvent) {
+    const d = routeDrag;
+    if (!d) return;
+    routeDrag = null;
+    map?.dragPan.enable();
+    if (!d.moved) return;
+    skipClick = true;
+    setTimeout(() => (skipClick = false), 0);
+    // Dropped on an airport: it becomes that airport.
+    const hit = airportHit(e.point);
+    if (hit) {
+      const h = ((await api.searchAirports(hit.ident).catch(() => [])) ?? []).find((x) => x.icao === hit.ident);
+      const alt = drawing.pts[d.i]?.alt ?? null;
+      const ap = h ? { icao: h.icao, name: h.name, lat: h.lat, lon: h.lon, alt } : { icao: hit.ident, name: "", lat: hit.at[1], lon: hit.at[0], alt };
+      drawing.pts = drawing.pts.map((p, i) => (i === d.i ? ap : p));
+    }
   }
   let mHover = $state<[number, number] | null>(null);
   let legMarkers: maplibregl.Marker[] = [];
@@ -739,7 +833,15 @@
     if (tracing && mHover && mPts.length && mNext) {
       features.push({ type: "Feature", properties: { kind: "next" }, geometry: { type: "LineString", coordinates: greatCircle(mPts[mPts.length - 1], mHover, 24) } });
     }
-    mPts.forEach((p, i) => features.push({ type: "Feature", properties: { kind: "pt", first: i === 0 }, geometry: { type: "Point", coordinates: p } }));
+    mPts.forEach((p, i) => features.push({ type: "Feature", properties: { kind: "pt", first: i === 0, idx: i }, geometry: { type: "Point", coordinates: p } }));
+    // Drawing: each leg on its own (wide, invisible, to grab) and a handle
+    // in its middle, for dragging out a new point.
+    if (drawRoute) {
+      for (let i = 1; i < mPts.length; i++) {
+        features.push({ type: "Feature", properties: { kind: "leg", leg: i - 1 }, geometry: { type: "LineString", coordinates: greatCircle(mPts[i - 1], mPts[i], 16) } });
+        if (gcNm(mPts[i - 1], mPts[i]) > 0.2) features.push({ type: "Feature", properties: { kind: "mid", leg: i - 1 }, geometry: { type: "Point", coordinates: greatCircle(mPts[i - 1], mPts[i], 2)[1] } });
+      }
+    }
     return { type: "FeatureCollection", features };
   }
   function addMeasureLayers() {
@@ -748,6 +850,14 @@
     map.addLayer({ id: "fd-measure-casing", type: "line", source: "fd-measure", filter: ["==", ["get", "kind"], "line"], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#111214", "line-width": 5, "line-opacity": 0.7 } });
     map.addLayer({ id: "fd-measure-line", type: "line", source: "fd-measure", filter: ["==", ["get", "kind"], "line"], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#f0b23a", "line-width": 2.5 } });
     map.addLayer({ id: "fd-measure-next", type: "line", source: "fd-measure", filter: ["==", ["get", "kind"], "next"], paint: { "line-color": "#f0b23a", "line-width": 2, "line-dasharray": [2, 2], "line-opacity": 0.8 } });
+    map.addLayer({ id: "fd-measure-leg", type: "line", source: "fd-measure", filter: ["==", ["get", "kind"], "leg"], paint: { "line-color": "#000", "line-opacity": 0.01, "line-width": 16 } });
+    map.addLayer({
+      id: "fd-measure-mid",
+      type: "circle",
+      source: "fd-measure",
+      filter: ["==", ["get", "kind"], "mid"],
+      paint: { "circle-radius": 4, "circle-color": "rgba(17, 18, 20, 0.6)", "circle-stroke-color": "#f0b23a", "circle-stroke-width": 1.5, "circle-stroke-opacity": 0.8 },
+    });
     map.addLayer({
       id: "fd-measure-pts",
       type: "circle",
@@ -775,6 +885,15 @@
       d.textContent = `${fmt(l.nm)} nm · ${crs3(l.crs)}°`;
       return [new maplibregl.Marker({ element: d }).setLngLat(mid).addTo(map!)];
     });
+    // Altitudes set for points of a drawn route, beside their markers.
+    if (drawOn)
+      drawing.pts.forEach((p, i) => {
+        if (!p.alt || i === drawing.pts.length - 1 && p.icao) return;
+        const d = document.createElement("div");
+        d.className = "alt-label";
+        d.textContent = `${Math.round(p.alt).toLocaleString("en-US")} ft`;
+        legMarkers.push(new maplibregl.Marker({ element: d, anchor: "left", offset: [10, 12] }).setLngLat([p.lon, p.lat]).addTo(map!));
+      });
   });
   function setMeasuring(on: boolean) {
     measuring = on;
@@ -1701,14 +1820,30 @@
       const name = f.map((x) => (x.properties as { name?: string }).name).find((n) => !!n) ?? "";
       ctx = { x: e.point.x, y: e.point.y, ident: hit.ident, name, at: hit.at };
     });
+    map.on("mousedown", dragStart);
+    map.on("touchstart", dragStart);
+    map.on("mouseup", dragEnd);
+    map.on("touchend", dragEnd);
+    map.on("touchmove", dragMove);
     map.on("mousemove", (e) => {
+      if (routeDrag) {
+        dragMove(e);
+        mHover = null;
+        return;
+      }
       if (tracing) mHover = [e.lngLat.lng, e.lngLat.lat];
+      // Drawing: a hand over the points and the line, which can be dragged.
+      if (drawRoute && map) {
+        const p = pointAt(e.point);
+        map.getCanvas().style.cursor = p != null && p > 0 ? "grab" : p == null && legAt(e.point) != null ? "copy" : "crosshair";
+      }
     });
     map.on("mouseout", () => (mHover = null));
     map.on("zoom", () => (zoomNow = map!.getZoom()));
     map.on("click", (e) => {
       ctx = null;
       if (drawOn) {
+        if (skipClick) return;
         drawClick(e.point, [e.lngLat.lng, e.lngLat.lat]);
         return;
       }
@@ -2334,7 +2469,7 @@
     transform: translateX(-50%);
     z-index: 3;
     pointer-events: none;
-    font: 700 22px var(--cond, "Oswald", sans-serif);
+    font: 700 26px var(--cond, "Oswald", sans-serif);
     letter-spacing: 0.12em;
     text-transform: uppercase;
     color: #ffd21f;
@@ -2623,6 +2758,18 @@
   }
 
   /* Measuring: a label on each leg and the total along the bottom. */
+  .map :global(.alt-label) {
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: rgba(17, 18, 20, 0.88);
+    border: 1px solid rgba(90, 169, 255, 0.7);
+    color: #a9d1ff;
+    font-family: var(--cond);
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+    pointer-events: none;
+  }
   .map :global(.leg-label) {
     padding: 2px 6px;
     border-radius: 4px;

@@ -244,7 +244,7 @@
   const profileRoute = $derived.by<ProfileRoute | null>(() => {
     const p = status?.plan;
     if (p && p.origin.icao && p.destination.icao) return { origin: p.origin, dest: p.destination, fixes: p.fixes, cruise_ft: p.cruise_ft };
-    if (draft.origin && draft.dest) return { origin: draft.origin, dest: draft.dest, fixes: draft.fixes, cruise_ft: draft.cruise_ft };
+    if (draft.origin && draft.dest) return { origin: draft.origin, dest: { ...draft.dest, runway: draft.runway }, fixes: draft.fixes, cruise_ft: draft.cruise_ft };
     return null;
   });
   const profileAircraft = $derived(
@@ -289,7 +289,7 @@
     <div class="mapside">
     <!-- One map for the Map, Flights and Photos tabs; in Photos it shows
          nothing but the screenshot pins. -->
-    <Map live={ph ? NO_TRACK : liveTrack} aircraft={ph ? null : aircraft} origin={ph ? null : origin} history={ph ? null : history} routes={ph ? NO_ROUTES : routes} parked={ph ? NO_ROUTES : parkedShown} highlight={view === "flights" ? hoverFlight : null} onfly={status?.live || ph ? undefined : flyThis} selected={ph ? null : selectedFlight} onroute={showFlight} plan={ph ? null : history ? historyPlan : (status?.plan ?? null)} draft={ph ? null : draftRoute} insetLeft={view === "live" ? inset.l : (view === "flights" || ph) && !collapsed && !screen.phone ? 396 : 0} insetBottom={view === "live" ? inset.b : 0} initialOn={view === "flights" ? FLIGHTS_LAYERS : NO_LAYERS} shots={ph ? photoPins : mapShots} planner={view === "live"} bare={ph} shotAccent={ph ? hoverShot : null} onshothover={ph ? (id) => (hoverShot = id) : undefined} acAltFt={ph ? null : (status?.telemetry?.alt_msl_ft ?? null)} acOnGround={status?.telemetry?.on_ground ?? false} acPos={!ph && status?.telemetry ? [status.telemetry.lon, status.telemetry.lat] : null} landedAt={status?.live && status.last_landing && !status.last_landing.touch_and_go ? status.last_landing.t_ms : null} powered={status?.telemetry?.powered ?? null} />
+    <Map live={ph ? NO_TRACK : liveTrack} aircraft={ph ? null : aircraft} origin={ph ? null : origin} history={ph ? null : history} routes={ph ? NO_ROUTES : routes} parked={ph ? NO_ROUTES : parkedShown} highlight={view === "flights" ? hoverFlight : null} onfly={status?.live || ph ? undefined : flyThis} selected={ph ? null : selectedFlight} onroute={showFlight} plan={ph ? null : history ? historyPlan : (status?.plan ?? null)} draft={ph ? null : draftRoute} insetLeft={view === "live" ? inset.l : (view === "flights" || ph) && !collapsed && !screen.phone ? 396 : 0} insetBottom={view === "live" ? inset.b : 0} initialOn={view === "flights" ? FLIGHTS_LAYERS : NO_LAYERS} shots={ph ? photoPins : mapShots} planner={view === "live"} bare={ph} shotAccent={ph ? hoverShot : null} onshothover={ph ? (id) => (hoverShot = id) : undefined} acAltFt={ph ? null : (status?.telemetry?.alt_msl_ft ?? null)} acOnGround={status?.telemetry?.on_ground ?? false} acPos={!ph && status?.telemetry ? [status.telemetry.lon, status.telemetry.lat] : null} landedAt={status?.live && status.last_landing && !status.last_landing.touch_and_go ? status.last_landing.t_ms : null} powered={status?.telemetry?.powered ?? null} acGs={status?.telemetry?.gs_kt ?? null} />
     {#if view === "live"}
       <MapDock {status} {completed} track={liveTrack} ondismiss={dismiss} onsettings={() => go("settings")} oninset={(l, b) => (inset = { l, b })} />
     {:else if view === "flights"}
@@ -329,7 +329,12 @@
     {/if}
     </div>
     {#if splitOn}<PfdWindow />{/if}
-    {#if profileOn}<FlightProfile route={profileRoute} aircraft={profileAircraft} onclose={() => (profileState.open = false)} />{/if}
+    {#if profileOn}<FlightProfile
+        route={profileRoute}
+        aircraft={profileAircraft}
+        onclose={() => (profileState.open = false)}
+        onrunway={(r) => (status?.plan ? void api.setLandingRunway(r) : (draft.runway = r))}
+      />{/if}
   </main>
 
   {#if full}

@@ -8,12 +8,13 @@
   // It zooms and scrolls sideways only, like a sound editor: the wheel
   // zooms where the pointer is, dragging (or a sideways swipe) scrolls.
   //
-  // Glidepath: the final approach on its own, the aircraft on the left, the
+  // Glideslope: the final approach on its own, the aircraft on the left, the
   // runway threshold on the right and a 3° path drawn back from it. It opens
   // by itself once the aircraft is within 10 nm of the destination in the
   // air, or with its button.
-  import { onDestroy } from "svelte";
+  import { onDestroy, untrack } from "svelte";
   import { api, type RunwayEnd, type RunwayEnds } from "../api";
+  import RunwayPicker from "../plan/RunwayPicker.svelte";
   import {
     airspaceAlong,
     altAt,
@@ -41,18 +42,34 @@
     route,
     aircraft,
     onclose,
+    onrunway,
   }: {
     route: ProfileRoute | null;
     /** The aircraft while the sim is connected; `tracking` while a flight is recorded. */
     aircraft: { lat: number; lon: number; alt: number; onGround: boolean; tracking: boolean } | null;
     onclose: () => void;
+    /** The pilot picked the runway to land on. */
+    onrunway: (rwy: string) => void;
   } = $props();
 
   // --- The route -----------------------------------------------------------
-  const pts = $derived(route ? routePoints(route) : []);
+  /** The route's identity. The route object itself is rebuilt on every
+   * status update (twice a second) even when nothing in it changed, so
+   * everything below is worked out from this string, and again only when
+   * it changes. */
+  const key = $derived(
+    route
+      ? [route.origin, ...route.fixes, route.dest]
+          .map((p) => `${"icao" in p ? p.icao : p.ident}${p.lat.toFixed(4)}${p.lon.toFixed(4)}${Math.round(("alt_ft" in p ? p.alt_ft : 0) || 0)}`)
+          .join("|")
+      : "",
+  );
+  const pts = $derived.by(() => {
+    void key;
+    return untrack(() => (route ? routePoints(route) : []));
+  });
   const total = $derived(pts.length ? pts[pts.length - 1].d : 0);
-  /** The route's identity: work out the ground and the rest again only when it changes. */
-  const key = $derived(pts.map((p) => `${p.ident}${p.lat.toFixed(4)}${p.lon.toFixed(4)}${Math.round(p.alt || 0)}`).join("|"));
+  const cruiseFt = $derived(route?.cruise_ft ?? 0);
 
   type Ground = { d: number; ft: number | null }[];
   /** Ground under a line of points, sampled `n` times at tile zoom z. */
@@ -69,27 +86,35 @@
     return () => (gone = true);
   }
 
-  let ground = $state<Ground>([]);
+  // $state.raw throughout: these are big, replaced whole, never edited in
+  // place, and a deep $state proxy made every read of them slow.
+  let ground = $state.raw<Ground>([]);
   let groundBusy = $state(false);
+  // The route object is rebuilt on every status update (twice a second)
+  // even when the route is the same: work from `key` alone, or all of this
+  // ran again each time.
   $effect(() => {
     void key;
-    const p = pts;
+    const [p, t] = untrack(() => [pts, total] as const);
     ground = [];
-    if (p.length < 2 || total <= 0) return;
+    if (p.length < 2 || t <= 0) return;
     groundBusy = true;
-    return sampleGround(p, 400, groundZoom(total), (g) => ((ground = g), (groundBusy = false)));
+    return sampleGround(p, 400, groundZoom(t), (g) => ((ground = g), (groundBusy = false)));
   });
 
   // Obstacles and airspace: the same FAA files the map layers use, loaded
   // once (they are cached on the PC).
-  let obstFc = $state<GeoJSON.FeatureCollection | null>(null);
+  /** The FAA obstacle file, parsed once (100,000-odd points): plain, not reactive. */
+  let obstFc: GeoJSON.FeatureCollection | null = null;
+  let obstReady = $state(false);
   let aspFc: GeoJSON.FeatureCollection | null = null;
-  let obstacles = $state<ProfileObstacle[]>([]);
-  let airspace = $state<ProfileAirspace[]>([]);
+  let obstacles = $state.raw<ProfileObstacle[]>([]);
+  let airspace = $state.raw<ProfileAirspace[]>([]);
   let faaNote = $state("");
   $effect(() => {
     void key;
-    const p = pts;
+    const p = untrack(() => pts);
+    const t = untrack(() => total);
     obstacles = [];
     airspace = [];
     if (p.length < 2) return;
@@ -97,13 +122,14 @@
     (async () => {
       try {
         obstFc ??= JSON.parse(await api.usObstacles()) as GeoJSON.FeatureCollection;
+        obstReady = true;
         if (!gone) obstacles = obstaclesAlong(p, obstFc!);
       } catch {
         if (!gone) faaNote = "FAA obstacles not reachable";
       }
       try {
         aspFc ??= JSON.parse(await api.usAirspace()) as GeoJSON.FeatureCollection;
-        if (!gone) airspace = airspaceAlong(p, aspFc, Math.max(0.2, total / 600));
+        if (!gone) airspace = airspaceAlong(p, aspFc, Math.max(0.2, t / 600));
       } catch {
         if (!gone) faaNote = faaNote ? "FAA data not reachable" : "FAA airspace not reachable";
       }
@@ -113,15 +139,17 @@
     };
   });
 
+  /** Ground at d: the samples are evenly spaced (bar the last), so index straight in. */
   const elevIn = (g: Ground, d: number): number | null => {
     if (!g.length) return null;
-    let best = g[0];
-    for (const p of g) if (Math.abs(p.d - d) < Math.abs(best.d - d)) best = p;
-    return best.ft;
+    if (g.length === 1) return g[0].ft;
+    const step = g[1].d - g[0].d;
+    const i = Math.max(0, Math.min(g.length - 1, Math.round((d - g[0].d) / step)));
+    return g[i].ft;
   };
   const origElev = $derived(ground[0]?.ft ?? 0);
   const destElev = $derived(ground[ground.length - 1]?.ft ?? 0);
-  const path = $derived(pts.length >= 2 ? plannedPath(pts, route?.cruise_ft ?? 0, origElev, destElev) : []);
+  const path = $derived(pts.length >= 2 ? plannedPath(pts, cruiseFt, origElev, destElev) : []);
   const cruise = $derived(path.length ? Math.max(...path.map((p) => p[1])) : 0);
 
   /** The aircraft along the route, if it is anywhere near it. */
@@ -137,20 +165,23 @@
   // Highest ground or obstacle top (ahead of the aircraft while it flies the
   // route), and the cruise altitude's margin over it.
   const ahead = $derived(!!(ac?.near && ac.tracking));
+  const aheadFrom = $derived(ahead ? Math.floor(ac!.d) : 0);
   const highest = $derived.by(() => {
-    const from = ahead ? ac!.d : 0;
+    const from = aheadFrom;
     let h = -Infinity;
     for (const g of ground) if (g.d >= from && g.ft != null && g.ft > h) h = g.ft;
     if (show.obst) for (const o of obstacles) if (o.d >= from && o.amsl > h) h = o.amsl;
     return Number.isFinite(h) ? h : null;
   });
 
-  // --- Glidepath -------------------------------------------------------------
+  // --- Glideslope -------------------------------------------------------------
   let mode = $state<"route" | "glide">("route");
   const FINAL_NM = 10;
-  let ends = $state<RunwayEnds | null>(null);
+  let ends = $state.raw<RunwayEnds | null>(null);
+  const destIcao = $derived(route?.dest.icao ?? "");
   $effect(() => {
-    const icao = route?.dest.icao;
+    // Only when the destination changes (not on every status update).
+    const icao = destIcao;
     ends = null;
     if (!icao) return;
     let gone = false;
@@ -173,24 +204,30 @@
     }
   });
 
-  /** The runway being flown to: the plan's (or the one the aircraft is lined
-   * up with), kept unless another fits clearly better. */
-  let rwyIdent = "";
+  /** The runway being flown to: the one the pilot picked (in Start a
+   * flight or in this header). With none picked when the glideslope opens,
+   * the one the aircraft is lined up with is picked once (and saved as the
+   * choice, so it never flips between parallels by itself). */
+  const destRwy = $derived(route?.dest.runway ?? "");
   const rwy = $derived.by<RunwayEnd | null>(() => {
     if (!route) return null;
     const list = ends?.ends ?? [];
-    const planned = route.dest.runway ? list.find((e) => e.ident === route.dest.runway) : undefined;
-    if (planned) return planned;
+    const picked = destRwy ? list.find((e) => e.ident === destRwy) : undefined;
+    if (picked) return picked;
     if (!list.length) {
       // No surveyed runways: the airport itself, approached from where the
       // aircraft is (or along the route's last leg).
-      const from = aircraft ?? pts[pts.length - 2] ?? null;
+      const from = untrack(() => aircraft) ?? pts[pts.length - 2] ?? null;
       const hdg = from ? bearingDeg(from.lat, from.lon, route.dest.lat, route.dest.lon) : 0;
       return { ident: route.dest.icao, lat: route.dest.lat, lon: route.dest.lon, heading_deg: hdg };
     }
+    return null;
+  });
+  /** The runway end the aircraft is best lined up with, right now. */
+  function linedUp(): RunwayEnd | null {
+    const list = ends?.ends ?? [];
     const ref = aircraft ?? pts[Math.max(0, pts.length - 2)];
-    if (!ref) return list[0];
-    // Lined up: the aircraft out on the extended centreline, behind the threshold.
+    if (!list.length || !ref) return list[0] ?? null;
     const score = (e: RunwayEnd) => {
       const brg = bearingDeg(e.lat, e.lon, ref.lat, ref.lon);
       const angle = headingGap(brg, (e.heading_deg + 180) % 360);
@@ -199,10 +236,12 @@
     };
     let best = list[0];
     for (const e of list) if (score(e) < score(best)) best = e;
-    const keep = list.find((e) => e.ident === rwyIdent);
-    const pick = keep && score(keep) < score(best) + 8 ? keep : best;
-    rwyIdent = pick.ident;
-    return pick;
+    return best;
+  }
+  $effect(() => {
+    if (mode !== "glide" || destRwy || !ends?.ends.length) return;
+    const pick = untrack(linedUp);
+    if (pick) onrunway(pick.ident);
   });
   const thrElev = $derived(ends?.elevation_ft ?? destElev);
   /** The approach shown: R nm of extended centreline out to the threshold.
@@ -221,16 +260,20 @@
     if (!glideOpen || d == null || d > R * 0.95 || want < R * 0.5) R = want;
     glideOpen = true;
   });
+  // The approach line, rebuilt only when the runway or the window changes:
+  // the runway is worked out again on every update, so compare by value.
+  const gKey = $derived(rwy ? `${rwy.ident}|${rwy.lat}|${rwy.lon}|${rwy.heading_deg}|${R}` : "");
   const gPts = $derived.by<RoutePoint[]>(() => {
-    if (!rwy) return [];
-    const [lon, lat] = destinationNm(rwy.lat, rwy.lon, (rwy.heading_deg + 180) % 360, R);
+    if (!gKey) return [];
+    const [ident, la, lo, hdg, r] = gKey.split("|");
+    const [lat0, lon0, h0, R0] = [Number(la), Number(lo), Number(hdg), Number(r)];
+    const [lon, lat] = destinationNm(lat0, lon0, (h0 + 180) % 360, R0);
     return [
       { ident: "", lat, lon, d: 0, alt: NaN },
-      { ident: rwy.ident, lat: rwy.lat, lon: rwy.lon, d: R, alt: NaN },
+      { ident, lat: lat0, lon: lon0, d: R0, alt: NaN },
     ];
   });
-  const gKey = $derived(gPts.map((p) => `${p.lat.toFixed(4)},${p.lon.toFixed(4)}`).join("|"));
-  let gGround = $state<Ground>([]);
+  let gGround = $state.raw<Ground>([]);
   $effect(() => {
     void gKey;
     const p = gPts;
@@ -238,7 +281,8 @@
     if (mode !== "glide" || p.length < 2) return;
     return sampleGround(p, 200, R <= 12 ? 12 : 11, (g) => (gGround = g));
   });
-  const gObst = $derived(mode === "glide" && obstFc && gPts.length ? obstaclesAlong(gPts, obstFc, 1) : []);
+  // Obstacles near the approach: scanned once per approach line, not per update.
+  const gObst = $derived(mode === "glide" && obstReady && obstFc && gPts.length ? obstaclesAlong(gPts, obstFc, 1) : []);
   /** The 3° path: threshold crossing height, rising 318 ft per nm. */
   const glideAt = (d: number) => thrElev + TCH_FT + (R - d) * GLIDE_FT_NM;
   const gAc = $derived.by(() => {
@@ -296,13 +340,14 @@
     for (const g of G) if (g.ft != null && g.ft < lo) lo = g.ft;
     return Math.max(0, Math.floor((lo - 150) / 100) * 100);
   });
+  const acTop = $derived(A?.near ? Math.ceil(A.alt / 500) * 500 : 0);
   const yMax = $derived.by(() => {
     let top: number;
     if (glide) {
-      top = Math.max(glideAt(view.a), A?.near ? A.alt : 0, thrElev + 500);
+      top = Math.max(glideAt(view.a), acTop, thrElev + 500);
       for (const o of O) if (o.d >= view.a) top = Math.max(top, o.amsl);
     } else {
-      top = Math.max(cruise, highest ?? 0, A?.near ? A.alt : 0, 1000);
+      top = Math.max(cruise, highest ?? 0, acTop, 1000);
       for (const a of airspace) if (show.asp) top = Math.max(top, Math.min(a.ceiling, cruise * 1.4 || a.ceiling));
     }
     const step = niceStep((top - yMin) * 1.15, 5);
@@ -369,6 +414,23 @@
       last = px;
     }
     return out;
+  });
+
+  /** Obstacles in view, the tallest per pixel column, standing on the drawn
+   * ground (coarser than the FAA's survey). */
+  const obstLines = $derived.by(() => {
+    if (!show.obst) return [];
+    const cols = new Map<number, ProfileObstacle>();
+    for (const o of O) {
+      if (o.d < view.a || o.d > view.b) continue;
+      const c = Math.round(x(o.d));
+      const was = cols.get(c);
+      if (!was || o.amsl > was.amsl) cols.set(c, o);
+    }
+    return [...cols].map(([c, o]) => {
+      const base = elevAt(o.d) ?? Math.max(0, o.amsl - o.agl);
+      return { x: c, y1: y(base), y2: y(Math.max(o.amsl, base + o.agl * 0.5)), c: obstColor(o) };
+    });
   });
 
   function obstColor(o: ProfileObstacle): string {
@@ -451,16 +513,17 @@
 
 <section class="profile" aria-label="Flight profile">
   <header>
-    <h3>{glide ? "Glidepath" : "Flight profile"}</h3>
+    <h3>{glide ? "Glideslope" : "Flight profile"}</h3>
     {#if route}
-      {#if glide && rwy}
-        <span class="route">{route.dest.icao} {rwy.ident !== route.dest.icao ? `RWY ${rwy.ident}` : ""} · 3°</span>
+      {#if glide}
+        <span class="route">{route.dest.icao} · 3°</span>
+        <RunwayPicker compact icao={route.dest.icao} value={destRwy} onchange={(r) => r && onrunway(r)} />
         <span class="read">
           <span class="k">To threshold</span>
           <b>{acToThr != null ? `${nm(acToThr)} nm` : "–"}</b>
         </span>
-        <span class="read" title="Height above (+) or below (−) the 3° glidepath">
-          <span class="k">Glidepath</span>
+        <span class="read" title="Height above (+) or below (−) the 3° glideslope">
+          <span class="k">Glideslope</span>
           <b class:warn={deviation != null && Math.abs(deviation) > 300}>
             {deviation == null ? "–" : Math.abs(deviation) < 50 ? "On path" : `${deviation > 0 ? "+" : "−"}${fmt(Math.abs(deviation))} ft`}
           </b>
@@ -496,9 +559,9 @@
           <button aria-pressed={show.asp} class:on={show.asp} onclick={() => (show.asp = !show.asp)} title="Class B, C and D airspace (US only)">Airspace</button>
         {/if}
       </div>
-      <button class="glide-btn" class:on={glide} aria-pressed={glide} onclick={() => (mode = glide ? "route" : "glide")} title="The final approach with a 3° glidepath">
+      <button class="glide-btn" class:on={glide} aria-pressed={glide} onclick={() => (mode = glide ? "route" : "glide")} title="The final approach with a 3° glideslope">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6l18 12" stroke-dasharray="3 2" /><path d="M15 19h7" /></svg>
-        Glidepath
+        Glideslope
       </button>
     {/if}
     <button class="x" aria-label="Close the flight profile" onclick={onclose}>
@@ -517,7 +580,7 @@
         width={w}
         height={h}
         role="img"
-        aria-label={glide ? "Final approach with a 3° glidepath" : "Vertical profile of the route"}
+        aria-label={glide ? "Final approach with a 3° glideslope" : "Vertical profile of the route"}
         class:grab={zoomed}
         onpointerdown={down}
         onpointermove={move}
@@ -559,17 +622,12 @@
 
           <!-- Obstacles. -->
           {#if show.obst}
-            {#each O as o, i (i)}
-              {#if o.d >= view.a && o.d <= view.b}
-                {@const g = elevAt(o.d)}
-                <!-- Standing on the drawn ground, which is coarser than the FAA's survey. -->
-                {@const base = g ?? Math.max(0, o.amsl - o.agl)}
-                <line x1={x(o.d)} x2={x(o.d)} y1={y(base)} y2={y(Math.max(o.amsl, base + o.agl * 0.5))} stroke={obstColor(o)} class="obst" />
-              {/if}
+            {#each obstLines as l, i (i)}
+              <line x1={l.x} x2={l.x} y1={l.y1} y2={l.y2} stroke={l.c} class="obst" />
             {/each}
           {/if}
 
-          <!-- Planned path, or the 3° glidepath (dashed) back from the threshold. -->
+          <!-- Planned path, or the 3° glideslope (dashed) back from the threshold. -->
           {#if planLine}
             <polyline points={planLine} class="plan" class:gs={glide} />
           {/if}
@@ -591,7 +649,7 @@
           {#if view.b >= span - 1e-6}<text x={M.l + cw} y={M.t - 8} text-anchor="end" class="apt">{route.dest.icao}</text>{/if}
         {/if}
 
-        <!-- Distance: flown from the origin and to go (glidepath: to the threshold). -->
+        <!-- Distance: flown from the origin and to go (glideslope: to the threshold). -->
         {#each xTicks as v (v)}
           {@const anchor = x(v) - M.l < 14 ? "start" : M.l + cw - x(v) < 14 ? "end" : "middle"}
           <line x1={x(v)} x2={x(v)} y1={M.t + ch} y2={M.t + ch + 5} class="tick" />
@@ -640,7 +698,7 @@
           <g transform="translate({left ? hx - 162 : hx + 8} {M.t + 8})">
             <rect width="154" height={Number.isNaN(p) ? 36 : 52} rx="5" class="tip" />
             <text x="9" y="16" class="tip-t">{glide ? `${nm(span - hoverD)} nm to threshold` : `${nm(hoverD)} nm · ${nm(Math.max(0, span - hoverD))} to go`}</text>
-            {#if !Number.isNaN(p)}<text x="9" y="31" class="tip-t">{glide ? "Glidepath" : "Plan"} {fmt(p)} ft</text>{/if}
+            {#if !Number.isNaN(p)}<text x="9" y="31" class="tip-t">{glide ? "Glideslope" : "Plan"} {fmt(p)} ft</text>{/if}
             <text x="9" y={Number.isNaN(p) ? 30 : 46} class="tip-t">Ground {g != null ? `${fmt(g)} ft` : "–"}</text>
           </g>
         {/if}
@@ -856,7 +914,7 @@
     stroke-width: 3;
     stroke-linejoin: round;
   }
-  /* The 3° glidepath, projected back from the runway. */
+  /* The 3° glideslope, projected back from the runway. */
   .plan.gs {
     stroke: #f2f4f7;
     stroke-width: 2;
