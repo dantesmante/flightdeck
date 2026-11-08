@@ -58,7 +58,10 @@
     draft.origin = origin;
     draft.dest = dest;
     // The route itself: drawn, or SimBrief's while its airports are kept.
-    draft.fixes = drawn ?? (base && origin?.icao === base.origin.icao && dest?.icao === base.destination.icao ? base.fixes : []);
+    const simbrief = !!base && origin?.icao === base.origin.icao && dest?.icao === base.destination.icao;
+    draft.fixes = drawn ?? (simbrief ? base!.fixes : []);
+    // The flight profile's cruise: the drawn route's, or SimBrief's.
+    draft.cruise_ft = drawn ? cruiseFt : simbrief ? base!.cruise_ft : 0;
   });
   // An airport sent from the map's right-click menu.
   $effect(() => {
@@ -79,6 +82,7 @@
     draft.origin = null;
     draft.dest = null;
     draft.fixes = [];
+    draft.cruise_ft = 0;
     drawing.stage = "off";
   });
 

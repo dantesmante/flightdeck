@@ -6,6 +6,9 @@
   import FlightsPanel from "./lib/FlightsPanel.svelte";
   import PhotosPanel from "./lib/PhotosPanel.svelte";
   import PfdWindow from "./lib/pfd/PfdWindow.svelte";
+  import FlightProfile from "./lib/profile/FlightProfile.svelte";
+  import { profileState } from "./lib/profile/store.svelte";
+  import type { ProfileRoute } from "./lib/profile/build";
   import { pfdState } from "./lib/pfd/store.svelte";
   import { prefs } from "./lib/prefs.svelte";
   import HangarView from "./lib/hangar/HangarView.svelte";
@@ -235,6 +238,18 @@
   const ph = $derived(view === "photos");
   /** Split screen: the PFD on the right half of the Map tab, the map on the left. */
   const splitOn = $derived(pfdState.open && pfdState.split && view === "live" && !screen.phone);
+  /** The flight profile: the bottom half of the Map tab, the map above it. */
+  const profileOn = $derived(profileState.open && view === "live");
+  // Its route: the flight's plan, or the one being set up in Start a flight.
+  const profileRoute = $derived.by<ProfileRoute | null>(() => {
+    const p = status?.plan;
+    if (p && p.origin.icao && p.destination.icao) return { origin: p.origin, dest: p.destination, fixes: p.fixes, cruise_ft: p.cruise_ft };
+    if (draft.origin && draft.dest) return { origin: draft.origin, dest: draft.dest, fixes: draft.fixes, cruise_ft: draft.cruise_ft };
+    return null;
+  });
+  const profileAircraft = $derived(
+    status?.telemetry ? { lat: status.telemetry.lat, lon: status.telemetry.lon, alt: status.telemetry.alt_msl_ft, tracking: !!status.live } : null,
+  );
 
   const linkText = $derived(
     !status || status.link === "waiting"
@@ -268,7 +283,7 @@
     </button>
   </nav>
 
-  <main class="stage" class:hidden={full} class:split={splitOn}>
+  <main class="stage" class:hidden={full} class:split={splitOn} class:profiled={profileOn}>
     <div class="mapside">
     <!-- One map for the Map, Flights and Photos tabs; in Photos it shows
          nothing but the screenshot pins. -->
@@ -312,6 +327,7 @@
     {/if}
     </div>
     {#if splitOn}<PfdWindow />{/if}
+    {#if profileOn}<FlightProfile route={profileRoute} aircraft={profileAircraft} onclose={() => (profileState.open = false)} />{/if}
   </main>
 
   {#if full}
@@ -425,6 +441,14 @@
     inset: 0;
   }
   .stage.split .mapside {
+    right: 50%;
+  }
+  /* Flight profile: the map above, the profile below (under the map's
+     half only when the PFD is split beside it). */
+  .stage.profiled .mapside {
+    bottom: 50%;
+  }
+  .stage.split.profiled :global(.profile) {
     right: 50%;
   }
   .toast {

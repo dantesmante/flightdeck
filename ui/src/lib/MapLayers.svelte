@@ -36,12 +36,15 @@
     /** Roads' opacity, 0.15 to 1. */
     roadsOpacity?: number;
     /** Range rings: how many, and their spacing ("auto", "5", "10", "15" nm). */
+    /** The flight profile under the map: open, and its button (Map tab only). */
+    profileOpen?: boolean;
+    onprofile?: () => void;
     ringCount?: number;
     ringSet?: string;
     onrings?: (count: number, set: string) => void;
     onroadsopacity?: (o: number) => void;
   }
-  let { three, on, onthree, ontoggle, radarTime, radarError, parkedLayer = false, airportDetail = 1, ondetail, windLevel = "auto", onwindlevel, cardOpen = false, measuring = false, onmeasure, airspaceState = "idle", pfdOpen = false, onpfd, obstaclesState = "idle", hasAircraft = false, roadsOpacity = 1, onroadsopacity, ringCount = 2, ringSet = "auto", onrings }: Props = $props();
+  let { three, on, onthree, ontoggle, radarTime, radarError, parkedLayer = false, airportDetail = 1, ondetail, windLevel = "auto", onwindlevel, cardOpen = false, measuring = false, onmeasure, airspaceState = "idle", pfdOpen = false, onpfd, obstaclesState = "idle", hasAircraft = false, roadsOpacity = 1, onroadsopacity, ringCount = 2, ringSet = "auto", onrings, profileOpen = false, onprofile }: Props = $props();
   const DETAIL = ["Major airports only", "Major and regional airports", "All airports and airstrips"];
 
   /** The Layers panel's tabs: airports and flights, weather, the map itself. */
@@ -287,6 +290,12 @@
     <button role="radio" aria-checked={!three} class:on={!three} onclick={() => onthree(false)}>2D</button>
     <button role="radio" aria-checked={three} class:on={three} onclick={() => onthree(true)}>3D</button>
   </div>
+  {#if onprofile}
+    <button class="layers-btn" class:open={profileOpen} aria-pressed={profileOpen} title="Vertical profile of the route" onclick={() => ((open = null), onprofile())}>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 20h18" /><path d="M3 17l4-5 3 2 4-6 3 3 4-2" /><path d="M4 9.5L8 6h9l3 3.5" stroke-dasharray="2 2" /></svg>
+      <span>Profile</span>
+    </button>
+  {/if}
   {#if onmeasure}
     <button class="layers-btn" class:open={measuring} aria-pressed={measuring} title="Measure distances" onclick={() => ((open = null), onmeasure())}>
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 16.5L16.5 3 21 7.5 7.5 21z" /><path d="M7 12.5l1.8 1.8M10 9.5l2.6 2.6M13 6.5l1.8 1.8" /></svg>

@@ -401,6 +401,17 @@ export async function mockCall<T>(cmd: string, _args?: Record<string, unknown>):
     }
     return null as T;
   }
+  if (cmd === "us_obstacles") {
+    // Towers scattered along Seattle–Portland.
+    const features = Array.from({ length: 60 }, (_, i) => {
+      const t = (i + 0.5) / 60;
+      const lat = 47.449 + (45.5887 - 47.449) * t + Math.sin(i * 7.3) * 0.02;
+      const lon = -122.3093 + (-122.5975 + 122.3093) * t + Math.cos(i * 3.1) * 0.02;
+      const agl = 200 + ((i * 137) % 1300);
+      return { type: "Feature", properties: { t: "TOWER", agl, amsl: agl + 300 + ((i * 53) % 900), lit: i % 2 === 0, n: 1 }, geometry: { type: "Point", coordinates: [lon, lat] } };
+    });
+    return JSON.stringify({ type: "FeatureCollection", features }) as T;
+  }
   if (cmd === "us_airspace") {
     // Rings like a Class B around KSEA and a Class D at KPDX.
     const ring = (lon: number, lat: number, r: number, cw = false) => {

@@ -22,6 +22,7 @@
   import { prefs, setPref } from "./prefs.svelte";
   import { drawing, pick } from "./flyStore.svelte";
   import { pfdState } from "./pfd/store.svelte";
+  import { profileState } from "./profile/store.svelte";
   import { altColor, altGradient, altLabel, altRange, lonLat, sideOnBearing, wallFeatures, wallScale, type Pt } from "./track";
 
   interface Props {
@@ -2188,6 +2189,8 @@
     setPref("map_rings_count", String(count));
     setPref("map_rings_nm", set);
   }}
+  profileOpen={profileState.open}
+  onprofile={planner ? () => (profileState.open = !profileState.open) : undefined}
   pfdOpen={pfdState.open}
   onpfd={planner ? () => (pfdState.open = !pfdState.open) : undefined}
 />

@@ -211,11 +211,26 @@ MIT licensed.
   no flight started: white with a dark outline, showing only where it is
   (nothing is recorded, and the map doesn't follow it unless you ask).
   Once a flight is being tracked it turns amber as before.
+- **Profile** (left of Measure): the vertical profile of your route in
+  the bottom half of the Map tab, with the map above (under the map's
+  half when the PFD is split beside it), sized to the window. It shows the
+  planned climb, cruise and descent (SimBrief's own altitudes at each fix;
+  a drawn route climbs at about 300 ft per nm and descends on a 3° path),
+  the ground under the route (coarse, from the free Terrain Tiles: a
+  guide, not a survey), FAA obstacles within 2 nm of the route (US only,
+  red within 100 ft of the planned altitude, yellow within 1,000 ft), class
+  B, C and D airspace it passes through (US only; no MOAs or restricted
+  areas), fix names, distance flown and to go, and your aircraft side on,
+  flying to the right. **Highest** (ahead of you while you fly the route)
+  and **Clearance** (cruise altitude above it) sit in its header, with
+  switches for Terrain, Obstacles and Airspace; point at the chart for the
+  distance, planned altitude and ground there. It follows the flight's plan,
+  or the route being set up in Start a flight.
 - **Measure** (left of Layers): click points on the map to
   measure a route, leg by leg, in nautical miles with the course of each
   leg, and the total in miles and kilometres too. Great-circle distances.
   Backspace or right-click takes back the last point; Escape or Done ends.
-- **Layers**, beside 2D/3D and Measure: one panel with three buttons
+- **Layers**, beside 2D/3D, Profile, Measure and PFD: one panel with three buttons
   under its title,
   **Airports & Flights** (world airports, your airports, past routes,
   runways and taxiways, US airspace, parked aircraft, VATSIM and IVAO),
