@@ -234,21 +234,23 @@ pub fn load() -> Result<Arc<Cube>, String> {
 }
 
 fn download(run: i64, step: i64, idx1: &str) -> Result<Cube, String> {
-    // Cloud water is in the one-degree file in current GFS; if not, the
-    // half-degree one (four times the bytes) has it.
-    let (product, idx) = if winds::find_range(idx1, "CLWMR", "500 mb").is_some() {
-        ("1p00", idx1.to_string())
+    // Cloud water ("CLWMR", or "CLMR" in some GFS versions) is not in the
+    // one-degree file (checked 9 Nov 2026: ICMR is, CLWMR is not), so the
+    // half-degree file (about four times the bytes, thinned to one degree)
+    // is used when needed.
+    let cloud = |idx: &str| ["CLWMR", "CLMR"].into_iter().find(|v| winds::find_range(idx, v, "500 mb").is_some());
+    let (product, idx, cloud_var) = if let Some(v) = cloud(idx1) {
+        ("1p00", idx1.to_string(), v)
     } else {
         let url = winds::product_url(run, step, "0p50");
         let idx = String::from_utf8_lossy(&winds::get_range(&format!("{url}.idx"), None)?).into_owned();
-        if winds::find_range(&idx, "CLWMR", "500 mb").is_none() {
-            return Err("Cloud water is missing from this forecast".into());
-        }
-        ("0p50", idx)
+        let v = cloud(&idx).ok_or("Cloud water is missing from this forecast")?;
+        ("0p50", idx, v)
     };
     let url = winds::product_url(run, step, product);
     let mut jobs: Vec<(usize, usize, (u64, Option<u64>))> = Vec::new();
     for (n, var) in VARS.iter().enumerate() {
+        let var = if *var == "CLWMR" { cloud_var } else { var };
         for (k, p) in LEVELS_HPA.iter().enumerate() {
             let level = format!("{} mb", *p as i32);
             let r = winds::find_range(&idx, var, &level).ok_or_else(|| format!("{var} at {level} is missing from the forecast"))?;
@@ -294,6 +296,8 @@ pub struct IcingGrid {
     pub run_ms: i64,
     pub valid_ms: i64,
     pub fl: u32,
+    /// The GFS file used: "1p00" or "0p50".
+    pub product: &'static str,
     pub nx: usize,
     pub ny: usize,
     /// One byte per degree, rows from 90N, columns from 0E: 0–100, 255
@@ -317,7 +321,7 @@ pub fn grid(fl: u32) -> Result<IcingGrid, String> {
             }
         }
     }
-    Ok(IcingGrid { run_ms: c.run_ms, valid_ms: c.valid_ms, fl, nx: NX, ny: NY, potential: winds::base64_pub(&out), known: known as f32 / (NX * NY) as f32 })
+    Ok(IcingGrid { run_ms: c.run_ms, valid_ms: c.valid_ms, fl, product: c.product, nx: NX, ny: NY, potential: winds::base64_pub(&out), known: known as f32 / (NX * NY) as f32 })
 }
 
 #[derive(Serialize)]

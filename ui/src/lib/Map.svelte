@@ -26,6 +26,7 @@
   import { taxiState } from "./taxi/store.svelte";
   import { NAV_MIN_ZOOM, WPT_MIN_ZOOM, setNavData, showNavLayers } from "./navLayer";
   import { decodeTemps, setTempCanvas, showTemp, tempImage } from "./tempLayer";
+  import { decodeIcing, flFor, icingImage, setIcingCanvas, showIcing } from "./icingLayer";
   import TaxiAssist from "./taxi/TaxiAssist.svelte";
   import { altColor, altGradient, altLabel, altRange, lonLat, sideOnBearing, wallFeatures, wallScale, type Pt } from "./track";
 
@@ -493,6 +494,55 @@
         : tempState.valid_ms
           ? `${WIND_LEVELS.find((l) => l.id === tempLevel)?.label ?? ""}${tempPref === "auto" ? " (auto)" : ""} · for ${new Date(tempState.valid_ms).toISOString().slice(11, 13)}00Z`
           : "",
+  );
+
+  // --- Icing Potential (test version; GFS, FlightDeck's own estimate) ---------
+  let icingCanvas: HTMLCanvasElement | null = null;
+  let icingKey = "";
+  let icingState = $state<{ s: "idle" | "loading" | "ok" | "error"; msg: string; info?: string }>({ s: "idle", msg: "" });
+  const icingPref = $derived(prefs.s.map_icing_fl ?? "auto");
+  const icingFl = $derived.by(() => (icingPref === "auto" ? flFor(flyingAlt ?? 12_000) : Number(icingPref) || 120));
+  $effect(() => {
+    const on = layers.has("icing") && !bare;
+    const fl = icingFl;
+    if (!loaded || !map) return;
+    const m = map;
+    if (on && icingCanvas && !m.getSource("fd-icing")) setIcingCanvas(m, icingCanvas);
+    showIcing(m, on);
+    if (!on) return;
+    let stop = false;
+    const load = () => {
+      untrack(() => {
+        if (icingState.s !== "ok") icingState = { s: "loading", msg: "" };
+      });
+      api.icingGrid(fl).then(
+        (g) => {
+          if (stop || map !== m) return;
+          const run = new Date(g.run_ms).toISOString().slice(11, 13);
+          const valid = new Date(g.valid_ms).toISOString().slice(11, 13);
+          const msg = `FL${String(g.fl).padStart(3, "0")} · for ${valid}Z`;
+          const info = `NOAA GFS ${g.product === "1p00" ? "1°" : "0.5°"} file · model run ${run}Z · forecast for ${valid}Z · ${Math.round(g.known * 100)}% of the world has data`;
+          const key = `${g.valid_ms}/${g.fl}`;
+          if (key !== icingKey || !icingCanvas) {
+            icingKey = key;
+            icingCanvas = icingImage(decodeIcing(g.potential), g.nx, g.ny);
+            setIcingCanvas(m, icingCanvas);
+            showIcing(m, true);
+          }
+          icingState = { s: "ok", msg, info };
+        },
+        (e) => !stop && (icingState = { s: "error", msg: String(e) }),
+      );
+    };
+    load();
+    const t = setInterval(load, 30 * 60_000);
+    return () => {
+      stop = true;
+      clearInterval(t);
+    };
+  });
+  const icingNote = $derived(
+    icingState.s === "loading" ? "Downloading from NOAA (first time can take a minute)…" : icingState.s === "error" ? `Not available: ${icingState.msg}` : icingState.msg,
   );
 
   // Leaving the Map tab (or opening Photos): tools and cards put away.
@@ -2531,6 +2581,10 @@
   {navNote}
   {tempNote}
   tempLevel={tempPref}
+  {icingNote}
+  icingInfo={icingState.info ?? ""}
+  icingFl={icingPref}
+  onicingfl={(l) => setPref("map_icing_fl", l)}
   ontemplevel={(l) => setPref("map_temp_level", l)}
   profileOpen={profileState.open}
   onprofile={planner ? () => (profileState.open = !profileState.open) : undefined}

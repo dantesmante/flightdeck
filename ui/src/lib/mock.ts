@@ -474,6 +474,28 @@ export async function mockCall<T>(cmd: string, _args?: Record<string, unknown>):
     const now = Date.now();
     return { run_ms: now - 6 * 3_600_000, valid_ms: now, nx: 360, ny: 181, t: btoa(s), error: null } as T;
   }
+  if (cmd === "icing_grid") {
+    // Made-up blobs of icing that move with the level; unknown over a
+    // made-up high plateau at low levels.
+    const fl = (_args as { fl: number }).fl;
+    const v = new Uint8Array(360 * 181);
+    for (let r = 0; r < 181; r++)
+      for (let c = 0; c < 360; c++) {
+        const lat = 90 - r;
+        const lon = c > 180 ? c - 360 : c;
+        if (fl <= 100 && lat > 30 && lat < 45 && lon > -115 && lon < -105) {
+          v[r * 360 + c] = 255;
+          continue;
+        }
+        const blob = (la: number, lo: number, rad: number, peak: number) => Math.max(0, peak * (1 - Math.hypot(lat - la, (lon - lo) * 0.7) / rad));
+        const band = Math.abs(lat) > 30 && Math.abs(lat) < 65 ? 1 : 0.2;
+        v[r * 360 + c] = Math.round(Math.min(100, band * (blob(47, -122 + fl / 50, 9, 95) + blob(42, -88, 7, 70) + blob(52, 10 - fl / 40, 10, 60) + blob(-45, 170, 8, 85))));
+      }
+    let s = "";
+    for (let i = 0; i < v.length; i++) s += String.fromCharCode(v[i]);
+    const now = Date.now();
+    return { run_ms: now - 6 * 3_600_000, valid_ms: now - (now % 10_800_000), fl, product: "0p50", nx: 360, ny: 181, potential: btoa(s), known: 0.97 } as T;
+  }
   if (cmd === "navaids") {
     // A few made-up aids around Portland and Seattle, and a waypoint grid.
     const a = (_args ?? {}) as { w: number; s: number; e: number; n: number; waypoints: boolean };

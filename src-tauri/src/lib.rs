@@ -976,6 +976,7 @@ const SETTING_KEYS: &[&str] = &[
     "map_rings_nm",
     "map_wind_level",
     "map_temp_level",
+    "map_icing_fl",
     "show_demo",
     "backup_on_close",
     "simbrief_id",

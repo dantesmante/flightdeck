@@ -851,6 +851,19 @@ export interface TempGrid {
   t: string;
   error: string | null;
 }
+export interface IcingGrid {
+  run_ms: number;
+  valid_ms: number;
+  fl: number;
+  /** GFS file used: "1p00" or "0p50". */
+  product: string;
+  nx: number;
+  ny: number;
+  /** One byte per degree from 90°N / 0°E: 0–100, 255 unknown. Base64. */
+  potential: string;
+  /** Share of the world with a score. */
+  known: number;
+}
 /** A VOR, NDB or waypoint from the sim's navigation database. */
 export interface NavAid {
   kind: "vor" | "ndb" | "waypoint";
@@ -993,6 +1006,7 @@ export const api = {
   wxCategories: () => call<WxCategories>("wx_categories"),
   windGrid: (level: string) => call<WindGrid>("wind_grid", { level }),
   temperatureGrid: (level: string) => call<TempGrid>("temperature_grid", { level }),
+  icingGrid: (fl: number) => call<IcingGrid>("icing_grid", { fl }),
   navaids: (w: number, s: number, e: number, n: number, waypoints: boolean) => call<NavView>("navaids", { w, s, e, n, waypoints }),
   navaidsRefresh: () => call<void>("navaids_refresh"),
   /** US Class B, C and D airspace, GeoJSON text (FAA, 28-day cycle). */

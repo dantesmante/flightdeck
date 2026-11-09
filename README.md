@@ -415,6 +415,17 @@ MIT licensed.
   single picture over the map (drawn on a canvas in the app, so nothing
   is fetched for it but the forecast), so it costs the graphics card
   nothing to speak of.
+- **Icing Potential** (Layers, Weather; test version): FlightDeck's own
+  estimate, 0–100, of how likely an aircraft is to pick up ice at a flight
+  level (Auto follows the aircraft, or FL050–FL400), coloured light blue,
+  blue, yellow, orange and red; nothing below 6, and nothing where the
+  data runs out (under the terrain, gaps). Worked out from NOAA GFS
+  temperature, humidity, cloud liquid water and ice, vertical velocity and
+  height on 20 pressure levels (the half-degree file, since the one-degree
+  file has no cloud water; about 25 MB per forecast step, while on); no
+  cloud liquid water means no icing. For flight simulation only: not
+  observed icing, not for real-world flying. The method is in
+  src-tauri/src/icing.rs.
 - **Wind** (Map layers, Weather): moving particles show the forecast wind,
   coloured by speed (blue light, green and yellow moderate, orange and red
   strong, magenta jet stream over 140 kt), at the surface or FL050, FL100,

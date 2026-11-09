@@ -3,6 +3,7 @@
   // each a panel of picture cards you switch on and off.
   import type { Snippet } from "svelte";
   import { WIND_LEVELS } from "./wind/wind";
+  import { ICING_BANDS, ICING_FLS } from "./icingLayer";
 
   interface Props {
     three: boolean;
@@ -47,12 +48,17 @@
     tempNote?: string;
     tempLevel?: string;
     ontemplevel?: (l: string) => void;
+    icingNote?: string;
+    icingInfo?: string;
+    /** "auto" or a flight level ("120"). */
+    icingFl?: string;
+    onicingfl?: (l: string) => void;
     ringCount?: number;
     ringSet?: string;
     onrings?: (count: number, set: string) => void;
     onroadsopacity?: (o: number) => void;
   }
-  let { three, on, onthree, ontoggle, radarTime, radarError, parkedLayer = false, airportDetail = 1, ondetail, windLevel = "auto", onwindlevel, cardOpen = false, measuring = false, onmeasure, airspaceState = "idle", pfdOpen = false, onpfd, obstaclesState = "idle", hasAircraft = false, roadsOpacity = 1, onroadsopacity, ringCount = 2, ringSet = "auto", onrings, profileOpen = false, onprofile, taxiOpen = false, ontaxi, navNote = "", tempNote = "", tempLevel = "auto", ontemplevel }: Props = $props();
+  let { three, on, onthree, ontoggle, radarTime, radarError, parkedLayer = false, airportDetail = 1, ondetail, windLevel = "auto", onwindlevel, cardOpen = false, measuring = false, onmeasure, airspaceState = "idle", pfdOpen = false, onpfd, obstaclesState = "idle", hasAircraft = false, roadsOpacity = 1, onroadsopacity, ringCount = 2, ringSet = "auto", onrings, profileOpen = false, onprofile, taxiOpen = false, ontaxi, navNote = "", tempNote = "", tempLevel = "auto", ontemplevel, icingNote = "", icingInfo = "", icingFl = "auto", onicingfl }: Props = $props();
   /** The Tools drawer (Measure, Taxi, Profile, PFD): stays out until closed. */
   const TOOLS_KEY = "fd.toolsOpen";
   let toolsOpen = $state(
@@ -91,7 +97,7 @@
   /** The layers in each tab, to mark a tab that has something on. */
   const IN_TAB: Record<Menu, string[]> = {
     traffic: ["world", "airports", "routes", "airspace", "navaids", "parked", "vatsim-atc", "vatsim-pilots", "ivao-atc", "ivao-pilots"],
-    weather: ["radar", "wx-cat", "wx-adv", "wind", "wx-wind", "temp"],
+    weather: ["radar", "wx-cat", "wx-adv", "wind", "wx-wind", "temp", "icing"],
     map: ["night", "satellite", "terrain", "borders", "roads", "taws", "obstacles", "rings"],
   };
   const tabOn = (t: Menu) => IN_TAB[t].some((k) => on.has(k)) || (t === "traffic" && !on.has("aeroway-off")) || (t === "map" && three);
@@ -260,6 +266,15 @@
       <circle cx="100" cy="40" r="1.6" fill="#c98bff" />
       <path d="M14 45 L18 52 L10 52 Z" fill="#14181e" stroke="#c9ced6" stroke-width="1.2" />
       <text x="14" y="60" text-anchor="middle" font-size="5.5" fill="#c9ced6">HAMUR</text>
+    {:else if kind === "icing"}
+      <rect width="120" height="64" fill="#15181c" />
+      <ellipse cx="58" cy="34" rx="44" ry="22" fill="rgb(190,225,255)" opacity="0.55" />
+      <ellipse cx="60" cy="34" rx="30" ry="15" fill="rgb(70,140,255)" opacity="0.7" />
+      <ellipse cx="62" cy="34" rx="17" ry="9" fill="rgb(255,225,70)" opacity="0.8" />
+      <ellipse cx="63" cy="34" rx="8" ry="4.5" fill="rgb(240,45,45)" opacity="0.85" />
+      <g stroke="#fff" stroke-width="1.2" stroke-linecap="round" opacity="0.9" transform="translate(98 14)">
+        <path d="M0 -7V7M-6 -3.5L6 3.5M-6 3.5L6 -3.5" />
+      </g>
     {:else if kind === "temp"}
       <defs>
         <linearGradient id="la-temp" x1="0" x2="0" y1="0" y2="1">
@@ -319,6 +334,10 @@
 
 {#snippet navaidsNote()}
   <span class="note">{on.has("navaids") && navNote ? navNote : "VOR, NDB, waypoints · from MSFS"}</span>
+{/snippet}
+
+{#snippet icingNote2()}
+  <span class="note">{on.has("icing") && icingNote ? icingNote : "Test · by flight level"}</span>
 {/snippet}
 
 {#snippet tempNote2()}
@@ -470,7 +489,22 @@
       {@render card("wind", "Wind", on.has("wind"), () => ontoggle("wind"), windNote)}
       {@render card("wx-wind", "Airport wind", on.has("wx-wind"), () => ontoggle("wx-wind"))}
       {@render card("temp", "Temperature", on.has("temp"), () => ontoggle("temp"), tempNote2)}
+      {@render card("icing", "Icing Potential", on.has("icing"), () => ontoggle("icing"), icingNote2)}
     </div>
+    {#if on.has("icing")}
+      <div class="levels" role="radiogroup" aria-label="Icing flight level">
+        {#each ["auto", ...ICING_FLS.map(String)] as l (l)}
+          <button role="radio" aria-checked={icingFl === l} class:on={icingFl === l} onclick={() => onicingfl?.(l)}>{l === "auto" ? "Auto" : `FL${l.padStart(3, "0")}`}</button>
+        {/each}
+      </div>
+      <div class="iscale" aria-label="Icing Potential colours">
+        {#each ICING_BANDS.slice(1) as b (b.max)}
+          <span class="ib"><i style:background="rgb({b.color.join(',')})"></i>{b.label}</span>
+        {/each}
+      </div>
+      {#if icingInfo}<p class="inote">{icingInfo}</p>{/if}
+      <p class="inote">Test version · FlightDeck's own estimate from the forecast, for flight simulation only. Not observed icing, not for real-world flying.</p>
+    {/if}
     {#if on.has("temp")}
       <div class="levels" role="radiogroup" aria-label="Temperature level">
         {#each [{ id: "auto", label: "Auto" }, ...WIND_LEVELS.map((l) => ({ id: l.id, label: l.id === "sfc" ? "SFC" : l.label }))] as l (l.id)}
@@ -501,7 +535,8 @@
       <p class="credit">
         Radar RainViewer · METARs, SIGMETs and AIRMETs NOAA Aviation Weather Center (every 10 min while on) · Wind
         forecast NOAA GFS (one level, about 100 KB, every 3 h while on; drawn on the processor, not the graphics card) ·
-        Temperature NOAA GFS (2 m above ground, about 60 KB, every 3 h while on; one picture on the map)
+        Temperature NOAA GFS (2 m above ground, about 60 KB, every 3 h while on; one picture on the map) ·
+        Icing Potential FlightDeck's estimate from NOAA GFS temperature, humidity, cloud water and ice, vertical velocity and height on 20 levels (about 25 MB per forecast step, while on)
       </p>
     {:else}
     <div class="grid">
@@ -662,6 +697,30 @@
     height: 7px;
     border-radius: 50%;
     background: var(--amber);
+  }
+  .iscale {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 10px;
+    margin: 10px 2px 0;
+    font-size: 11px;
+    color: var(--ink-dim);
+  }
+  .iscale .ib {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .iscale i {
+    width: 14px;
+    height: 10px;
+    border-radius: 3px;
+  }
+  .inote {
+    margin: 8px 2px 0;
+    font-size: 11px;
+    line-height: 1.35;
+    color: var(--ink-faint, #7d828a);
   }
   .tscale {
     margin: 10px 2px 0;
