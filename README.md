@@ -189,7 +189,9 @@ MIT licensed.
   way down, the tapes start just under the top, and the heading rose fills
   the lower part. **Split** docks the PFD to the
   right half of the Map tab with the map on the left (the flight card
-  folds away until you open it; leaving split brings it back). The PFD
+  folds away until you open it; leaving split brings it back). **Full
+  window** lays the PFD over all of FlightDeck's window, as large as it
+  fits (Esc or **Exit full** goes back). The PFD
   belongs to the Map tab: other tabs hide it, and it is back when you
   return.
 - **Roads** (Layers → Map): roads coloured by importance (motorways
@@ -395,7 +397,7 @@ MIT licensed.
   (triangles), with ident and frequency, from MSFS's own navigation data.
   While the layer is on and MSFS is connected, FlightDeck asks the sim for
   them: with MSFS 2024's SimConnect.dll the whole world at once (again
-  every 28 days, or with **Read again from MSFS**), with an older one
+  every 28 days), with an older one
   those around the aircraft every 90 s, filling in as you fly. They are
   kept on this PC (navaids-msfs.tsv in FlightDeck's folder) so the layer
   also shows with the sim off; never uploaded. Radio aids from zoom 5,
@@ -406,8 +408,9 @@ MIT licensed.
   green mild, yellow, orange, red 40 °C), with a °C/°F scale under the
   card. NOAA GFS one-degree forecast (public domain; the same file as the
   wind, one field of about 60 KB, every 3 h while on), drawn once into a
-  single picture over the map, so it costs the graphics card nothing to
-  speak of.
+  single picture over the map (drawn on a canvas in the app, so nothing
+  is fetched for it but the forecast), so it costs the graphics card
+  nothing to speak of.
 - **Wind** (Map layers, Weather): moving particles show the forecast wind,
   coloured by speed (blue light, green and yellow moderate, orange and red
   strong, magenta jet stream over 140 kt), at the surface or FL050, FL100,

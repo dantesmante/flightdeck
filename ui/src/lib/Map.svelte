@@ -25,7 +25,7 @@
   import { profileState } from "./profile/store.svelte";
   import { taxiState } from "./taxi/store.svelte";
   import { NAV_MIN_ZOOM, WPT_MIN_ZOOM, setNavData, showNavLayers } from "./navLayer";
-  import { decodeTemps, setTempImage, showTemp, tempImage } from "./tempLayer";
+  import { decodeTemps, setTempCanvas, showTemp, tempImage } from "./tempLayer";
   import TaxiAssist from "./taxi/TaxiAssist.svelte";
   import { altColor, altGradient, altLabel, altRange, lonLat, sideOnBearing, wallFeatures, wallScale, type Pt } from "./track";
 
@@ -437,13 +437,13 @@
   });
 
   // --- Temperature (NOAA GFS, 2 m) -------------------------------------------
-  let tempUrl: string | null = null;
+  let tempCanvas: HTMLCanvasElement | null = null;
   let tempState = $state<{ s: "idle" | "loading" | "ok" | "error"; valid_ms: number }>({ s: "idle", valid_ms: 0 });
   $effect(() => {
     const on = layers.has("temp") && !bare;
     if (!loaded || !map) return;
     const m = map;
-    if (on && tempUrl && !m.getSource("fd-temp")) setTempImage(m, tempUrl);
+    if (on && tempCanvas && !m.getSource("fd-temp")) setTempCanvas(m, tempCanvas);
     showTemp(m, on);
     if (!on) return;
     let stop = false;
@@ -458,12 +458,12 @@
             tempState = { s: "error", valid_ms: 0 };
             return;
           }
-          if (g.valid_ms === untrack(() => tempState.valid_ms) && tempUrl) {
+          if (g.valid_ms === untrack(() => tempState.valid_ms) && tempCanvas) {
             tempState = { s: "ok", valid_ms: g.valid_ms };
             return;
           }
-          tempUrl = tempImage(decodeTemps(g.t), g.nx, g.ny).toDataURL();
-          setTempImage(m, tempUrl);
+          tempCanvas = tempImage(decodeTemps(g.t), g.nx, g.ny);
+          setTempCanvas(m, tempCanvas);
           showTemp(m, true);
           tempState = { s: "ok", valid_ms: g.valid_ms };
         },
@@ -2521,7 +2521,6 @@
   taxiOpen={taxiState.open}
   ontaxi={() => (taxiState.open = !taxiState.open)}
   {navNote}
-  onnavrefresh={() => api.navaidsRefresh().then(() => setTimeout(loadNav, 3000), () => {})}
   {tempNote}
   profileOpen={profileState.open}
   onprofile={planner ? () => (profileState.open = !profileState.open) : undefined}
@@ -3111,6 +3110,15 @@
   /* Phones: pinch to zoom instead of the zoom buttons; keys sit above the
      Start a flight button. */
   @media (max-width: 640px) {
+    /* Phones: the top bar holds the tools; Follow aircraft sits under it
+       on the right, clear of the buttons and the cards below. */
+    .follow {
+      top: 62px;
+      left: auto !important;
+      right: 12px;
+      padding: 6px 12px;
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+    }
     .map :global(.maplibregl-ctrl-group) {
       display: none;
     }

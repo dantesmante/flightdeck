@@ -79,7 +79,7 @@
   // Moving and sizing.
   let drag: { kind: "move" | "size"; sx: number; sy: number; b: { x: number; y: number; w: number } } | null = null;
   function down(kind: "move" | "size", e: PointerEvent) {
-    if (pfdState.split) return;
+    if (pfdState.split || pfdState.full) return;
     if ((e.target as HTMLElement).closest("button") && kind === "move") return;
     drag = { kind, sx: e.clientX, sy: e.clientY, b: { ...box } };
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
@@ -104,7 +104,17 @@
   }
 </script>
 
-<div class="win" class:dock={pfdState.split} style:left={pfdState.split ? null : `${box.x}px`} style:top={pfdState.split ? null : `${box.y}px`} style:width={pfdState.split ? null : `${box.w}px`} role="dialog" aria-label="PFD">
+<svelte:window onkeydown={(e) => e.key === "Escape" && pfdState.full && (pfdState.full = false)} />
+<div
+  class="win"
+  class:dock={pfdState.split}
+  class:full={pfdState.full}
+  style:left={pfdState.split || pfdState.full ? null : `${box.x}px`}
+  style:top={pfdState.split || pfdState.full ? null : `${box.y}px`}
+  style:width={pfdState.split || pfdState.full ? null : `${box.w}px`}
+  role="dialog"
+  aria-label="PFD"
+>
   <header role="toolbar" tabindex="-1" aria-label="PFD window: drag to move" onpointerdown={(e) => down("move", e)} onpointermove={move} onpointerup={up}>
     <strong>PFD</strong>
     {#if d && !d.paused}<span class="live">Live</span>{/if}
@@ -114,11 +124,17 @@
     {:else}
       <span class="hint" title="Synthetic vision draws the terrain ahead. It runs on phones and tablets connected to FlightDeck, so this PC keeps its graphics card for the sim.">SVT on phones &amp; tablets</span>
     {/if}
-    <button class="svt-btn split" class:on={pfdState.split} onclick={() => (pfdState.split = !pfdState.split)} title={pfdState.split ? "Back to a floating window" : "Split screen: map on the left, PFD on the right"}>
+    <button class="svt-btn split" class:on={pfdState.split} onclick={() => ((pfdState.split = !pfdState.split), (pfdState.full = false))} title={pfdState.split ? "Back to a floating window" : "Split screen: map on the left, PFD on the right"}>
       <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M12 4v16" /></svg>
       Split
     </button>
-    <button class="x" aria-label="Close the PFD" onclick={() => ((pfdState.open = false), (pfdState.split = false))}>
+    <button class="svt-btn split" class:on={pfdState.full} onclick={() => ((pfdState.full = !pfdState.full), (pfdState.split = false))} title={pfdState.full ? "Back to a floating window (Esc)" : "Full window: the PFD fills FlightDeck's window"}>
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        {#if pfdState.full}<path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" />{:else}<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />{/if}
+      </svg>
+      {pfdState.full ? "Exit full" : "Full window"}
+    </button>
+    <button class="x" aria-label="Close the PFD" onclick={() => ((pfdState.open = false), (pfdState.split = false), (pfdState.full = false))}>
       <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" /></svg>
     </button>
   </header>
@@ -126,7 +142,7 @@
     {#if svt}<Svt {d} />{/if}
     <div class="over"><Pfd {d} {svt} /></div>
   </div>
-  {#if !pfdState.split}<div class="grip" role="presentation" onpointerdown={(e) => down("size", e)} onpointermove={move} onpointerup={up}></div>{/if}
+  {#if !pfdState.split && !pfdState.full}<div class="grip" role="presentation" onpointerdown={(e) => down("size", e)} onpointermove={move} onpointerup={up}></div>{/if}
 </div>
 
 <style>
@@ -210,6 +226,25 @@
   }
   .win.dock header {
     cursor: default;
+  }
+  /* Full window: the PFD over all of FlightDeck, centred, as large as fits. */
+  .win.full {
+    position: fixed;
+    inset: 0;
+    width: auto;
+    border-radius: 0;
+    border: none;
+    box-shadow: none;
+    display: flex;
+    flex-direction: column;
+    z-index: 200;
+  }
+  .win.full header {
+    cursor: default;
+  }
+  .win.full .screen {
+    flex: 1;
+    aspect-ratio: auto;
   }
   .win.dock .screen {
     flex: 1;

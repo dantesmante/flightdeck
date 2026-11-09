@@ -5,7 +5,6 @@
 // card only stretches a single texture.
 
 import type maplibregl from "maplibre-gl";
-import type { ImageSource } from "maplibre-gl";
 
 /** Colour stops: °C → RGB. Purple cold, blue near freezing, green mild, red hot. */
 export const TEMP_STOPS: [number, [number, number, number]][] = [
@@ -87,13 +86,15 @@ const COORDS: [[number, number], [number, number], [number, number], [number, nu
   [-180, -MAX_LAT],
 ];
 
-export function setTempImage(map: maplibregl.Map, url: string) {
-  const src = map.getSource("fd-temp") as ImageSource | undefined;
-  if (src) {
-    src.updateImage({ url, coordinates: COORDS });
-    return;
-  }
-  map.addSource("fd-temp", { type: "image", url, coordinates: COORDS });
+/**
+ * Puts the picture on the map as a canvas source: nothing to download, so
+ * the app's content rules (which block a data: URL for map images) do not
+ * get in the way. A new picture replaces the source.
+ */
+export function setTempCanvas(map: maplibregl.Map, canvas: HTMLCanvasElement) {
+  if (map.getLayer("fd-temp")) map.removeLayer("fd-temp");
+  if (map.getSource("fd-temp")) map.removeSource("fd-temp");
+  map.addSource("fd-temp", { type: "canvas", canvas, coordinates: COORDS, animate: false });
   map.addLayer(
     { id: "fd-temp", type: "raster", source: "fd-temp", paint: { "raster-opacity": 0.5, "raster-resampling": "linear", "raster-fade-duration": 0 } },
     map.getLayer("routes-line") ? "routes-line" : undefined,

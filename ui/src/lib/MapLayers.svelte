@@ -43,7 +43,6 @@
     ontaxi?: () => void;
     /** Under the Nav aids card ("12,345 from MSFS", "Needs MSFS"…). */
     navNote?: string;
-    onnavrefresh?: () => void;
     /** Under the Temperature card. */
     tempNote?: string;
     ringCount?: number;
@@ -51,7 +50,7 @@
     onrings?: (count: number, set: string) => void;
     onroadsopacity?: (o: number) => void;
   }
-  let { three, on, onthree, ontoggle, radarTime, radarError, parkedLayer = false, airportDetail = 1, ondetail, windLevel = "auto", onwindlevel, cardOpen = false, measuring = false, onmeasure, airspaceState = "idle", pfdOpen = false, onpfd, obstaclesState = "idle", hasAircraft = false, roadsOpacity = 1, onroadsopacity, ringCount = 2, ringSet = "auto", onrings, profileOpen = false, onprofile, taxiOpen = false, ontaxi, navNote = "", onnavrefresh, tempNote = "" }: Props = $props();
+  let { three, on, onthree, ontoggle, radarTime, radarError, parkedLayer = false, airportDetail = 1, ondetail, windLevel = "auto", onwindlevel, cardOpen = false, measuring = false, onmeasure, airspaceState = "idle", pfdOpen = false, onpfd, obstaclesState = "idle", hasAircraft = false, roadsOpacity = 1, onroadsopacity, ringCount = 2, ringSet = "auto", onrings, profileOpen = false, onprofile, taxiOpen = false, ontaxi, navNote = "", tempNote = "" }: Props = $props();
   /** The Tools drawer (Measure, Taxi, Profile, PFD): stays out until closed. */
   const TOOLS_KEY = "fd.toolsOpen";
   let toolsOpen = $state(
@@ -524,12 +523,6 @@
         <div class="ticks"><span>Major</span><span>Regional</span><span>All</span></div>
       </div>
     {/if}
-    {#if on.has("navaids")}
-      <div class="detail navd">
-        <span>From MSFS's own navigation data while it runs, kept on this PC. Radio aids from zoom 5, waypoints from zoom 8.</span>
-        {#if onnavrefresh}<button onclick={onnavrefresh}>Read again from MSFS</button>{/if}
-      </div>
-    {/if}
     <h4>Online networks</h4>
     <div class="grid two">
       {@render netCard("vatsim", "VATSIM")}
@@ -537,7 +530,7 @@
     </div>
     <p class="credit">
       Airports OurAirports · Runways and taxiways OpenStreetMap · Airspace FAA (US only, every 28 days) · Live traffic VATSIM and IVAO (every 30 s while on) ·
-      ATC areas VAT-Spy Data Project (CC BY-SA 4.0) · Nav aids your MSFS (read on this PC, never shared)
+      ATC areas VAT-Spy Data Project (CC BY-SA 4.0) · Nav aids from MSFS's own navigation data while it runs (kept on this PC, never shared; radio aids from zoom 5, waypoints from zoom 8)
     </p>
     {/if}
   </div>
@@ -688,23 +681,6 @@
     transform: translateX(-50%);
     white-space: nowrap;
   }
-  .navd {
-    display: flex;
-    gap: 10px;
-    align-items: center;
-    font-size: 12px;
-    color: var(--ink-dim);
-  }
-  .navd button {
-    flex: none;
-    border: 1px solid var(--rule);
-    background: transparent;
-    color: var(--ink);
-    border-radius: 7px;
-    padding: 5px 9px;
-    font: inherit;
-    cursor: pointer;
-  }
   .layers-btn:hover,
   .layers-btn.open {
     color: var(--ink);
@@ -747,7 +723,7 @@
   }
   .tabs {
     display: grid;
-    grid-template-columns: 1.5fr 1fr 1fr;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 6px;
     margin-bottom: 12px;
   }
