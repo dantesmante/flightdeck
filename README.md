@@ -426,8 +426,9 @@ MIT licensed.
   disk. Worked out from NOAA GFS
   temperature, humidity, cloud liquid water and ice, vertical velocity and
   height on 20 pressure levels (the half-degree file, since the one-degree
-  file has no cloud water; about 25 MB per forecast step, while on); no
-  cloud liquid water means no icing. For flight simulation only: not
+  file has no cloud water; about 25 MB per forecast step, while on);
+  humid air or cloud liquid finds the cloud, dry air means no icing, and
+  forecast cloud liquid raises the score. For flight simulation only: not
   observed icing, not for real-world flying. The method is in
   src-tauri/src/icing.rs.
 - **Wind** (Map layers, Weather): moving particles show the forecast wind,

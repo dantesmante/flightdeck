@@ -168,28 +168,34 @@ impl Column {
 /// negative rising). A transparent rule of thumb, to be tuned later
 /// against established products (such as CIP/FIP); not a severity.
 ///
-/// - **Liquid water is required.** Without supercooled cloud liquid
-///   (under 0.001 g/kg) the score is 0, however cold or humid: no icing in
-///   clear air, and cloud ice alone is not liquid water. More liquid
-///   raises the score on a logarithmic scale (0.01 g/kg counts 40 %,
-///   0.1 g/kg 81 %, 0.3 g/kg and more 100 %): GFS keeps cloud water low in
-///   layered cloud, and the first comparison with AWC's CIP (9 Nov 2026)
-///   showed a linear scale missed most light icing.
+/// - **Cloud is required.** Humid air (relative humidity from 70 %, all
+///   of it from 90 %) or any cloud liquid (from 0.001 g/kg) counts as
+///   cloud; dry air scores 0 however cold. GFS keeps cloud water very low
+///   in layered cloud, and two comparisons with AWC (CIP on 9 Nov, WAFS
+///   icing on 9 Nov 2026) showed that requiring liquid missed most icing,
+///   so humidity finds the cloud as the established methods (GFIP) do.
+/// - **Liquid raises it:** a saturated cloud with no liquid in the
+///   forecast counts 45 %, rising on a logarithmic scale of cloud liquid
+///   to 100 % at 0.3 g/kg (0.01 g/kg gives 67 %, 0.1 g/kg 89 %).
 /// - **Temperature** sets how much of that counts: nothing above 0 °C or
 ///   below −40 °C (no supercooled water); most between −2 and −12 °C;
 ///   tapering to −20 °C and on to −40 °C.
 /// - **Phase:** the share of the cloud's water that is liquid; a mostly
 ///   glaciated cloud scores lower than an all-liquid one (×0.6 to ×1).
-/// - **Humidity and rising air only support:** they scale the score a
-///   little (×0.7 to ×1.0, ×0.85 to ×1.15) and can never make one.
+/// - **Rising air** supports a little (×0.85 to ×1.15) and can never make
+///   a score on its own.
 pub fn score(t_c: f32, rh: f32, clw_gkg: f32, ice_gkg: f32, omega: f32) -> u8 {
     if !(t_c < 0.0 && t_c > -40.0) {
         return 0;
     }
-    if clw_gkg < 0.001 {
+    let liquid = clw_gkg >= 0.001;
+    let humid = ((rh - 70.0) / 20.0).clamp(0.0, 1.0);
+    let cloud = if liquid { humid.max(0.8) } else { humid };
+    if cloud <= 0.0 {
         return 0;
     }
-    let f_l = ((clw_gkg / 0.001).log10() / (0.3f32 / 0.001).log10()).clamp(0.0, 1.0);
+    let f_l = if liquid { ((clw_gkg / 0.001).log10() / (0.3f32 / 0.001).log10()).clamp(0.0, 1.0) } else { 0.0 };
+    let f_liq = 0.45 + 0.55 * f_l;
     let f_t = match t_c {
         t if t > -2.0 => 0.5 + 0.5 * (-t / 2.0),
         t if t >= -12.0 => 1.0,
@@ -197,11 +203,11 @@ pub fn score(t_c: f32, rh: f32, clw_gkg: f32, ice_gkg: f32, omega: f32) -> u8 {
         t if t >= -30.0 => 0.6 - 0.4 * ((-20.0 - t) / 10.0),
         t => 0.2 * ((40.0 + t) / 10.0),
     };
-    let lf = clw_gkg / (clw_gkg + ice_gkg.max(0.0));
+    let (w, i) = (clw_gkg.max(0.0), ice_gkg.max(0.0));
+    let lf = if w + i > 0.0 { w / (w + i) } else { 1.0 };
     let f_p = 0.6 + 0.4 * lf;
-    let f_rh = 0.7 + 0.3 * ((rh - 70.0) / 25.0).clamp(0.0, 1.0);
     let f_w = 1.0 + (-omega / 0.5).clamp(-1.0, 1.0) * 0.15;
-    (100.0 * f_l * f_t * f_p * f_rh * f_w).round().clamp(0.0, 100.0) as u8
+    (100.0 * cloud * f_liq * f_t * f_p * f_w).round().clamp(0.0, 100.0) as u8
 }
 
 // ---- Download -----------------------------------------------------------------
@@ -359,13 +365,24 @@ mod tests {
     }
 
     #[test]
-    fn no_liquid_no_icing() {
-        // Saturated, rising, ideal temperature, lots of ice: still nothing.
-        assert_eq!(score(-8.0, 100.0, 0.0, 0.5, -1.0), 0);
-        assert_eq!(score(-8.0, 100.0, 0.0009, 0.0, -1.0), 0);
-        // Liquid, but above freezing or too cold for supercooled water.
+    fn dry_air_no_icing() {
+        // Ideal temperature, rising, but dry: nothing.
+        assert_eq!(score(-8.0, 65.0, 0.0, 0.5, -1.0), 0);
+        assert_eq!(score(-8.0, 70.0, 0.0009, 0.0, -1.0), 0);
+        // Cloud, but above freezing or too cold for supercooled water.
         assert_eq!(score(2.0, 100.0, 0.3, 0.0, 0.0), 0);
         assert_eq!(score(-42.0, 100.0, 0.3, 0.0, 0.0), 0);
+    }
+
+    #[test]
+    fn humid_cloud_without_forecast_liquid_is_light_to_moderate() {
+        let sat = score(-8.0, 100.0, 0.0, 0.0, 0.0);
+        assert!((41..=50).contains(&sat), "{sat}");
+        let damp = score(-8.0, 80.0, 0.0, 0.0, 0.0);
+        assert!((6..sat).contains(&damp), "{damp}");
+        assert!(score(-8.0, 71.0, 0.0, 0.0, 0.0) < 6, "barely humid stays below the lowest band");
+        // All ice: lower again.
+        assert!(score(-8.0, 100.0, 0.0, 0.3, 0.0) < sat);
     }
 
     #[test]
@@ -379,8 +396,8 @@ mod tests {
         // Mostly ice: lower than all liquid.
         assert!(score(-10.0, 95.0, 0.1, 0.4, 0.0) < score(-10.0, 95.0, 0.1, 0.0, 0.0));
         // Thin layered cloud with a little liquid still shows as light icing.
-        assert!(score(-8.0, 95.0, 0.02, 0.0, 0.0) >= 21);
-                // Humidity and lift only nudge.
+        assert!(score(-8.0, 95.0, 0.02, 0.0, 0.0) >= 41);
+        // Humidity and lift only nudge.
         let base = score(-10.0, 95.0, 0.1, 0.0, 0.0);
         assert!(score(-10.0, 50.0, 0.1, 0.0, 0.0) < base);
         assert!(score(-10.0, 95.0, 0.1, 0.0, -1.0) > base);
