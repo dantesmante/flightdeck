@@ -349,15 +349,42 @@ export function nearestEdge(g: TaxiGraph, p: XY, maxM = 120, filter?: (e: Edge) 
   return best;
 }
 
-/** Taxiways and runways meeting the named one, each with where they meet. */
-export function connected(g: TaxiGraph, name: string): Map<string, XY> {
+/**
+ * Taxiways and runways that meet the named one, each with where they meet:
+ * directly, or through unnamed links (fillets, short connectors) of up to
+ * `linkM` metres, as at junctions drawn with curved corners.
+ */
+export function connected(g: TaxiGraph, name: string, linkM = 250): Map<string, XY> {
   const out = new Map<string, XY>();
+  const dist = new Map<number, number>();
+  const queue: number[] = [];
   for (const ei of g.byName.get(name) ?? [])
     for (const n of [g.edges[ei].a, g.edges[ei].b])
-      for (const j of g.adj[n]) {
-        const o = g.edges[j].name;
-        if (o && o !== name && !out.has(o)) out.set(o, g.nodes[n]);
+      if (!dist.has(n)) {
+        dist.set(n, 0);
+        queue.push(n);
       }
+  // Short unnamed links first: a small Dijkstra by queue order (links are short).
+  while (queue.length) {
+    let bi = 0;
+    for (let i = 1; i < queue.length; i++) if (dist.get(queue[i])! < dist.get(queue[bi])!) bi = i;
+    const n = queue.splice(bi, 1)[0];
+    const d = dist.get(n)!;
+    for (const j of g.adj[n]) {
+      const e = g.edges[j];
+      if (e.name) {
+        if (e.name !== name && !out.has(e.name)) out.set(e.name, g.nodes[n]);
+        continue;
+      }
+      if (e.runway) continue;
+      const m = e.a === n ? e.b : e.a;
+      const nd = d + e.len;
+      if (nd <= linkM && nd < (dist.get(m) ?? Infinity)) {
+        if (!dist.has(m)) queue.push(m);
+        dist.set(m, nd);
+      }
+    }
+  }
   return out;
 }
 
@@ -380,4 +407,42 @@ export function distTo(g: TaxiGraph, name: string, p: XY): number {
 export function isRunwayName(g: TaxiGraph, name: string): boolean {
   const e = g.byName.get(name)?.[0];
   return e != null && g.edges[e].runway;
+}
+
+const holdCache = new Map<string, Promise<LL[]>>();
+
+/**
+ * Runway hold lines mapped in OpenStreetMap (aeroway=holding_position)
+ * within `radiusM`, from the public Overpass API (the base map's tiles
+ * leave them out). [] when unreachable; the route then places hold lines
+ * by distance from the runway.
+ */
+export function loadHoldLines(at: LL, radiusM = 3500): Promise<LL[]> {
+  const mock = (globalThis as { __fdTaxiHolds?: (at: LL) => LL[] | null }).__fdTaxiHolds?.(at);
+  if (mock) return Promise.resolve(mock);
+  const key = `${at[0].toFixed(2)},${at[1].toFixed(2)}`;
+  let p = holdCache.get(key);
+  if (!p) {
+    const q = `[out:json][timeout:15];(node["aeroway"="holding_position"](around:${radiusM},${at[1]},${at[0]});way["aeroway"="holding_position"](around:${radiusM},${at[1]},${at[0]}););out geom;`;
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 12000);
+    p = fetch("https://overpass-api.de/api/interpreter", { method: "POST", body: new URLSearchParams({ data: q }), signal: ctl.signal })
+      .then((r) => (r.ok ? r.json() : { elements: [] }))
+      .then((j: { elements?: { type: string; lat?: number; lon?: number; geometry?: { lat: number; lon: number }[] }[] }) =>
+        (j.elements ?? []).flatMap((e): LL[] => {
+          if (e.type === "node" && e.lat != null && e.lon != null) return [[e.lon, e.lat]];
+          const g = e.geometry ?? [];
+          if (!g.length) return [];
+          // A line drawn across the taxiway: its middle is on the centreline.
+          return [[g.reduce((s, v) => s + v.lon, 0) / g.length, g.reduce((s, v) => s + v.lat, 0) / g.length]];
+        }),
+      )
+      .catch(() => {
+        holdCache.delete(key);
+        return [];
+      })
+      .finally(() => clearTimeout(timer));
+    holdCache.set(key, p);
+  }
+  return p;
 }

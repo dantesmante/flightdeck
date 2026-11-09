@@ -2378,8 +2378,8 @@
 {#if aircraft && !follow && !history}
   <button class="follow" style:left="{16 + insetLeft}px" onclick={() => (follow = true)}>Follow aircraft</button>
 {/if}
-{#if taxiState.open && loaded && !bare}
-  <TaxiAssist getMap={() => map!} lat={aircraft?.lat ?? null} lon={aircraft?.lon ?? null} hdg={aircraft?.hdg ?? null} {insetLeft} onclose={() => (taxiState.open = false)} />
+{#if (taxiState.open || taxiState.keep) && loaded && !bare}
+  <TaxiAssist getMap={() => map!} lat={aircraft?.lat ?? null} lon={aircraft?.lon ?? null} hdg={aircraft?.hdg ?? null} {insetLeft} shown={taxiState.open} onclose={() => (taxiState.open = false)} />
 {/if}
 {#if !bare}
 <MapLayers

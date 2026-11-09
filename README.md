@@ -265,10 +265,21 @@ MIT licensed.
   and runways that meet it are offered. A runway bubble (red) asks
   **Cross** or **Hold short**; finish with the gate (blue; type its number
   under **Gate…**) or, departing, a runway to hold short of. The readback
-  shows the clearance (tap an item to take it out). FlightDeck works out
+  shows the clearance (tap an item to take it out). You can also type it:
+  each word becomes a bubble on space or Enter — taxiways as given
+  (`WH WB`), `hs28R` or `hold 28R` to hold short, `cr28R` or `cross 28R`
+  to cross, `@B64` or `gate B64` for the gate; Backspace in the empty box
+  takes back the last one. After a taxiway, every taxiway and runway that
+  meets it is offered, nearest first, including those joined only by
+  unnamed corner fillets. The **Taxi** button hides and shows the bar;
+  the clearance and the route stay until **Clear**. FlightDeck works out
   the path that follows the taxiways in that order and draws it as a blue
   dotted line; a red bar marks each hold short and the line beyond stays
-  grey until you press **Cleared to cross** (or taxi past it). Runways
+  grey until you press **Cleared to cross** (offered from 100 m before the
+  bar) or taxi past it. Hold bars sit on the hold lines mapped in
+  OpenStreetMap (aeroway=holding_position, fetched from the public
+  Overpass API) where the route passes over one; elsewhere 76 m (250 ft)
+  from the runway centreline, measured square to the runway. Runways
   the path crosses that the clearance does not mention are ringed in
   amber. **Go** turns the bar into GPS-style directions ("Exit via B2",
   "Right on B · 750 ft", "Hold short RWY 10L/28R", "Gate D5") that move on

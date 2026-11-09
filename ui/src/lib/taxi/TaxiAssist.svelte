@@ -6,8 +6,9 @@
   import { onDestroy, onMount, untrack } from "svelte";
   import type maplibregl from "maplibre-gl";
   import type { GeoJSONSource } from "maplibre-gl";
-  import { buildGraphAsync, connected, distTo, isRunwayName, loadAeroways, toLL, toXY, type LL, type TaxiGraph, type XY } from "./graph";
+  import { buildGraphAsync, connected, distTo, isRunwayName, loadAeroways, loadHoldLines, toLL, toXY, type LL, type TaxiGraph, type XY } from "./graph";
   import { pointAt, progress, routeFor, type Item, type Step, type TaxiRoute } from "./route";
+  import { taxiState } from "./store.svelte";
 
   let {
     getMap,
@@ -15,6 +16,7 @@
     lon,
     hdg,
     insetLeft = 0,
+    shown = true,
     onclose,
   }: {
     /** The map (it exists before this opens and outlives it). */
@@ -23,6 +25,8 @@
     lon: number | null;
     hdg: number | null;
     insetLeft?: number;
+    /** The bar is shown; hidden, the route stays on the map. */
+    shown?: boolean;
     onclose: () => void;
   } = $props();
   const map = untrack(() => getMap());
@@ -46,6 +50,12 @@
   let along = $state(0);
   let off = $state(0);
   let buildMs = 0;
+  /** Hold lines mapped in OpenStreetMap, local metres. */
+  let holdXY = $state.raw<XY[]>([]);
+  // Stay open (bar hidden) while there is a clearance.
+  $effect(() => {
+    taxiState.keep = items.length > 0;
+  });
 
   const here = (): LL => {
     const la = untrack(() => acLat);
@@ -61,6 +71,7 @@
   onMount(async () => {
     const at = here();
     const t0 = performance.now();
+    const holds = loadHoldLines(at);
     const raw = await loadAeroways(map, at);
     fromMock = !!(globalThis as { __fdTaxiLayout?: unknown }).__fdTaxiLayout && raw.length > 0;
     const g = await buildGraphAsync(raw, at);
@@ -73,19 +84,22 @@
     addLayers();
     // Close enough to see the taxiways.
     if (map.getZoom() < 14.5) map.easeTo({ center: at, zoom: 15, duration: 900 });
+    const hl = await holds;
+    if (hl.length) holdXY = hl.map((p) => toXY(g.origin, p));
   });
 
   // Work the route out again only when the clearance changes.
   $effect(() => {
     const g = graph;
     const its = items;
+    const hx = holdXY;
     if (!g) return;
     untrack(() => {
       const p = here();
       startXY = toXY(g.origin, p);
       startHdg = acHdg ?? 0;
       const t0 = performance.now();
-      route = its.length ? routeFor(g, its, startXY, startHdg) : null;
+      route = its.length ? routeFor(g, its, startXY, startHdg, hx) : null;
       if (fromMock) (globalThis as Record<string, unknown>).__fdTaxi = { route, origin: g.origin, ms: performance.now() - t0 };
       along = 0;
       off = 0;
@@ -223,6 +237,13 @@
     const g = graph;
     if (!g) return [];
     const names = [...g.byName.keys()];
+    const q = typed.trim().toUpperCase();
+    if (q && !/^(HS|HOLD|CR|CROSS|@|GATE)/.test(q))
+      return names
+        .filter((nm) => nm.startsWith(q) || nm.split("/").some((e) => e.startsWith(q)))
+        .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+        .slice(0, 30)
+        .map((name) => ({ name, runway: isRunwayName(g, name) }));
     if (showAll) return names.sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).map((name) => ({ name, runway: isRunwayName(g, name) }));
     const base = startXY;
     if (!lastTwy) {
@@ -230,7 +251,7 @@
         .map((name) => ({ name, runway: isRunwayName(g, name), d: distTo(g, name, base) }))
         .filter((b) => b.d < (b.runway ? 700 : 1500))
         .sort((a, b) => a.d - b.d)
-        .slice(0, 12);
+        .slice(0, 30);
     }
     const end = route?.pts.length ? route.pts[route.pts.length - 1] : base;
     const lastItem = items[items.length - 1];
@@ -238,7 +259,7 @@
       .filter(([name]) => !(lastItem.t === "rwy" && lastItem.name === name))
       .map(([name, at]) => ({ name, runway: isRunwayName(g, name), d: Math.hypot(at[0] - end[0], at[1] - end[1]) }))
       .sort((a, b) => a.d - b.d)
-      .slice(0, 12);
+      .slice(0, 30);
   });
   const gateList = $derived.by(() => {
     const g = graph;
@@ -278,6 +299,85 @@
   }
   const label = (it: Item) => (it.t === "twy" ? it.name : it.t === "rwy" ? `${it.mode === "hold" ? "Hold" : "Cross"} ${it.name}` : `Gate ${it.ref}`);
 
+  // ---- Typing the clearance ----
+  // "WH WB hs28R V5 @B64": each word becomes a bubble on space or Enter.
+  // Hold short: HS/HOLD then the runway (or HS28R); cross: CR/CROSS (or
+  // CR28R); gate: @B64 or GATE B64; a runway alone asks Cross or Hold.
+  let typed = $state("");
+  let typeErr = $state("");
+  let prefix: "hold" | "cross" | "gate" | null = null;
+  const FILLER = new Set(["VIA", "TO", "THEN", "LEFT", "RIGHT", "ON", "SHORT", "OF", "RUNWAY", "RWY", "TAXI", "AND", "TURN", ","]);
+  function runwayFor(tok: string): string | null {
+    const g = graph;
+    if (!g) return null;
+    for (const name of g.byName.keys()) if (isRunwayName(g, name) && (name === tok || name.split("/").includes(tok))) return name;
+    return null;
+  }
+  function commit(raw: string): boolean {
+    const g = graph;
+    let tok = raw.trim().toUpperCase().replace(/[.,]$/, "");
+    if (!g || !tok) return true;
+    typeErr = "";
+    let m: RegExpMatchArray | null;
+    if ((m = tok.match(/^(HS|HOLD)(\d{1,2}[LCR]?)$/))) {
+      prefix = "hold";
+      tok = m[2];
+    } else if ((m = tok.match(/^(CR|CROSS)(\d{1,2}[LCR]?)$/))) {
+      prefix = "cross";
+      tok = m[2];
+    } else if (tok.startsWith("@") && tok.length > 1) {
+      prefix = "gate";
+      tok = tok.slice(1);
+    } else if (tok.startsWith("RWY") && tok.length > 3) tok = tok.slice(3);
+    if (!g.byName.has(tok)) {
+      if (tok === "HS" || tok === "HOLD") return ((prefix = "hold"), true);
+      if (tok === "CR" || tok === "CROSS") return ((prefix = "cross"), true);
+      if (tok === "GATE" || tok === "@") return ((prefix = "gate"), true);
+      if (FILLER.has(tok)) return true;
+    }
+    const gateHit = g.gates.find((x) => x.ref.toUpperCase() === tok);
+    if (prefix === "gate" || (!g.byName.has(tok) && !runwayFor(tok) && gateHit)) {
+      prefix = null;
+      if (!gateHit) return ((typeErr = `No gate ${tok} mapped here`), false);
+      pickGate(gateHit.ref, gateHit.xy);
+      return true;
+    }
+    const rw = runwayFor(tok);
+    if (rw && !(g.byName.has(tok) && !isRunwayName(g, tok))) {
+      if (prefix === "hold" || prefix === "cross") {
+        pendingRwy = rw;
+        pickRwy(prefix);
+      } else pendingRwy = rw;
+      prefix = null;
+      return true;
+    }
+    if (g.byName.has(tok)) {
+      prefix = null;
+      pick({ name: tok, runway: false });
+      return true;
+    }
+    typeErr = `No taxiway ${tok} here`;
+    return false;
+  }
+  function onType(e: KeyboardEvent) {
+    const el = e.currentTarget as HTMLInputElement;
+    if (e.key === " " || e.key === "Enter") {
+      e.preventDefault();
+      if (commit(el.value)) typed = "";
+    } else if (e.key === "Backspace" && !el.value && items.length) {
+      e.preventDefault();
+      removeAt(items.length - 1);
+    }
+  }
+  function onInput(e: Event) {
+    // Phone keyboards: a typed space arrives here, not as a key.
+    const v = (e.currentTarget as HTMLInputElement).value;
+    if (/\s$/.test(v)) {
+      if (commit(v)) typed = "";
+      else typed = v.trimEnd();
+    } else typeErr = "";
+  }
+
   // ---- GPS-style directions ----
   const ft = (m: number) => {
     const f = m * 3.28084;
@@ -291,7 +391,7 @@
     if (i < 0) return { step: { at: r.length, kind: "end", text: "You're there" } as Step, then: null };
     return { step: list[i], then: list[i + 1] ?? null };
   });
-  const holding = $derived(!!next && next.step.kind === "hold" && next.step.at - along < 30);
+  const holding = $derived(!!next && next.step.kind === "hold" && next.step.at - along < 100);
   const offRoute = $derived(off > 40 && along < (route?.length ?? 0) - 20);
   const arrow = (s: Step) =>
     s.kind === "hold"
@@ -307,7 +407,7 @@
               : "M12 20V5M7 10l5-5 5 5";
 </script>
 
-<div class="taxi" style:--ml="{insetLeft}px" role="region" aria-label="Taxi assist">
+<div class="taxi" class:hidden={!shown} style:--ml="{insetLeft}px" role="region" aria-label="Taxi assist">
   {#if phase === "loading"}
     <div class="row note">Loading the airport's taxiways…</div>
   {:else if phase === "none"}
@@ -329,27 +429,32 @@
         <button class="clr" onclick={() => (cleared = new Set([...cleared, next!.step.runway!]))}>Cleared to cross</button>
       {/if}
       <button class="ghost" onclick={() => (editing = true)}>Edit</button>
-      <button class="x" onclick={onclose} aria-label="Close taxi assist">✕</button>
+      <button class="ghost" onclick={() => ((items = []), (editing = true))}>Clear</button>
+      <button class="x" onclick={onclose} aria-label="Hide taxi assist">✕</button>
     </div>
   {:else}
     <div class="row readback">
       <span class="k">Clearance</span>
-      {#if !items.length}
-        <span class="hint">Tap the taxiways in the order ATC gives them</span>
-      {/if}
       {#each items as it, i (i)}
         <button class="chip {it.t}" class:hold={it.t === "rwy" && it.mode === "hold"} title="Remove" onclick={() => removeAt(i)}>{label(it)}</button>
       {/each}
-      <span class="sp"></span>
-      {#if items.length}
-        <button class="ghost" onclick={() => removeAt(items.length - 1)} title="Take back the last one" aria-label="Undo">⌫</button>
-        <button class="ghost" onclick={() => (items = [])}>Clear</button>
-      {/if}
-      {#if route && route.pts.length > 1 && !route.problem}
-        <button class="go" onclick={() => (editing = false)}>Go</button>
-      {/if}
-      <button class="x" onclick={onclose} aria-label="Close taxi assist">✕</button>
+      <input
+        class="type"
+        class:bad={!!typeErr}
+        placeholder={items.length ? "Type or tap the next…" : "Tap bubbles or type, e.g. WH WB hs28R V5 @B64"}
+        autocomplete="off"
+        autocapitalize="characters"
+        spellcheck="false"
+        bind:value={typed}
+        onkeydown={onType}
+        oninput={onInput}
+        aria-label="Type the taxi clearance"
+      />
+      <button class="x" onclick={onclose} aria-label="Hide taxi assist">✕</button>
     </div>
+    {#if typeErr}
+      <div class="row problem">{typeErr}</div>
+    {/if}
     {#if route?.problem}
       <div class="row problem">{route.problem}</div>
     {:else if route?.openEnd && !done}
@@ -370,6 +475,14 @@
         <button class="b more" aria-pressed={showAll} onclick={() => (showAll = !showAll)}>{showAll ? "Nearby" : "All"}</button>
         {#if graph?.gates.length}
           <button class="b gate" aria-pressed={gateOpen} onclick={() => (gateOpen = !gateOpen)}>Gate…</button>
+        {/if}
+        <span class="sp"></span>
+        {#if items.length}
+          <button class="ghost" onclick={() => removeAt(items.length - 1)} title="Take back the last one" aria-label="Undo">⌫</button>
+          <button class="ghost" onclick={() => ((items = []), (typed = ""), (typeErr = ""))}>Clear</button>
+        {/if}
+        {#if route && route.pts.length > 1 && !route.problem}
+          <button class="go" onclick={() => (editing = false)}>Go</button>
         {/if}
       </div>
       {#if gateOpen || (lastTwy && gateList.length)}
@@ -407,6 +520,33 @@
     box-shadow: 0 6px 22px rgba(0, 0, 0, 0.35);
     color: var(--ink, #eceef1);
     font-size: 13px;
+  }
+  .taxi.hidden {
+    display: none;
+  }
+  .type {
+    flex: 1;
+    min-width: 140px;
+    padding: 4px 8px;
+    border: 0;
+    border-bottom: 1px solid var(--rule, #34373c);
+    background: transparent;
+    color: var(--ink, #eceef1);
+    font: 600 13px "IBM Plex Mono", ui-monospace, monospace;
+    text-transform: uppercase;
+    outline: none;
+  }
+  .type::placeholder {
+    text-transform: none;
+    font-family: inherit;
+    color: var(--ink-faint, #7d828a);
+  }
+  .type:focus {
+    border-bottom-color: #f2c230;
+  }
+  .type.bad {
+    border-bottom-color: #ffb340;
+    color: #ffb340;
   }
   .row {
     display: flex;

@@ -5,7 +5,7 @@
 // through the clearance) pairs, which only moves on to the next taxiway
 // where the two meet. Then the path is cut into GPS-style steps.
 
-import { nearestEdge, type TaxiGraph, type XY } from "./graph";
+import { distTo, nearestEdge, type TaxiGraph, type XY } from "./graph";
 
 export type Item =
   | { t: "twy"; name: string }
@@ -46,8 +46,9 @@ export interface TaxiRoute {
   openEnd: string;
 }
 
-const HOLD_BACK_M = 65;
-const UNNAMED_LINK_M = 60;
+/** Fallback hold line: this far from the runway centreline (FAA: 250 ft for most airliner runways). */
+const HOLD_FROM_CL_M = 76;
+const UNNAMED_LINK_M = 120;
 
 class Heap {
   private a: { k: number; s: number }[] = [];
@@ -91,7 +92,11 @@ class Heap {
  * The route for a clearance from where the aircraft is (`from`, local
  * metres) heading `hdg` (degrees true).
  */
-export function routeFor(g: TaxiGraph, items: Item[], from: XY, hdg: number): TaxiRoute {
+/**
+ * `holdPts` are the hold lines mapped in OpenStreetMap (holding_position
+ * points on the taxiways), used where the route passes over one.
+ */
+export function routeFor(g: TaxiGraph, items: Item[], from: XY, hdg: number, holdPts: XY[] = []): TaxiRoute {
   const empty = (problem: string, openEnd = ""): TaxiRoute => ({ pts: [], along: [], length: 0, steps: [], holds: [], uncleared: [], problem, openEnd });
   const T = items.filter((i): i is Extract<Item, { t: "twy" }> => i.t === "twy").map((i) => i.name);
   if (!T.length) return empty("");
@@ -144,7 +149,10 @@ export function routeFor(g: TaxiGraph, items: Item[], from: XY, hdg: number): Ta
     if (e.runway) return -1;
     return st;
   };
-  const costOf = (st: number, e: { name: string; len: number }) => (st === n + 1 && e.name && e.name !== T[n - 1] ? e.len * 1.5 : e.len);
+  // Unnamed links (corner fillets, connectors) are fine between taxiways
+  // but cost more, so the route does not cut across aprons.
+  const costOf = (st: number, e: { name: string; len: number }) =>
+    st === n + 1 ? (e.name && e.name !== T[n - 1] ? e.len * 1.5 : e.len) : st >= 1 && !e.name ? e.len * 2.5 : e.len;
 
   const relax = (node: number, st: number, d: number, from: number) => {
     const k = idx(node, st);
@@ -237,17 +245,42 @@ export function routeFor(g: TaxiGraph, items: Item[], from: XY, hdg: number): Ta
   // The state of the edge arriving at each point (moving on to the next
   // taxiway at a point shows on the edge leaving it).
   const states: number[] = [];
+  // Whether the edge arriving at each point has a name (not a fillet).
+  const named: boolean[] = [];
+  let prevNode = -1;
   for (const s of chain) {
-    const p = nodeXY(Math.floor(s / L));
+    const node = Math.floor(s / L);
+    const p = nodeXY(node);
     const last = pts[pts.length - 1];
-    if (last && last[0] === p[0] && last[1] === p[1]) continue;
+    if (last && last[0] === p[0] && last[1] === p[1]) {
+      prevNode = node;
+      continue;
+    }
+    let isNamed = !!se.name;
+    if (prevNode >= 0 && prevNode !== S) isNamed = g.adj[prevNode].some((ei) => (g.edges[ei].a === node || g.edges[ei].b === node) && !!g.edges[ei].name);
     pts.push(p);
     states.push(s % L);
+    named.push(isNamed);
+    prevNode = node;
   }
   if (gate) {
     pts.push(gate.xy);
     states.push(n + 1);
+    named.push(false);
   }
+  // The turn at point k: from the direction on the last named taxiway
+  // before it (past any curved corner fillet) to the way ahead.
+  const turnAt = (k: number): "left" | "right" | "straight" => {
+    let j = k;
+    while (j > 0 && !named[j] && along[k] - along[j] < 300) j--;
+    if (j <= 0 || !named[j]) return turnDir(pts, along, along[k]);
+    const v1 = [pts[j][0] - pts[j - 1][0], pts[j][1] - pts[j - 1][1]];
+    const ahead = pointAt(pts, along, Math.min(along[along.length - 1], along[k] + 40)).xy;
+    const v2 = [ahead[0] - pts[k][0], ahead[1] - pts[k][1]];
+    if (Math.hypot(v1[0], v1[1]) < 0.5 || Math.hypot(v2[0], v2[1]) < 1) return turnDir(pts, along, along[k]);
+    const ang = (Math.atan2(v1[0] * v2[1] - v1[1] * v2[0], v1[0] * v2[0] + v1[1] * v2[1]) * 180) / Math.PI;
+    return ang > 25 ? "left" : ang < -25 ? "right" : "straight";
+  };
   const along = [0];
   for (let i = 1; i < pts.length; i++) along.push(along[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
   const length = along[along.length - 1];
@@ -271,6 +304,29 @@ export function routeFor(g: TaxiGraph, items: Item[], from: XY, hdg: number): Ta
     }
   }
 
+  // Where to stop before a runway crossing at `x`: the mapped hold line the
+  // route passes over within 250 m before it, else the point 76 m from the
+  // runway's centreline (measured square to the runway, not along the path).
+  const holdBefore = (x: { runway: string; at: number }): number => {
+    let best = -1;
+    for (const h of holdPts) {
+      for (let i = 1; i < pts.length; i++) {
+        if (along[i] < x.at - 250 || along[i - 1] > x.at - 3) continue;
+        const a = pts[i - 1];
+        const b = pts[i];
+        const dx = b[0] - a[0];
+        const dy = b[1] - a[1];
+        const l2 = dx * dx + dy * dy || 1;
+        const t = Math.max(0, Math.min(1, ((h[0] - a[0]) * dx + (h[1] - a[1]) * dy) / l2));
+        const off = Math.hypot(a[0] + t * dx - h[0], a[1] + t * dy - h[1]);
+        const at = along[i - 1] + t * Math.sqrt(l2);
+        if (off <= 12 && at <= x.at - 3 && at > best) best = at;
+      }
+    }
+    if (best >= 0) return best;
+    for (let at = x.at; at > Math.max(0, x.at - 250); at -= 2) if (distTo(g, x.runway, pointAt(pts, along, at).xy) >= HOLD_FROM_CL_M) return at;
+    return Math.max(0, x.at - HOLD_FROM_CL_M);
+  };
   const holds: Hold[] = [];
   const uncleared: TaxiRoute["uncleared"] = [];
   const steps: Step[] = [];
@@ -284,19 +340,20 @@ export function routeFor(g: TaxiGraph, items: Item[], from: XY, hdg: number): Ta
     }
     used.add(c);
     const x = crossings[c];
+    const hAt = holdBefore(x);
     if (it.mode === "hold") {
-      const at = Math.max(0, x.at - HOLD_BACK_M);
+      const at = hAt;
       const { xy, dir } = pointAt(pts, along, at);
       holds.push({ runway: it.name, at, xy, dirXY: dir });
       steps.push({ at, kind: "hold", text: `Hold short RWY ${it.name}`, runway: it.name });
     } else {
-      steps.push({ at: Math.max(0, x.at - HOLD_BACK_M), kind: "cross", text: `Cross RWY ${it.name}`, runway: it.name });
+      steps.push({ at: hAt, kind: "cross", text: `Cross RWY ${it.name}`, runway: it.name });
     }
   }
   crossings.forEach((x, j) => {
     if (used.has(j)) return;
     uncleared.push({ runway: x.runway, at: x.at, xy: pts[x.i] });
-    steps.push({ at: Math.max(0, x.at - HOLD_BACK_M), kind: "warn", text: `RWY ${x.runway} ahead, not in your clearance`, runway: x.runway });
+    steps.push({ at: holdBefore(x), kind: "warn", text: `RWY ${x.runway} ahead, not in your clearance`, runway: x.runway });
   });
 
   // Turns: wherever the state moves on to the next taxiway.
@@ -309,10 +366,10 @@ export function routeFor(g: TaxiGraph, items: Item[], from: XY, hdg: number): Ta
     const name = T[states[i] - 1];
     const first = states[i] === 1;
     if (first && startRunway) {
-      steps.push({ at, kind: "exit", text: `Exit via ${name}`, dir: turnDir(pts, along, at) });
+      steps.push({ at, kind: "exit", text: `Exit via ${name}`, dir: turnAt(i - 1) });
       continue;
     }
-    const dir = first && at < 15 ? "straight" : turnDir(pts, along, at);
+    const dir = first && at < 15 ? "straight" : turnAt(i - 1);
     const verb = dir === "left" ? "Left on" : dir === "right" ? "Right on" : first ? "Taxi via" : "Continue on";
     steps.push({ at, kind: "turn", dir, text: `${verb} ${name}` });
   }
@@ -322,7 +379,7 @@ export function routeFor(g: TaxiGraph, items: Item[], from: XY, hdg: number): Ta
 
   // A route ending at "hold short": stop the line at the hold bar.
   if (holdEnd) {
-    const h = holds.find((x) => x.runway === holdEnd && x.at >= length - HOLD_BACK_M - 1);
+    const h = [...holds].reverse().find((x) => x.runway === holdEnd);
     if (h) cutAt(pts, along, h.at);
   }
   return {

@@ -1,7 +1,7 @@
 // Browser-only stand-in for the Rust backend: one flight in progress and a
 // short history, so the UI can be developed with `npm run ui`.
 
-import { mockTaxiLayout } from "./taxi/mockLayout";
+import { mockHoldLines, mockTaxiLayout } from "./taxi/mockLayout";
 import { RANKS, type FlightPlan, type FlightRow, type FlightScore, type FullStatus, type PilotProfile, type Totals } from "./api";
 
 const now = Date.now();
@@ -648,4 +648,5 @@ if (typeof window !== "undefined") {
     pushStatus();
   };
   w.__fdTaxiLayout = mockTaxiLayout;
+  w.__fdTaxiHolds = mockHoldLines;
 }

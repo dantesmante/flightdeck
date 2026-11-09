@@ -83,6 +83,14 @@ export function mockTaxiLayout(at: LL): RawFeature[] | null {
     const u = tN(t);
     line("taxiway", ref, [onS(t, 230), onN(u), onN(u, 170)]);
   }
+  // F comes up from the south and meets A only through two unnamed,
+  // curved corner fillets (like WH at KIAH).
+  {
+    const end = onS(0.55, -220);
+    line("taxiway", "F", [onS(0.55, -420), end]);
+    line("taxiway", "", [end, onS(0.535, -200), onS(0.52, -180)]);
+    line("taxiway", "", [end, onS(0.565, -200), onS(0.58, -180)]);
+  }
   // The terminal: an unnamed taxilane north of C, gates along it.
   const lane = par((t) => onN(t, 290), 0.3, 0.7);
   line("taxiway", "", lane);
@@ -94,4 +102,26 @@ export function mockTaxiLayout(at: LL): RawFeature[] | null {
     line("taxiway", "", [onN(t, 290), onN(t, 335)]);
   }
   return out;
+}
+
+/** Test only: one mapped hold line, on C5 90 m south of 10L/28R. */
+export function mockHoldLines(at: LL): LL[] | null {
+  const o = S[0];
+  if (Math.abs(at[0] - o[0]) > 0.1 || Math.abs(at[1] - o[1]) > 0.1) return null;
+  const s0 = toXY(o, S[0]);
+  const s1 = toXY(o, S[1]);
+  const n0 = toXY(o, N[0]);
+  const n1 = toXY(o, N[1]);
+  const sdx = s1[0] - s0[0];
+  const sdy = s1[1] - s0[1];
+  const sd = Math.hypot(sdx, sdy);
+  // C5 runs from 230 m north of 10R/28L at its middle to 10L/28R.
+  const P: XY = [s0[0] + sdx * 0.5 - (sdy / sd) * 230, s0[1] + sdy * 0.5 + (sdx / sd) * 230];
+  const u = (s0[0] + sdx * 0.5 - n0[0]) / (n1[0] - n0[0]);
+  const Q: XY = [n0[0] + (n1[0] - n0[0]) * u, n0[1] + (n1[1] - n0[1]) * u];
+  const ndx = n1[0] - n0[0];
+  const ndy = n1[1] - n0[1];
+  const dP = Math.abs(((P[0] - n0[0]) * ndy - (P[1] - n0[1]) * ndx) / Math.hypot(ndx, ndy));
+  const f = 90 / dP;
+  return [toLL(o, [Q[0] + (P[0] - Q[0]) * f, Q[1] + (P[1] - Q[1]) * f])];
 }
