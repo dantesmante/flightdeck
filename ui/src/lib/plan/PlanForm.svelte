@@ -12,14 +12,17 @@
   import AirportField, { type Spot } from "./AirportField.svelte";
 
   interface Props {
-    /** start: arm a new flight. attach: add a plan to the flight under way. */
-    mode: "start" | "attach";
+    /** start: arm a new flight. attach: add a plan to the flight under way.
+     * edit: change the plan in use, at any stage of the flight. */
+    mode: "start" | "attach" | "edit";
+    /** The plan being edited (edit). */
+    initial?: FlightPlan | null;
     /** Preselected hangar aircraft ("Fly this aircraft"). */
     aircraft?: HangarItem | null;
     onsettings: () => void;
     ondone: () => void;
   }
-  let { mode, aircraft = null, onsettings, ondone }: Props = $props();
+  let { mode, aircraft = null, initial = null, onsettings, ondone }: Props = $props();
 
   let callsign = $state("");
   let flightNo = $state("");
@@ -203,6 +206,10 @@
 
   onMount(async () => {
     if (aircraft) aircraftId = aircraft.id;
+    if (mode === "edit" && initial) {
+      await fillFrom(initial);
+      lookSimbrief();
+    }
     if (mode === "start") {
       lookSimbrief();
       const h = (await api.hangar().catch(() => [])) ?? [];
@@ -284,6 +291,26 @@
     }
   }
 
+  /** Editing: the form filled from the plan in use. */
+  async function fillFrom(p: FlightPlan) {
+    base = p;
+    callsign = p.callsign;
+    flightNo = `${p.airline}${p.flight_number}`;
+    originAuto = false;
+    origin = { icao: p.origin.icao, name: p.origin.name, lat: p.origin.lat, lon: p.origin.lon };
+    dest = { icao: p.destination.icao, name: p.destination.name, lat: p.destination.lat, lon: p.destination.lon };
+    cruiseFt = p.cruise_ft > 0 ? p.cruise_ft : null;
+    // A route drawn in FlightDeck stays editable as one.
+    if (p.source === "manual" && p.fixes.length) {
+      drawn = p.fixes.map((f) => ({ ...f }));
+      drawnFor = { o: p.origin.icao, d: p.destination.icao };
+    }
+    if (p.alternate) {
+      const hit = ((await api.searchAirports(p.alternate).catch(() => [])) ?? []).find((h) => h.icao === p.alternate);
+      altn = hit ? { icao: hit.icao, name: hit.name, lat: hit.lat, lon: hit.lon } : { icao: p.alternate, name: "", lat: 0, lon: 0 };
+    }
+  }
+
   /** Great-circle distance in nautical miles. */
   function gc(a: Spot, b: Spot): number {
     const r = Math.PI / 180;
@@ -318,6 +345,8 @@
     const ac = chosen;
     const sameNo = !!base && flightNo === `${base.airline}${base.flight_number}`;
     return {
+      // Editing: anything the form does not show stays as it was.
+      ...(mode === "edit" && initial && sameRoute ? initial : {}),
       source: keep ? keep.source : "manual",
       id: keep ? keep.id : `manual-${Date.now()}`,
       generated_ms: keep ? keep.generated_ms : Date.now(),
@@ -328,7 +357,7 @@
       destination: { icao: dest.icao, name: dest.name, lat: dest.lat, lon: dest.lon, runway: landRwy },
       alternate: altn?.icao ?? "",
       route: drawn ? [origin.icao, ...drawn.map((f) => f.ident), dest.icao].join(" ") : (keep?.route ?? ""),
-      cruise_ft: keep ? keep.cruise_ft : (cruiseFt ?? 0),
+      cruise_ft: mode === "edit" && cruiseFt != null ? cruiseFt : keep ? keep.cruise_ft : (cruiseFt ?? 0),
       distance_nm: drawn ? Math.round(routeNm ?? 0) : keep?.distance_nm || Math.round(direct ?? 0),
       ete_min: keep?.ete_min ?? 0,
       aircraft_icao: ac?.icao_type || base?.aircraft_icao || "",
@@ -348,6 +377,7 @@
     try {
       const plan = build();
       if (mode === "start") await api.startFlight(plan, aircraftId > 0 ? aircraftId : null);
+      else if (mode === "edit" && !plan) return;
       else await api.setPlan(plan);
       ondone();
     } catch (e) {
@@ -392,7 +422,7 @@
 
   {#if mode === "start"}{@render perf()}{/if}
 
-  {#if drawing.stage !== "off" && mode === "start"}
+  {#if drawing.stage !== "off" && mode !== "attach"}
     <section class="draw" aria-label="Draw a route">
       <h3>Draw a route</h3>
       {#if drawing.stage === "origin"}
@@ -503,7 +533,7 @@
         <span class="mark icon alt" aria-hidden="true">{@render glyph(90)}</span>
         <AirportField label="Alternate" placeholder="Alternate" value={altn} onchange={(v) => (altn = v)} />
       </li>
-      {#if !(sameRoute && base)}
+      {#if !(sameRoute && base?.source === "simbrief")}
         <!-- Cruise altitude: the flight profile climbs to it and descends from it. -->
         <li class="pt cruise-row">
           <span class="mark icon" aria-hidden="true">
@@ -530,7 +560,7 @@
       <p class="hint">Departing from {origin.icao}, where the aircraft is. Add a destination for a flight plan.</p>
     {/if}
 
-    {#if drawn && mode === "start"}
+    {#if drawn && mode !== "attach"}
       <section class="drawn" aria-label="Drawn route">
         <div class="drawn-top">
           <strong>Drawn route</strong>
@@ -567,7 +597,7 @@
             <span class="sb-k">SimBrief</span>
             <span class="sb-main num">{latest.callsign || `${latest.airline}${latest.flight_number}`} · {latest.origin.icao}–{latest.destination.icao}</span>
             <span class="sb-sub">{[latest.aircraft_icao, latest.distance_nm ? `${distance(latest.distance_nm).value} ${distance(latest.distance_nm).unit}` : "", ago(latest.generated_ms)].filter(Boolean).join(" · ")}</span>
-            <span class="sb-act" class:done={!!base && !importing}>{importing ? "Importing…" : base ? "✓ Imported" : "Import"}</span>
+            <span class="sb-act" class:done={!!base && base.id === latest.id && !importing}>{importing ? "Importing…" : base && base.id === latest.id ? "✓ Imported" : "Import"}</span>
           </button>
           {#if base && base.source === "simbrief"}
             <button type="button" class="ofp" onclick={() => base && openBriefing(base)} disabled={briefing.loading} title="View the OFP">
@@ -585,7 +615,7 @@
       {/if}
     </div>
 
-    {#if mode === "start"}
+    {#if mode !== "attach"}
       <div class="two">
         <button type="button" class="opt small" disabled title="Enter route manually: coming in a future version" aria-label="Enter route manually (coming soon)">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h10M4 17h7" /></svg>
@@ -604,9 +634,11 @@
 
   {#if mode === "start"}{@render perf()}{/if}
 
-  <button type="button" class="go" onclick={go} disabled={busy || partial || drawing.stage !== "off" || (mode === "attach" && !(origin && dest))}>
+  <button type="button" class="go" onclick={go} disabled={busy || partial || drawing.stage !== "off" || (mode !== "start" && !(origin && dest))}>
     {#if mode === "attach"}
       Add flight plan
+    {:else if mode === "edit"}
+      Save flight plan
     {:else if origin && dest}
       Start flight
     {:else}

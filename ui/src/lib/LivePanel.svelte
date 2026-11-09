@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { api, on, type FlightDetail, type Status } from "./api";
+  import { api, on, type FlightDetail, type FlightPlan, type Status } from "./api";
   import AltSpeedGraph from "./AltSpeedGraph.svelte";
   import PlanCard from "./PlanCard.svelte";
   import { fly, pick } from "./flyStore.svelte";
@@ -55,6 +55,8 @@
 
   /** Mid-flight: the flight plan form, to add a plan to the flight. */
   let addingPlan = $state(false);
+  /** Editing the plan in use: a copy taken when Edit was pressed. */
+  let editing = $state.raw<FlightPlan | null>(null);
   const finalLanding = $derived(completed?.landings.filter((l) => !l.touch_and_go).at(-1) ?? null);
 
   let routes = $state<string[]>([]);
@@ -98,6 +100,18 @@
   }
 </script>
 
+{#snippet editSheet()}
+  <div class="add-sheet">
+    <div class="add-title">
+      <span>Edit flight plan</span>
+      <button class="x" aria-label="Close" onclick={() => (editing = null)}>
+        <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" /></svg>
+      </button>
+    </div>
+    <PlanForm mode="edit" initial={editing} {onsettings} ondone={() => (editing = null)} />
+  </div>
+{/snippet}
+
 <div class="live">
   {#if flying && status}
     <header>
@@ -112,7 +126,11 @@
       <AltSpeedGraph pts={track} height={130} />
     {/if}
     {#if status.plan}
-      <PlanCard plan={status.plan} onremove={() => api.setPlan(null)} />
+      {#if editing}
+        {@render editSheet()}
+      {:else}
+        <PlanCard plan={status.plan} onremove={() => api.setPlan(null)} onedit={() => (editing = status?.plan ? $state.snapshot(status.plan) : null)} />
+      {/if}
     {:else if !status.demo}
       {#if addingPlan}
         <div class="add-sheet">
@@ -202,7 +220,11 @@
       {/if}
     {/if}
     {#if status?.plan}
-      <PlanCard plan={status.plan} onremove={() => api.setPlan(null)} />
+      {#if editing}
+        {@render editSheet()}
+      {:else}
+        <PlanCard plan={status.plan} onremove={() => api.setPlan(null)} onedit={() => (editing = status?.plan ? $state.snapshot(status.plan) : null)} />
+      {/if}
     {/if}
     {#if status?.armed}
       <div class="actions">

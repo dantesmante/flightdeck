@@ -146,6 +146,11 @@ fn pack(knots: &[f32]) -> String {
     base64(&b)
 }
 
+/// Base64 for other forecast layers' grids.
+pub fn base64_pub(b: &[u8]) -> String {
+    base64(b)
+}
+
 fn base64(b: &[u8]) -> String {
     const A: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut s = String::with_capacity(b.len().div_ceil(3) * 4);
@@ -267,9 +272,33 @@ pub struct TempGrid {
     pub error: Option<String>,
 }
 
-pub fn temperature() -> TempGrid {
-    static GRID: OnceLock<Mutex<Option<(i64, i64, TempGrid)>>> = OnceLock::new();
-    let slot = GRID.get_or_init(|| Mutex::new(None));
+/// The forecast in use: (run, step, index of the one-degree file). Shared
+/// with the icing engine, which reads more fields from the same files.
+pub fn forecast() -> Result<(i64, i64, String), String> {
+    current(&mut cache().lock().unwrap())
+}
+
+/// The one-degree (`"1p00"`) or half-degree (`"0p50"`) file of a forecast.
+pub fn product_url(run_ms: i64, step: i64, product: &str) -> String {
+    file_url(run_ms, step).replace(".pgrb2.1p00.", &format!(".pgrb2.{product}."))
+}
+
+/// A byte range of a forecast file (with the same limits and messages as the wind).
+pub fn get_range(url: &str, range: Option<(u64, Option<u64>)>) -> Result<Vec<u8>, String> {
+    get(url, range)
+}
+
+/// Temperature at one level: "sfc" (2 m above the ground) or the same
+/// pressure levels as the wind ("850" … "200").
+pub fn temperature(level: &str) -> TempGrid {
+    type Held = std::collections::HashMap<String, (i64, i64, TempGrid)>;
+    static GRID: OnceLock<Mutex<Held>> = OnceLock::new();
+    let idx_level = match level {
+        "sfc" => "2 m above ground".to_string(),
+        l if LEVELS.iter().any(|(k, _)| *k == l) => format!("{l} mb"),
+        _ => return TempGrid { error: Some("Unknown temperature level".into()), ..Default::default() },
+    };
+    let slot = GRID.get_or_init(Default::default);
     let (run, step, idx) = {
         let mut c = cache().lock().unwrap();
         match current(&mut c) {
@@ -278,19 +307,19 @@ pub fn temperature() -> TempGrid {
         }
     };
     let mut held = slot.lock().unwrap();
-    if let Some((r, s, g)) = held.as_ref() {
+    if let Some((r, s, g)) = held.get(level) {
         if (*r, *s) == (run, step) {
             return g.clone();
         }
     }
-    let got = find_range(&idx, "TMP", "2 m above ground")
+    let got = find_range(&idx, "TMP", &idx_level)
         .ok_or_else(|| "Temperature is missing from the forecast".to_string())
         .and_then(|range| decode_field(&get(&file_url(run, step), Some(range))?));
     match got {
         Ok(k) => {
             let tenths: Vec<f32> = k.into_iter().map(|x| if x.is_finite() { (x - 273.15) * 10.0 } else { f32::NAN }).collect();
             let g = TempGrid { run_ms: run, valid_ms: run + step * 3_600_000, nx: 360, ny: 181, t: pack(&tenths), error: None };
-            *held = Some((run, step, g.clone()));
+            held.insert(level.to_string(), (run, step, g.clone()));
             g
         }
         Err(e) => {

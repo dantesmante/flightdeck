@@ -12,6 +12,7 @@ mod obstacles;
 mod pln;
 mod backup;
 mod screenshots;
+mod icing;
 mod navaids;
 mod winds;
 mod wx;
@@ -370,9 +371,22 @@ fn navaids_refresh(state: tauri::State<AppState>) {
     db.refresh = true;
 }
 
+/// Icing Potential (simulation estimate) at a flight level, worldwide.
 #[tauri::command]
-async fn temperature_grid() -> CmdResult<winds::TempGrid> {
-    tauri::async_runtime::spawn_blocking(winds::temperature).await.map_err(err)
+async fn icing_grid(fl: u32) -> CmdResult<icing::IcingGrid> {
+    tauri::async_runtime::spawn_blocking(move || icing::grid(fl.min(450))).await.map_err(err)?
+}
+
+/// Icing Potential and the conditions behind it at one place.
+#[tauri::command]
+async fn icing_point(lat: f64, lon: f64, fl: u32) -> CmdResult<icing::IcingPoint> {
+    tauri::async_runtime::spawn_blocking(move || icing::point(lat, lon, fl.min(450))).await.map_err(err)?
+}
+
+#[tauri::command]
+async fn temperature_grid(level: Option<String>) -> CmdResult<winds::TempGrid> {
+    let level = level.unwrap_or_else(|| "sfc".into());
+    tauri::async_runtime::spawn_blocking(move || winds::temperature(&level)).await.map_err(err)
 }
 
 #[tauri::command]
@@ -961,6 +975,7 @@ const SETTING_KEYS: &[&str] = &[
     "map_rings_count",
     "map_rings_nm",
     "map_wind_level",
+    "map_temp_level",
     "show_demo",
     "backup_on_close",
     "simbrief_id",
@@ -1528,7 +1543,9 @@ pub(crate) async fn dispatch(app: &tauri::AppHandle, cmd: &str, a: serde_json::V
         "online_network" => ok(to_value(online_network(arg(&a, "net")?).await?)),
         "wx_categories" => ok(to_value(wx_categories().await?)),
         "wind_grid" => ok(to_value(wind_grid(arg(&a, "level")?).await?)),
-        "temperature_grid" => ok(to_value(temperature_grid().await?)),
+        "temperature_grid" => ok(to_value(temperature_grid(arg(&a, "level").ok()).await?)),
+        "icing_grid" => ok(to_value(icing_grid(arg(&a, "fl")?).await?)),
+        "icing_point" => ok(to_value(icing_point(arg(&a, "lat")?, arg(&a, "lon")?, arg(&a, "fl")?).await?)),
         "navaids" => ok(to_value(navaids(st(), arg(&a, "w")?, arg(&a, "s")?, arg(&a, "e")?, arg(&a, "n")?, arg(&a, "waypoints")?))),
         "navaids_refresh" => ok({
             navaids_refresh(st());
@@ -1715,6 +1732,8 @@ pub fn run() {
             wx_categories,
             wind_grid,
             temperature_grid,
+            icing_grid,
+            icing_point,
             navaids,
             navaids_refresh,
             us_airspace,

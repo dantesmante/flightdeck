@@ -992,7 +992,7 @@ export const api = {
   remoteForget: () => call<RemoteInfo>("remote_forget"),
   wxCategories: () => call<WxCategories>("wx_categories"),
   windGrid: (level: string) => call<WindGrid>("wind_grid", { level }),
-  temperatureGrid: () => call<TempGrid>("temperature_grid"),
+  temperatureGrid: (level: string) => call<TempGrid>("temperature_grid", { level }),
   navaids: (w: number, s: number, e: number, n: number, waypoints: boolean) => call<NavView>("navaids", { w, s, e, n, waypoints }),
   navaidsRefresh: () => call<void>("navaids_refresh"),
   /** US Class B, C and D airspace, GeoJSON text (FAA, 28-day cycle). */

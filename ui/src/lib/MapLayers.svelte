@@ -45,12 +45,14 @@
     navNote?: string;
     /** Under the Temperature card. */
     tempNote?: string;
+    tempLevel?: string;
+    ontemplevel?: (l: string) => void;
     ringCount?: number;
     ringSet?: string;
     onrings?: (count: number, set: string) => void;
     onroadsopacity?: (o: number) => void;
   }
-  let { three, on, onthree, ontoggle, radarTime, radarError, parkedLayer = false, airportDetail = 1, ondetail, windLevel = "auto", onwindlevel, cardOpen = false, measuring = false, onmeasure, airspaceState = "idle", pfdOpen = false, onpfd, obstaclesState = "idle", hasAircraft = false, roadsOpacity = 1, onroadsopacity, ringCount = 2, ringSet = "auto", onrings, profileOpen = false, onprofile, taxiOpen = false, ontaxi, navNote = "", tempNote = "" }: Props = $props();
+  let { three, on, onthree, ontoggle, radarTime, radarError, parkedLayer = false, airportDetail = 1, ondetail, windLevel = "auto", onwindlevel, cardOpen = false, measuring = false, onmeasure, airspaceState = "idle", pfdOpen = false, onpfd, obstaclesState = "idle", hasAircraft = false, roadsOpacity = 1, onroadsopacity, ringCount = 2, ringSet = "auto", onrings, profileOpen = false, onprofile, taxiOpen = false, ontaxi, navNote = "", tempNote = "", tempLevel = "auto", ontemplevel }: Props = $props();
   /** The Tools drawer (Measure, Taxi, Profile, PFD): stays out until closed. */
   const TOOLS_KEY = "fd.toolsOpen";
   let toolsOpen = $state(
@@ -470,6 +472,11 @@
       {@render card("temp", "Temperature", on.has("temp"), () => ontoggle("temp"), tempNote2)}
     </div>
     {#if on.has("temp")}
+      <div class="levels" role="radiogroup" aria-label="Temperature level">
+        {#each [{ id: "auto", label: "Auto" }, ...WIND_LEVELS.map((l) => ({ id: l.id, label: l.id === "sfc" ? "SFC" : l.label }))] as l (l.id)}
+          <button role="radio" aria-checked={tempLevel === l.id} class:on={tempLevel === l.id} onclick={() => ontemplevel?.(l.id)}>{l.label}</button>
+        {/each}
+      </div>
       <div class="tscale" aria-label="Temperature colours">
         <span class="bar"></span>
         <span class="ticks">

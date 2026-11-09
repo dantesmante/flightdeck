@@ -461,7 +461,9 @@ export async function mockCall<T>(cmd: string, _args?: Record<string, unknown>):
     for (let r = 0; r < 181; r++) {
       const lat = 90 - r;
       for (let c = 0; c < 360; c++) {
-        const base = 30 - 0.0085 * lat * lat - (lat > 0 ? 6 : 0);
+        const lv = (_args as { level?: string } | undefined)?.level ?? "sfc";
+        const drop = lv === "sfc" ? 0 : ({ "850": 10, "700": 18, "500": 32, "400": 42, "300": 55, "250": 62, "200": 65 } as Record<string, number>)[lv] ?? 0;
+        const base = 30 - 0.0085 * lat * lat - (lat > 0 ? 6 : 0) - drop;
         const wave = 5 * Math.sin((c / 360) * Math.PI * 6) * Math.cos((lat / 90) * Math.PI);
         t[r * 360 + c] = Math.round((base + wave) * 10);
       }

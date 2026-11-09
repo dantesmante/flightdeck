@@ -32,7 +32,10 @@ MIT licensed.
   Once origin and destination are chosen, the map zooms to the route and
   previews it as a dashed purple line. During a flight the same card shows
   the flight; fold it down to see more of the map.
-  A plan can also be added mid-flight with **Add a flight plan**.
+  A plan can also be added mid-flight with **Add a flight plan**, and the
+  plan in use changed at any stage with **Edit** on its card (callsign,
+  flight number, airports, landing runway, alternate, cruise altitude, a
+  drawn route, or a newer SimBrief plan).
   A planned flight (Start a flight or SimBrief) is kept until it is flown:
   loading the sim, reloading it or spawning at the airport never replaces
   it. Tracking starts without power only within 10 nm of the planned
@@ -404,7 +407,8 @@ MIT licensed.
   waypoints from zoom 8; only what is in view is drawn. ILS localizers
   are left out.
 - **Temperature** (Layers, Weather): the map tinted by the forecast air
-  temperature 2 m above the ground (purple −40 °C, blue near freezing,
+  temperature at a level picked like the wind's (Auto follows the
+  aircraft; SFC is 2 m above the ground, then 850 to 200 hPa) (purple −40 °C, blue near freezing,
   green mild, yellow, orange, red 40 °C), with a °C/°F scale under the
   card. NOAA GFS one-degree forecast (public domain; the same file as the
   wind, one field of about 60 KB, every 3 h while on), drawn once into a

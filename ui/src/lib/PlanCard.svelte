@@ -6,7 +6,7 @@
   import { hhmm, int } from "./format";
   import { distance } from "./prefs.svelte";
 
-  let { plan, onremove }: { plan: FlightPlan; onremove?: () => void } = $props();
+  let { plan, onremove, onedit }: { plan: FlightPlan; onremove?: () => void; onedit?: () => void } = $props();
   let showRoute = $state(false);
   const fl = $derived(plan.cruise_ft >= 18000 ? `FL${Math.round(plan.cruise_ft / 100)}` : `${int(plan.cruise_ft)} ft`);
 </script>
@@ -14,6 +14,9 @@
 <div class="plan">
   <div class="top">
     <span class="src">{plan.source === "simbrief" ? "SimBrief plan" : "Flight plan"}</span>
+    {#if onedit}
+      <button class="edit" onclick={onedit} title="Change the flight plan">Edit</button>
+    {/if}
     {#if onremove}
       <button class="x" onclick={onremove} aria-label="Remove flight plan" title="Remove plan">
         <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" /></svg>
@@ -78,6 +81,21 @@
     letter-spacing: 0.1em;
     text-transform: uppercase;
     color: #b9a6fb;
+  }
+  .edit {
+    margin-left: auto;
+    border: 1px solid var(--rule);
+    background: transparent;
+    color: var(--ink-dim);
+    border-radius: 6px;
+    padding: 2px 9px;
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .edit:hover {
+    color: var(--ink);
+    border-color: var(--ink-faint);
   }
   .x {
     border: none;

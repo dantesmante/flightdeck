@@ -438,9 +438,15 @@
 
   // --- Temperature (NOAA GFS, 2 m) -------------------------------------------
   let tempCanvas: HTMLCanvasElement | null = null;
+  /** The forecast step and level the picture is for. */
+  let tempKey = "";
   let tempState = $state<{ s: "idle" | "loading" | "ok" | "error"; valid_ms: number }>({ s: "idle", valid_ms: 0 });
+  /** Temperature level chosen: "auto" follows the aircraft, like the wind. */
+  const tempPref = $derived(prefs.s.map_temp_level ?? "auto");
+  const tempLevel = $derived.by(() => (tempPref === "auto" ? levelFor(flyingAlt ?? 0) : tempPref));
   $effect(() => {
     const on = layers.has("temp") && !bare;
+    const level = tempLevel;
     if (!loaded || !map) return;
     const m = map;
     if (on && tempCanvas && !m.getSource("fd-temp")) setTempCanvas(m, tempCanvas);
@@ -451,17 +457,19 @@
       untrack(() => {
         if (tempState.s !== "ok") tempState = { s: "loading", valid_ms: tempState.valid_ms };
       });
-      api.temperatureGrid().then(
+      api.temperatureGrid(level).then(
         (g) => {
           if (stop || map !== m) return;
           if (g.error || !g.t) {
             tempState = { s: "error", valid_ms: 0 };
             return;
           }
-          if (g.valid_ms === untrack(() => tempState.valid_ms) && tempCanvas) {
+          const key = `${g.valid_ms}/${level}`;
+          if (key === tempKey && tempCanvas) {
             tempState = { s: "ok", valid_ms: g.valid_ms };
             return;
           }
+          tempKey = key;
           tempCanvas = tempImage(decodeTemps(g.t), g.nx, g.ny);
           setTempCanvas(m, tempCanvas);
           showTemp(m, true);
@@ -483,7 +491,7 @@
       : tempState.s === "error"
         ? "NOAA not reachable"
         : tempState.valid_ms
-          ? `Forecast for ${new Date(tempState.valid_ms).toISOString().slice(11, 13)}00Z`
+          ? `${WIND_LEVELS.find((l) => l.id === tempLevel)?.label ?? ""}${tempPref === "auto" ? " (auto)" : ""} · for ${new Date(tempState.valid_ms).toISOString().slice(11, 13)}00Z`
           : "",
   );
 
@@ -2522,6 +2530,8 @@
   ontaxi={() => (taxiState.open = !taxiState.open)}
   {navNote}
   {tempNote}
+  tempLevel={tempPref}
+  ontemplevel={(l) => setPref("map_temp_level", l)}
   profileOpen={profileState.open}
   onprofile={planner ? () => (profileState.open = !profileState.open) : undefined}
   pfdOpen={pfdState.open}
