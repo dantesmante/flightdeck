@@ -264,7 +264,7 @@ fn download(run: i64, step: i64, idx1: &str) -> Result<Cube, String> {
     let queue = Mutex::new(jobs.clone());
     let failed: Mutex<Option<String>> = Mutex::default();
     std::thread::scope(|s| {
-        for _ in 0..6 {
+        for _ in 0..3 {
             s.spawn(|| loop {
                 let Some((n, k, r)) = queue.lock().unwrap().pop() else { break };
                 if failed.lock().unwrap().is_some() {

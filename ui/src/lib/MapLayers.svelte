@@ -3,7 +3,7 @@
   // each a panel of picture cards you switch on and off.
   import type { Snippet } from "svelte";
   import { WIND_LEVELS } from "./wind/wind";
-  import { ICING_BANDS, ICING_FLS } from "./icingLayer";
+  import { ICING_BANDS, ICING_FLS, icingSwatch } from "./icingLayer";
 
   interface Props {
     three: boolean;
@@ -267,11 +267,13 @@
       <path d="M14 45 L18 52 L10 52 Z" fill="#14181e" stroke="#c9ced6" stroke-width="1.2" />
       <text x="14" y="60" text-anchor="middle" font-size="5.5" fill="#c9ced6">HAMUR</text>
     {:else if kind === "icing"}
+      <defs>
+        <pattern id="la-ice1" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><path d="M0 0V7" stroke="#a9d8ff" stroke-width="1.4" /></pattern>
+        <pattern id="la-ice2" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(-45)"><path d="M0 0V7" stroke="#8a3cf0" stroke-width="1.6" /></pattern>
+      </defs>
       <rect width="120" height="64" fill="#15181c" />
-      <ellipse cx="58" cy="34" rx="44" ry="22" fill="rgb(190,225,255)" opacity="0.55" />
-      <ellipse cx="60" cy="34" rx="30" ry="15" fill="rgb(70,140,255)" opacity="0.7" />
-      <ellipse cx="62" cy="34" rx="17" ry="9" fill="rgb(255,225,70)" opacity="0.8" />
-      <ellipse cx="63" cy="34" rx="8" ry="4.5" fill="rgb(240,45,45)" opacity="0.85" />
+      <ellipse cx="58" cy="34" rx="44" ry="22" fill="url(#la-ice1)" stroke="#a9d8ff" stroke-width="0.8" />
+      <ellipse cx="62" cy="34" rx="20" ry="10" fill="url(#la-ice2)" stroke="#8a3cf0" stroke-width="0.8" />
       <g stroke="#fff" stroke-width="1.2" stroke-linecap="round" opacity="0.9" transform="translate(98 14)">
         <path d="M0 -7V7M-6 -3.5L6 3.5M-6 3.5L6 -3.5" />
       </g>
@@ -498,8 +500,8 @@
         {/each}
       </div>
       <div class="iscale" aria-label="Icing Potential colours">
-        {#each ICING_BANDS.slice(1) as b (b.max)}
-          <span class="ib"><i style:background="rgb({b.color.join(',')})"></i>{b.label}</span>
+        {#each ICING_BANDS as b, i (b.min)}
+          <span class="ib"><img src={icingSwatch(i)} alt="" />{b.label}</span>
         {/each}
       </div>
       {#if icingInfo}<p class="inote">{icingInfo}</p>{/if}
@@ -711,10 +713,11 @@
     align-items: center;
     gap: 5px;
   }
-  .iscale i {
-    width: 14px;
-    height: 10px;
+  .iscale img {
+    width: 18px;
+    height: 18px;
     border-radius: 3px;
+    border: 1px solid var(--rule);
   }
   .inote {
     margin: 8px 2px 0;

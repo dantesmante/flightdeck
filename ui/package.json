@@ -18,6 +18,8 @@
     "@mapbox/vector-tile": "^2.0.5",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-opener": "^2.7.2",
+    "@types/d3-contour": "^3.0.6",
+    "d3-contour": "^4.0.2",
     "maplibre-contour": "^0.1.1",
     "maplibre-gl": "^5",
     "pbf": "^4.0.2"

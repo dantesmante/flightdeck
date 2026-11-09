@@ -26,7 +26,7 @@
   import { taxiState } from "./taxi/store.svelte";
   import { NAV_MIN_ZOOM, WPT_MIN_ZOOM, setNavData, showNavLayers } from "./navLayer";
   import { decodeTemps, setTempCanvas, showTemp, tempImage } from "./tempLayer";
-  import { decodeIcing, flFor, icingImage, setIcingCanvas, showIcing } from "./icingLayer";
+  import { decodeIcing, flFor, icingShapes, setIcingShapes, showIcing } from "./icingLayer";
   import TaxiAssist from "./taxi/TaxiAssist.svelte";
   import { altColor, altGradient, altLabel, altRange, lonLat, sideOnBearing, wallFeatures, wallScale, type Pt } from "./track";
 
@@ -497,7 +497,7 @@
   );
 
   // --- Icing Potential (test version; GFS, FlightDeck's own estimate) ---------
-  let icingCanvas: HTMLCanvasElement | null = null;
+  let icingFc: GeoJSON.FeatureCollection | null = null;
   let icingKey = "";
   let icingState = $state<{ s: "idle" | "loading" | "ok" | "error"; msg: string; info?: string }>({ s: "idle", msg: "" });
   const icingPref = $derived(prefs.s.map_icing_fl ?? "auto");
@@ -507,7 +507,7 @@
     const fl = icingFl;
     if (!loaded || !map) return;
     const m = map;
-    if (on && icingCanvas && !m.getSource("fd-icing")) setIcingCanvas(m, icingCanvas);
+    if (on && icingFc && !m.getSource("fd-icing")) setIcingShapes(m, icingFc);
     showIcing(m, on);
     if (!on) return;
     let stop = false;
@@ -523,10 +523,10 @@
           const msg = `FL${String(g.fl).padStart(3, "0")} · for ${valid}Z`;
           const info = `NOAA GFS ${g.product === "1p00" ? "1°" : "0.5°"} file · model run ${run}Z · forecast for ${valid}Z · ${Math.round(g.known * 100)}% of the world has data`;
           const key = `${g.valid_ms}/${g.fl}`;
-          if (key !== icingKey || !icingCanvas) {
+          if (key !== icingKey || !icingFc) {
             icingKey = key;
-            icingCanvas = icingImage(decodeIcing(g.potential), g.nx, g.ny);
-            setIcingCanvas(m, icingCanvas);
+            icingFc = icingShapes(decodeIcing(g.potential), g.nx, g.ny);
+            setIcingShapes(m, icingFc);
             showIcing(m, true);
           }
           icingState = { s: "ok", msg, info };

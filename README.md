@@ -417,9 +417,13 @@ MIT licensed.
   nothing to speak of.
 - **Icing Potential** (Layers, Weather; test version): FlightDeck's own
   estimate, 0–100, of how likely an aircraft is to pick up ice at a flight
-  level (Auto follows the aircraft, or FL050–FL400), coloured light blue,
-  blue, yellow, orange and red; nothing below 6, and nothing where the
-  data runs out (under the terrain, gaps). Worked out from NOAA GFS
+  level (Auto follows the aircraft, or FL050–FL400), drawn as hatching
+  from light blue to deep purple that builds up into a dense cross-hatch
+  as the score rises (so it never looks like temperature or radar);
+  nothing below 6, and nothing where the data runs out (under the
+  terrain, gaps). The forecast fields (about 25 MB downloaded, about 30 MB
+  of memory in FlightDeck while the layer is on) are never written to
+  disk. Worked out from NOAA GFS
   temperature, humidity, cloud liquid water and ice, vertical velocity and
   height on 20 pressure levels (the half-degree file, since the one-degree
   file has no cloud water; about 25 MB per forecast step, while on); no

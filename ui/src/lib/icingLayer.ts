@@ -1,51 +1,70 @@
 // The Icing Potential map layer (test version): FlightDeck's own estimate,
 // from NOAA's GFS forecast, of where an aircraft would pick up ice at one
-// flight level. For flight simulation only. The one-degree scores are drawn
-// once into a picture in the map's projection and laid over the map like
-// the temperature (a canvas source: nothing fetched, nothing on the GPU but
-// one texture).
+// flight level. For flight simulation only. Drawn as hatching (not a
+// coloured wash, so it does not look like temperature or radar): the
+// one-degree scores are outlined into shapes once per level and forecast,
+// and each band is filled with its own lines.
 
 import type maplibregl from "maplibre-gl";
+import type { GeoJSONSource } from "maplibre-gl";
+import { contours } from "d3-contour";
 
 /** Flight levels offered. */
 export const ICING_FLS = [50, 100, 150, 180, 200, 250, 300, 350, 400];
 
-/** Score bands (upper bound inclusive) and colours, as in the spec. */
-export const ICING_BANDS: { max: number; color: [number, number, number]; label: string }[] = [
-  { max: 5, color: [0, 0, 0], label: "None" },
-  { max: 20, color: [190, 225, 255], label: "6–20" },
-  { max: 40, color: [70, 140, 255], label: "21–40" },
-  { max: 60, color: [255, 225, 70], label: "41–60" },
-  { max: 80, color: [255, 150, 45], label: "61–80" },
-  { max: 100, color: [240, 45, 45], label: "81–100" },
+/**
+ * Bands (lowest score in each) and their hatching, light blue to deep
+ * purple. The areas nest (each band covers the ones above it), so the
+ * hatching builds up: one set of lines where icing is light, a dense
+ * cross-hatch where it is high.
+ */
+export const ICING_BANDS: { min: number; label: string; color: string; angle: 45 | -45; offset: number; width: number }[] = [
+  { min: 6, label: "6–20", color: "#a9d8ff", angle: 45, offset: 0, width: 1.6 },
+  { min: 21, label: "21–40", color: "#6fa6ff", angle: -45, offset: 0, width: 1.6 },
+  { min: 41, label: "41–60", color: "#9a7dff", angle: 45, offset: 0.5, width: 1.8 },
+  { min: 61, label: "61–80", color: "#8a3cf0", angle: -45, offset: 0.5, width: 2 },
+  { min: 81, label: "81–100", color: "#6a12c8", angle: 45, offset: 0.25, width: 2.6 },
 ];
 
-/** Colour stops at band middles, for smooth edges between bands. */
-const STOPS: [number, [number, number, number]][] = [
-  [13, [190, 225, 255]],
-  [30, [70, 140, 255]],
-  [50, [255, 225, 70]],
-  [70, [255, 150, 45]],
-  [90, [240, 45, 45]],
-];
+const TILE = 24; // pattern tile, device pixels (12 CSS px at pixel ratio 2)
 
-/** RGBA for a score; transparent at 5 and below. */
-export function icingColor(v: number): [number, number, number, number] {
-  if (v <= 5) return [0, 0, 0, 0];
-  let c = STOPS[0][1];
-  if (v >= STOPS[STOPS.length - 1][0]) c = STOPS[STOPS.length - 1][1];
-  else
-    for (let i = 1; i < STOPS.length; i++)
-      if (v <= STOPS[i][0]) {
-        const a = STOPS[i - 1];
-        const b = STOPS[i];
-        const t = Math.max(0, (v - a[0]) / (b[0] - a[0]));
-        c = [a[1][0] + (b[1][0] - a[1][0]) * t, a[1][1] + (b[1][1] - a[1][1]) * t, a[1][2] + (b[1][2] - a[1][2]) * t];
-        break;
-      }
-  // Fades in from 5 to 20, then semi-transparent so the map shows through.
-  const alpha = v < 20 ? ((v - 5) / 15) * 150 : 150 + Math.min(1, (v - 20) / 60) * 40;
-  return [c[0], c[1], c[2], alpha];
+/** One band's hatching as a seamless tile. */
+function hatch(b: (typeof ICING_BANDS)[number], ctx: CanvasRenderingContext2D) {
+  ctx.strokeStyle = b.color;
+  ctx.lineWidth = b.width * 2;
+  ctx.lineCap = "square";
+  const o = b.offset * TILE;
+  for (const k of [-1, 0, 1]) {
+    ctx.beginPath();
+    if (b.angle === 45) {
+      ctx.moveTo(k * TILE + o, TILE);
+      ctx.lineTo(k * TILE + o + TILE, 0);
+    } else {
+      ctx.moveTo(k * TILE + o, 0);
+      ctx.lineTo(k * TILE + o + TILE, TILE);
+    }
+    ctx.stroke();
+  }
+}
+
+function patternImage(i: number): ImageData {
+  const c = document.createElement("canvas");
+  c.width = c.height = TILE;
+  const g = c.getContext("2d")!;
+  hatch(ICING_BANDS[i], g);
+  return g.getImageData(0, 0, TILE, TILE);
+}
+
+/** A legend swatch: the hatching as it looks in band i (all lower bands' lines too). */
+export function icingSwatch(i: number): string {
+  if (typeof document === "undefined") return "";
+  const c = document.createElement("canvas");
+  c.width = c.height = TILE;
+  const g = c.getContext("2d")!;
+  g.fillStyle = "#1c1f24";
+  g.fillRect(0, 0, TILE, TILE);
+  for (let k = 0; k <= i; k++) hatch(ICING_BANDS[k], g);
+  return c.toDataURL();
 }
 
 export function decodeIcing(b64: string): Uint8Array {
@@ -55,73 +74,81 @@ export function decodeIcing(b64: string): Uint8Array {
   return out;
 }
 
-const MAX_LAT = 85.0511;
 const UNKNOWN = 255;
+const UP = 3; // grid refinement before outlining, for smooth edges
 
 /**
- * The picture: Mercator, longitudes −180..180. Smooth between four known
- * neighbours; next to unknown cells (under the ground, missing data) the
- * nearest cell is used as is, so no colour is made up across a gap.
+ * Outlines of the bands as map shapes. The one-degree scores are refined
+ * (bilinear, three times finer) and outlined at each band's lowest score.
+ * Where any neighbour is unknown the refined value is 0: no shape is ever
+ * drawn into a gap in the data.
  */
-export function icingImage(v: Uint8Array, nx: number, ny: number, size = 768): HTMLCanvasElement {
-  const c = document.createElement("canvas");
-  c.width = c.height = size;
-  const g = c.getContext("2d")!;
-  const img = g.createImageData(size, size);
-  const at = (row: number, col: number) => v[Math.min(ny - 1, Math.max(0, row)) * nx + (((col % nx) + nx) % nx)];
-  for (let y = 0; y < size; y++) {
-    const my = Math.PI * (1 - (2 * (y + 0.5)) / size);
-    const lat = (Math.atan(Math.sinh(my)) * 180) / Math.PI;
-    const fr = 90 - lat;
-    const r0 = Math.floor(fr);
+export function icingShapes(v: Uint8Array, nx: number, ny: number): GeoJSON.FeatureCollection {
+  // Columns from 180°W, plus the first again at the end (no seam at the date line).
+  const at = (r: number, c: number) => v[r * nx + ((c + nx / 2) % nx)];
+  const W = nx * UP + 1;
+  const H = (ny - 1) * UP + 1;
+  const g = new Float64Array(W * H);
+  for (let y = 0; y < H; y++) {
+    const fr = y / UP;
+    const r0 = Math.min(ny - 2, Math.floor(fr));
     const rt = fr - r0;
-    for (let x = 0; x < size; x++) {
-      const lon = -180 + ((x + 0.5) / size) * 360;
-      const fc = (lon + 360) % 360;
-      const c0 = Math.floor(fc);
+    for (let x = 0; x < W; x++) {
+      const fc = x / UP;
+      const c0 = Math.min(nx - 1, Math.floor(fc));
       const ct = fc - c0;
       const a = at(r0, c0);
       const b = at(r0, c0 + 1);
       const d = at(r0 + 1, c0);
       const e = at(r0 + 1, c0 + 1);
-      let s: number;
-      if (a !== UNKNOWN && b !== UNKNOWN && d !== UNKNOWN && e !== UNKNOWN) s = (a * (1 - ct) + b * ct) * (1 - rt) + (d * (1 - ct) + e * ct) * rt;
-      else {
-        s = rt < 0.5 ? (ct < 0.5 ? a : b) : ct < 0.5 ? d : e;
-        if (s === UNKNOWN) continue;
-      }
-      const [r, gg, bb, al] = icingColor(s);
-      if (al <= 0) continue;
-      const i = (y * size + x) * 4;
-      img.data[i] = r;
-      img.data[i + 1] = gg;
-      img.data[i + 2] = bb;
-      img.data[i + 3] = al;
+      g[y * W + x] = a === UNKNOWN || b === UNKNOWN || d === UNKNOWN || e === UNKNOWN ? 0 : (a * (1 - ct) + b * ct) * (1 - rt) + (d * (1 - ct) + e * ct) * rt;
     }
   }
-  g.putImageData(img, 0, 0);
-  return c;
+  const multi = contours()
+    .size([W, H])
+    .thresholds(ICING_BANDS.map((b) => b.min))(Array.from(g));
+  const lonlat = ([x, y]: number[]): [number, number] => [-180 + (x - 0.5) / UP, Math.max(-85, Math.min(85, 90 - (y - 0.5) / UP))];
+  return {
+    type: "FeatureCollection",
+    features: multi
+      .filter((m) => m.coordinates.length)
+      .map((m) => ({
+        type: "Feature",
+        properties: { band: ICING_BANDS.findIndex((b) => b.min === m.value) },
+        geometry: { type: "MultiPolygon", coordinates: m.coordinates.map((poly) => poly.map((ring) => ring.map(lonlat))) },
+      })),
+  };
 }
 
-const COORDS: [[number, number], [number, number], [number, number], [number, number]] = [
-  [-180, MAX_LAT],
-  [180, MAX_LAT],
-  [180, -MAX_LAT],
-  [-180, -MAX_LAT],
-];
+const LAYERS = ICING_BANDS.map((_, i) => `fd-icing-${i}`);
 
-export function setIcingCanvas(map: maplibregl.Map, canvas: HTMLCanvasElement) {
-  if (map.getLayer("fd-icing")) map.removeLayer("fd-icing");
-  if (map.getSource("fd-icing")) map.removeSource("fd-icing");
-  map.addSource("fd-icing", { type: "canvas", canvas, coordinates: COORDS, animate: false });
+export function setIcingShapes(map: maplibregl.Map, fc: GeoJSON.FeatureCollection) {
+  const src = map.getSource("fd-icing") as GeoJSONSource | undefined;
+  if (src) {
+    src.setData(fc);
+    return;
+  }
+  ICING_BANDS.forEach((_, i) => {
+    if (!map.hasImage(`icing-hatch-${i}`)) map.addImage(`icing-hatch-${i}`, patternImage(i), { pixelRatio: 2 });
+  });
+  map.addSource("fd-icing", { type: "geojson", data: fc, tolerance: 0.6 });
+  const before = map.getLayer("routes-line") ? "routes-line" : undefined;
+  ICING_BANDS.forEach((b, i) => {
+    map.addLayer({ id: LAYERS[i], type: "fill", source: "fd-icing", filter: ["==", ["get", "band"], i], paint: { "fill-pattern": `icing-hatch-${i}`, "fill-antialias": false } }, before);
+  });
   map.addLayer(
-    { id: "fd-icing", type: "raster", source: "fd-icing", paint: { "raster-opacity": 1, "raster-resampling": "linear", "raster-fade-duration": 0 } },
-    map.getLayer("routes-line") ? "routes-line" : undefined,
+    {
+      id: "fd-icing-edge",
+      type: "line",
+      source: "fd-icing",
+      paint: { "line-color": ["match", ["get", "band"], ...ICING_BANDS.flatMap((b, i) => [i, b.color]), "#a9d8ff"] as unknown as maplibregl.ExpressionSpecification, "line-width": 1, "line-opacity": 0.75 },
+    },
+    before,
   );
 }
 
 export function showIcing(map: maplibregl.Map, on: boolean) {
-  if (map.getLayer("fd-icing")) map.setLayoutProperty("fd-icing", "visibility", on ? "visible" : "none");
+  for (const id of [...LAYERS, "fd-icing-edge"]) if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", on ? "visible" : "none");
 }
 
 /** Flight level nearest an altitude, from those offered. */
