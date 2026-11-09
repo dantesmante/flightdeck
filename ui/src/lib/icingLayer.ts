@@ -18,21 +18,27 @@ export const ICING_FLS = [50, 100, 150, 180, 200, 250, 300, 350, 400];
  * hatching builds up: one set of lines where icing is light, a dense
  * cross-hatch where it is high.
  */
-export const ICING_BANDS: { min: number; label: string; color: string; angle: 45 | -45; offset: number; width: number }[] = [
-  { min: 6, label: "6–20", color: "#a9d8ff", angle: 45, offset: 0, width: 1.6 },
-  { min: 21, label: "21–40", color: "#6fa6ff", angle: -45, offset: 0, width: 1.6 },
-  { min: 41, label: "41–60", color: "#9a7dff", angle: 45, offset: 0.5, width: 1.8 },
-  { min: 61, label: "61–80", color: "#8a3cf0", angle: -45, offset: 0.5, width: 2 },
-  { min: 81, label: "81–100", color: "#6a12c8", angle: 45, offset: 0.25, width: 2.6 },
+export const ICING_BANDS: { min: number; label: string; color: string; rgb: string; angle: 45 | -45; offset: number }[] = [
+  { min: 6, label: "6–20", color: "#a9d8ff", rgb: "169,216,255", angle: 45, offset: 0 },
+  { min: 21, label: "21–40", color: "#7aaeff", rgb: "122,174,255", angle: -45, offset: 0 },
+  { min: 41, label: "41–60", color: "#a088ff", rgb: "160,136,255", angle: 45, offset: 0.5 },
+  { min: 61, label: "61–80", color: "#9a4dff", rgb: "154,77,255", angle: -45, offset: 0.5 },
+  { min: 81, label: "81–100", color: "#7a1fe0", rgb: "122,31,224", angle: 45, offset: 0.25 },
 ];
 
-const TILE = 24; // pattern tile, device pixels (12 CSS px at pixel ratio 2)
+/**
+ * Pattern tile in device pixels (6 CSS px at pixel ratio 2): fine lines
+ * one device pixel wide over a faint tint of the band's colour, so a band
+ * reads as a light solid with a hatch in it. The bands nest, so tints and
+ * lines build up towards the middle of an icing area.
+ */
+const TILE = 12;
 
-/** One band's hatching as a seamless tile. */
 function hatch(b: (typeof ICING_BANDS)[number], ctx: CanvasRenderingContext2D) {
-  ctx.strokeStyle = b.color;
-  ctx.lineWidth = b.width * 2;
-  ctx.lineCap = "square";
+  ctx.fillStyle = `rgba(${b.rgb},0.11)`;
+  ctx.fillRect(0, 0, TILE, TILE);
+  ctx.strokeStyle = `rgba(${b.rgb},0.85)`;
+  ctx.lineWidth = 1;
   const o = b.offset * TILE;
   for (const k of [-1, 0, 1]) {
     ctx.beginPath();
@@ -47,23 +53,30 @@ function hatch(b: (typeof ICING_BANDS)[number], ctx: CanvasRenderingContext2D) {
   }
 }
 
-function patternImage(i: number): ImageData {
+function tile(i: number): HTMLCanvasElement {
   const c = document.createElement("canvas");
   c.width = c.height = TILE;
-  const g = c.getContext("2d")!;
-  hatch(ICING_BANDS[i], g);
-  return g.getImageData(0, 0, TILE, TILE);
+  hatch(ICING_BANDS[i], c.getContext("2d")!);
+  return c;
 }
 
-/** A legend swatch: the hatching as it looks in band i (all lower bands' lines too). */
+function patternImage(i: number): ImageData {
+  return tile(i).getContext("2d")!.getImageData(0, 0, TILE, TILE);
+}
+
+/** A legend swatch: band i as it looks on the map (the lower bands under it). */
 export function icingSwatch(i: number): string {
   if (typeof document === "undefined") return "";
+  const S = 36;
   const c = document.createElement("canvas");
-  c.width = c.height = TILE;
+  c.width = c.height = S;
   const g = c.getContext("2d")!;
   g.fillStyle = "#1c1f24";
-  g.fillRect(0, 0, TILE, TILE);
-  for (let k = 0; k <= i; k++) hatch(ICING_BANDS[k], g);
+  g.fillRect(0, 0, S, S);
+  for (let k = 0; k <= i; k++) {
+    g.fillStyle = g.createPattern(tile(k), "repeat")!;
+    g.fillRect(0, 0, S, S);
+  }
   return c.toDataURL();
 }
 
@@ -141,7 +154,7 @@ export function setIcingShapes(map: maplibregl.Map, fc: GeoJSON.FeatureCollectio
       id: "fd-icing-edge",
       type: "line",
       source: "fd-icing",
-      paint: { "line-color": ["match", ["get", "band"], ...ICING_BANDS.flatMap((b, i) => [i, b.color]), "#a9d8ff"] as unknown as maplibregl.ExpressionSpecification, "line-width": 1, "line-opacity": 0.75 },
+      paint: { "line-color": ["match", ["get", "band"], ...ICING_BANDS.flatMap((b, i) => [i, b.color]), "#a9d8ff"] as unknown as maplibregl.ExpressionSpecification, "line-width": 0.8, "line-opacity": 0.6 },
     },
     before,
   );
