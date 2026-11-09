@@ -158,6 +158,23 @@ impl SimConnector for SimConnectConnector {
         self.sim
     }
 
+    fn request_navaids(&mut self, world: bool) -> bool {
+        let types = [ffi::FACILITY_LIST_VOR, ffi::FACILITY_LIST_NDB, ffi::FACILITY_LIST_WAYPOINT];
+        let mut any = false;
+        for (k, t) in types.into_iter().enumerate() {
+            let hr = if world {
+                self.api.request_all_facilities(self.handle, t, parse::NAV_WORLD + k as u32)
+            } else {
+                self.api.request_facilities_list(self.handle, t, parse::NAV_NEAR + k as u32)
+            };
+            if let Some(hr) = hr {
+                self.note(&format!("nav aid list {k} ({})", if world { "world" } else { "nearby" }));
+                any |= hr == ffi::S_OK;
+            }
+        }
+        any
+    }
+
     fn poll(&mut self) -> Result<Vec<SimMessage>, ConnectorError> {
         let mut out = Vec::new();
         for _ in 0..MAX_PER_POLL {
@@ -203,6 +220,7 @@ impl SimConnector for SimConnectConnector {
                     let what = self.sent.get(&send_id).map(String::as_str).unwrap_or("an unknown request");
                     log::warn!("MSFS rejected {what}: SimConnect exception {code} (parameter {index})");
                 }
+                Parsed::NavAids(b) => out.push(SimMessage::NavAids(b)),
                 Parsed::Other => {}
             }
         }

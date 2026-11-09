@@ -842,6 +842,33 @@ export interface WindGrid {
   v: string;
   error: string | null;
 }
+export interface TempGrid {
+  run_ms: number;
+  valid_ms: number;
+  nx: number;
+  ny: number;
+  /** Tenths of °C, little-endian Int16, base64; rows from 90°N, columns from 0°E. */
+  t: string;
+  error: string | null;
+}
+/** A VOR, NDB or waypoint from the sim's navigation database. */
+export interface NavAid {
+  kind: "vor" | "ndb" | "waypoint";
+  ident: string;
+  region: string;
+  lat: number;
+  lon: number;
+  freq_hz: number | null;
+  dme: boolean;
+  dme_only: boolean;
+}
+export interface NavView {
+  items: NavAid[];
+  more: boolean;
+  /** Known in all, and when the whole world was last read from the sim (0 never). */
+  known: number;
+  world_ms: number;
+}
 export interface WxAdvisoryProps {
   kind: "SIGMET" | "AIRMET" | "CONVECTIVE";
   group: "TS" | "TURB" | "ICE" | "IFR" | "VA" | "TC" | "OTHER";
@@ -965,6 +992,9 @@ export const api = {
   remoteForget: () => call<RemoteInfo>("remote_forget"),
   wxCategories: () => call<WxCategories>("wx_categories"),
   windGrid: (level: string) => call<WindGrid>("wind_grid", { level }),
+  temperatureGrid: () => call<TempGrid>("temperature_grid"),
+  navaids: (w: number, s: number, e: number, n: number, waypoints: boolean) => call<NavView>("navaids", { w, s, e, n, waypoints }),
+  navaidsRefresh: () => call<void>("navaids_refresh"),
   /** US Class B, C and D airspace, GeoJSON text (FAA, 28-day cycle). */
   usAirspace: () => call<string>("us_airspace"),
   /** US obstacles (towers, antennas, turbines), GeoJSON text (FAA DOF). */

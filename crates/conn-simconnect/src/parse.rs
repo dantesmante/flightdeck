@@ -3,7 +3,7 @@
 //! Layouts follow SimConnect.h. Every struct starts with the 12-byte
 //! SIMCONNECT_RECV header {dwSize, dwVersion, dwID}.
 
-use telemetry::{units, AircraftInfo, EngineType, SimKind, Telemetry};
+use telemetry::{units, AircraftInfo, EngineType, NavAid, NavBatch, NavKind, SimKind, Telemetry};
 
 use crate::{EVENT_AIRCRAFT_LOADED, EVENT_CRASHED, EVENT_PAUSE, EVENT_SIM, EVENT_SIM_START, REQ_SIM_STATE};
 
@@ -99,7 +99,73 @@ pub enum Parsed {
     SimRunning(bool),
     Quit,
     Exception { code: u32, send_id: u32, index: u32 },
+    NavAids(NavBatch),
     Other,
+}
+
+/// Request ids for facility lists: `NAV_WORLD` + kind for the whole world,
+/// `NAV_NEAR` + kind for those around the aircraft (kind 0 VOR, 1 NDB, 2
+/// waypoint).
+pub const NAV_WORLD: u32 = 60;
+pub const NAV_NEAR: u32 = 70;
+pub const NAV_KINDS: [NavKind; 3] = [NavKind::Vor, NavKind::Ndb, NavKind::Waypoint];
+
+/// SIMCONNECT_RECV_FACILITIES_LIST: header + request id, array size, entry
+/// number, out of; then the entries.
+const LIST_OFFSET: usize = HEADER + 4 * 4;
+
+/// Bytes after the ident in each entry (pack 1): region[3], lat, lon, alt;
+/// waypoints add magvar (f32); NDBs a frequency (u32); VORs flags (u32),
+/// localizer course (f32), glide slope lat/lon/alt and angle (f32).
+fn tail_len(kind: NavKind) -> usize {
+    match kind {
+        NavKind::Waypoint => 3 + 24 + 4,
+        NavKind::Ndb => 3 + 24 + 4 + 4,
+        NavKind::Vor => 3 + 24 + 4 + 4 + 4 + 4 + 24 + 4,
+    }
+}
+
+/// A VOR, NDB or waypoint list. The ident is 6 bytes long in MSFS 2020's
+/// layout and 9 in MSFS 2024's, so the entry size tells which.
+fn parse_facilities(b: &[u8], kind: NavKind, world: bool) -> Option<NavBatch> {
+    let n = u32_at(b, HEADER + 4)? as usize;
+    let entry = u32_at(b, HEADER + 8)?;
+    let out_of = u32_at(b, HEADER + 12)?;
+    let last = entry + 1 >= out_of;
+    if n == 0 {
+        return Some(NavBatch { kind, items: Vec::new(), last, world });
+    }
+    let stride = (b.len().checked_sub(LIST_OFFSET)?) / n;
+    let il = stride.checked_sub(tail_len(kind))?;
+    if !(4..=12).contains(&il) {
+        return None;
+    }
+    let mut items = Vec::with_capacity(n);
+    for i in 0..n {
+        let o = LIST_OFFSET + i * stride;
+        let ident = str_at(b, o, il)?;
+        let region = str_at(b, o + il, 3)?;
+        let lat = f64_at(b, o + il + 3)?;
+        let lon = f64_at(b, o + il + 11)?;
+        if ident.is_empty() || !lat.is_finite() || !lon.is_finite() || lat.abs() > 90.0 || lon.abs() > 180.0 {
+            continue;
+        }
+        let (mut freq_hz, mut dme, mut dme_only) = (None, false, false);
+        if kind != NavKind::Waypoint {
+            freq_hz = u32_at(b, o + il + 31).filter(|&f| f > 0);
+        }
+        if kind == NavKind::Vor {
+            let flags = u32_at(b, o + il + 35).unwrap_or(0);
+            // ILS localizers come in the VOR list too: not VORs.
+            if flags & 0x2 != 0 {
+                continue;
+            }
+            dme = flags & 0x8 != 0;
+            dme_only = dme && flags & 0x1 == 0;
+        }
+        items.push(NavAid { kind, ident, region, lat, lon, freq_hz, dme, dme_only });
+    }
+    Some(NavBatch { kind, items, last, world })
 }
 
 /// What the parser remembers between messages.
@@ -224,6 +290,17 @@ pub fn parse(b: &[u8], st: &mut State, now_ms: i64) -> Parsed {
                 _ => Parsed::Other,
             }
         }
+        crate::ffi::RECV_ID_VOR_LIST | crate::ffi::RECV_ID_NDB_LIST | crate::ffi::RECV_ID_WAYPOINT_LIST => {
+            let req = u32_at(b, HEADER).unwrap_or(0);
+            let (world, k) = if (NAV_WORLD..NAV_WORLD + 3).contains(&req) {
+                (true, req - NAV_WORLD)
+            } else if (NAV_NEAR..NAV_NEAR + 3).contains(&req) {
+                (false, req - NAV_NEAR)
+            } else {
+                return Parsed::Other;
+            };
+            parse_facilities(b, NAV_KINDS[k as usize], world).map_or(Parsed::Other, Parsed::NavAids)
+        }
         crate::ffi::RECV_ID_SIMOBJECT_DATA => {
             let req = u32_at(b, HEADER).unwrap_or(0);
             match req {
@@ -344,6 +421,65 @@ fn parse_aircraft_field(b: &[u8], st: &mut State, index: usize) -> Option<Aircra
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A facilities list message with entries laid out with an ident of `il` bytes.
+    fn list_msg(id: u32, req: u32, il: usize, kind: NavKind, entries: &[(&str, &str, f64, f64, u32, u32)], entry: u32, out_of: u32) -> Vec<u8> {
+        let stride = il + tail_len(kind);
+        let mut b = header(id, LIST_OFFSET + stride * entries.len());
+        b[HEADER..HEADER + 4].copy_from_slice(&req.to_le_bytes());
+        b[HEADER + 4..HEADER + 8].copy_from_slice(&(entries.len() as u32).to_le_bytes());
+        b[HEADER + 8..HEADER + 12].copy_from_slice(&entry.to_le_bytes());
+        b[HEADER + 12..HEADER + 16].copy_from_slice(&out_of.to_le_bytes());
+        for (i, (ident, region, lat, lon, freq, flags)) in entries.iter().enumerate() {
+            let o = LIST_OFFSET + i * stride;
+            b[o..o + ident.len()].copy_from_slice(ident.as_bytes());
+            b[o + il..o + il + region.len()].copy_from_slice(region.as_bytes());
+            b[o + il + 3..o + il + 11].copy_from_slice(&lat.to_le_bytes());
+            b[o + il + 11..o + il + 19].copy_from_slice(&lon.to_le_bytes());
+            if kind != NavKind::Waypoint {
+                b[o + il + 31..o + il + 35].copy_from_slice(&freq.to_le_bytes());
+            }
+            if kind == NavKind::Vor {
+                b[o + il + 35..o + il + 39].copy_from_slice(&flags.to_le_bytes());
+            }
+        }
+        b
+    }
+
+    #[test]
+    fn vor_lists_in_both_layouts() {
+        let mut st = State::default();
+        for il in [6, 9] {
+            let m = list_msg(
+                crate::ffi::RECV_ID_VOR_LIST,
+                NAV_WORLD,
+                il,
+                NavKind::Vor,
+                &[("SEA", "K1", 47.435, -122.31, 116_800_000, 0x9), ("ISEA", "K1", 47.43, -122.3, 110_300_000, 0x7)],
+                0,
+                2,
+            );
+            let Parsed::NavAids(batch) = parse(&m, &mut st, 0) else { panic!("not a nav list") };
+            assert!(batch.world && !batch.last);
+            assert_eq!(batch.items.len(), 1, "the localizer is left out");
+            let v = &batch.items[0];
+            assert_eq!((v.ident.as_str(), v.region.as_str(), v.freq_hz, v.dme), ("SEA", "K1", Some(116_800_000), true));
+            assert!((v.lat - 47.435).abs() < 1e-9 && (v.lon + 122.31).abs() < 1e-9);
+        }
+    }
+
+    #[test]
+    fn ndb_and_waypoint_lists() {
+        let mut st = State::default();
+        let m = list_msg(crate::ffi::RECV_ID_NDB_LIST, NAV_NEAR + 1, 9, NavKind::Ndb, &[("OS", "K1", 47.0, -122.0, 350_000, 0)], 1, 2);
+        let Parsed::NavAids(b) = parse(&m, &mut st, 0) else { panic!() };
+        assert!(!b.world && b.last && b.kind == NavKind::Ndb && b.items[0].freq_hz == Some(350_000));
+        let m = list_msg(crate::ffi::RECV_ID_WAYPOINT_LIST, NAV_WORLD + 2, 6, NavKind::Waypoint, &[("HAMUR", "K1", 46.0, -121.0, 0, 0), ("", "K1", 1.0, 1.0, 0, 0)], 0, 1);
+        let Parsed::NavAids(b) = parse(&m, &mut st, 0) else { panic!() };
+        assert_eq!(b.items.len(), 1);
+        assert_eq!(b.items[0].ident, "HAMUR");
+        assert_eq!(b.items[0].freq_hz, None);
+    }
 
     fn header(id: u32, size: usize) -> Vec<u8> {
         let mut b = vec![0u8; size];

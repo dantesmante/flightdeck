@@ -12,6 +12,7 @@ mod obstacles;
 mod pln;
 mod backup;
 mod screenshots;
+mod navaids;
 mod winds;
 mod wx;
 mod remote;
@@ -40,6 +41,7 @@ pub(crate) struct AppState {
     tx: Mutex<Sender<Command>>,
     data_dir: std::path::PathBuf,
     photos: Arc<photos::Cache>,
+    nav: navaids::Shared,
 }
 
 type CmdResult<T> = Result<T, String>;
@@ -349,6 +351,30 @@ async fn us_airspace(state: tauri::State<'_, AppState>) -> CmdResult<String> {
 }
 
 /// Forecast wind at one level ("sfc", "850" ... "200"), for the wind layer.
+/// Nav aids (from the sim's own database) in a box, for the map layer:
+/// VORs and NDBs, and waypoints when `waypoints`. Asking means the layer is
+/// on, so FlightDeck asks the sim for them while it is connected.
+#[tauri::command]
+fn navaids(state: tauri::State<AppState>, w: f64, s: f64, e: f64, n: f64, waypoints: bool) -> navaids::NavView {
+    let mut db = state.nav.lock().unwrap();
+    db.wanted = true;
+    let (items, more) = db.query(w, s, e, n, waypoints, 3000);
+    navaids::NavView { items, more, known: db.len(), world_ms: db.world_ms }
+}
+
+/// Ask the sim for the whole world's nav aids again (new navdata).
+#[tauri::command]
+fn navaids_refresh(state: tauri::State<AppState>) {
+    let mut db = state.nav.lock().unwrap();
+    db.wanted = true;
+    db.refresh = true;
+}
+
+#[tauri::command]
+async fn temperature_grid() -> CmdResult<winds::TempGrid> {
+    tauri::async_runtime::spawn_blocking(winds::temperature).await.map_err(err)
+}
+
 #[tauri::command]
 async fn wind_grid(level: String) -> CmdResult<winds::WindGrid> {
     tauri::async_runtime::spawn_blocking(move || winds::wind(&level)).await.map_err(err)
@@ -1502,6 +1528,12 @@ pub(crate) async fn dispatch(app: &tauri::AppHandle, cmd: &str, a: serde_json::V
         "online_network" => ok(to_value(online_network(arg(&a, "net")?).await?)),
         "wx_categories" => ok(to_value(wx_categories().await?)),
         "wind_grid" => ok(to_value(wind_grid(arg(&a, "level")?).await?)),
+        "temperature_grid" => ok(to_value(temperature_grid().await?)),
+        "navaids" => ok(to_value(navaids(st(), arg(&a, "w")?, arg(&a, "s")?, arg(&a, "e")?, arg(&a, "n")?, arg(&a, "waypoints")?))),
+        "navaids_refresh" => ok({
+            navaids_refresh(st());
+            to_value(())
+        }),
         "us_airspace" => ok(to_value(us_airspace(st()).await?)),
         "pfd_watch" => ok(to_value(pfd_watch(st())?)),
         "us_obstacles" => ok(to_value(us_obstacles(st()).await?)),
@@ -1605,9 +1637,14 @@ pub fn run() {
             let shared: SharedState = Default::default();
             let (tx, rx) = channel();
             let refdata_for_state = refdata.clone();
-            engine::spawn(app.handle().clone(), shared.clone(), db.clone(), refdata, data_dir.clone(), rx);
+            let nav: navaids::Shared = Default::default();
+            {
+                let (nav, dir) = (nav.clone(), data_dir.clone());
+                let _ = std::thread::Builder::new().name("navaids-load".into()).spawn(move || nav.lock().unwrap().load(&dir));
+            }
+            engine::spawn(app.handle().clone(), shared.clone(), db.clone(), refdata, data_dir.clone(), nav.clone(), rx);
             screenshots::spawn(app.handle().clone(), db.clone());
-            app.manage(AppState { db, refdata: refdata_for_state, shared, tx: Mutex::new(tx), data_dir, photos: Default::default() });
+            app.manage(AppState { db, refdata: refdata_for_state, shared, tx: Mutex::new(tx), data_dir, photos: Default::default(), nav });
             app.manage(remote::Remote::default());
             remote::init(app.handle());
             efb::update_if_installed(app.handle());
@@ -1677,6 +1714,9 @@ pub fn run() {
             online_network,
             wx_categories,
             wind_grid,
+            temperature_grid,
+            navaids,
+            navaids_refresh,
             us_airspace,
             pfd_watch,
             us_obstacles,

@@ -24,6 +24,8 @@
   import { pfdState } from "./pfd/store.svelte";
   import { profileState } from "./profile/store.svelte";
   import { taxiState } from "./taxi/store.svelte";
+  import { NAV_MIN_ZOOM, WPT_MIN_ZOOM, setNavData, showNavLayers } from "./navLayer";
+  import { decodeTemps, setTempImage, showTemp, tempImage } from "./tempLayer";
   import TaxiAssist from "./taxi/TaxiAssist.svelte";
   import { altColor, altGradient, altLabel, altRange, lonLat, sideOnBearing, wallFeatures, wallScale, type Pt } from "./track";
 
@@ -376,6 +378,114 @@
     void loaded;
     if (loaded && obstData) (map?.getSource("fd-obst") as GeoJSONSource | undefined)?.setData(obstData);
   });
+
+  // --- Nav aids (from the sim's own navigation data) -------------------------
+  // Only what is in view, fetched after the map stops moving and every 20 s
+  // (data arrives from the sim while connected).
+  let navInfo = $state<{ known: number; world_ms: number; more: boolean; zoom: number } | null>(null);
+  let navTimer: ReturnType<typeof setTimeout> | undefined;
+  function loadNav() {
+    const m = map;
+    if (!m || !untrack(() => layers.has("navaids"))) return;
+    const z = m.getZoom();
+    const b = m.getBounds();
+    let w = b.getWest();
+    let e = b.getEast();
+    if (e - w >= 360) {
+      w = -180;
+      e = 180;
+    }
+    const wrap = (x: number) => ((((x + 180) % 360) + 360) % 360) - 180;
+    const pad = (b.getNorth() - b.getSouth()) * 0.1;
+    if (z < NAV_MIN_ZOOM) {
+      setNavData(m, []);
+      api.navaids(0, 0, 0, 0, false).then((v) => (navInfo = { known: v.known, world_ms: v.world_ms, more: false, zoom: z }), () => {});
+      return;
+    }
+    api
+      .navaids(e - w >= 360 ? -180 : wrap(w), Math.max(-90, b.getSouth() - pad), e - w >= 360 ? 180 : wrap(e), Math.min(90, b.getNorth() + pad), z >= WPT_MIN_ZOOM)
+      .then((v) => {
+        if (map !== m || !untrack(() => layers.has("navaids"))) return;
+        setNavData(m, v.items);
+        navInfo = { known: v.known, world_ms: v.world_ms, more: v.more, zoom: z };
+      }, () => {});
+  }
+  $effect(() => {
+    const on = layers.has("navaids") && !bare;
+    if (!loaded || !map) return;
+    const m = map;
+    showNavLayers(m, on);
+    if (!on) return;
+    const onMove = () => {
+      clearTimeout(navTimer);
+      navTimer = setTimeout(loadNav, 250);
+    };
+    m.on("moveend", onMove);
+    untrack(loadNav);
+    const t = setInterval(loadNav, 20_000);
+    return () => {
+      m.off("moveend", onMove);
+      clearInterval(t);
+      clearTimeout(navTimer);
+    };
+  });
+  const navNote = $derived.by(() => {
+    if (!navInfo) return "Loading…";
+    if (!navInfo.known) return acAltFt != null ? "Reading from MSFS…" : "Needs MSFS the first time";
+    if (navInfo.zoom < NAV_MIN_ZOOM) return "Zoom in to see them";
+    return `${navInfo.known.toLocaleString()} from MSFS${navInfo.zoom < WPT_MIN_ZOOM ? " · waypoints from zoom 8" : ""}`;
+  });
+
+  // --- Temperature (NOAA GFS, 2 m) -------------------------------------------
+  let tempUrl: string | null = null;
+  let tempState = $state<{ s: "idle" | "loading" | "ok" | "error"; valid_ms: number }>({ s: "idle", valid_ms: 0 });
+  $effect(() => {
+    const on = layers.has("temp") && !bare;
+    if (!loaded || !map) return;
+    const m = map;
+    if (on && tempUrl && !m.getSource("fd-temp")) setTempImage(m, tempUrl);
+    showTemp(m, on);
+    if (!on) return;
+    let stop = false;
+    const load = () => {
+      untrack(() => {
+        if (tempState.s !== "ok") tempState = { s: "loading", valid_ms: tempState.valid_ms };
+      });
+      api.temperatureGrid().then(
+        (g) => {
+          if (stop || map !== m) return;
+          if (g.error || !g.t) {
+            tempState = { s: "error", valid_ms: 0 };
+            return;
+          }
+          if (g.valid_ms === untrack(() => tempState.valid_ms) && tempUrl) {
+            tempState = { s: "ok", valid_ms: g.valid_ms };
+            return;
+          }
+          tempUrl = tempImage(decodeTemps(g.t), g.nx, g.ny).toDataURL();
+          setTempImage(m, tempUrl);
+          showTemp(m, true);
+          tempState = { s: "ok", valid_ms: g.valid_ms };
+        },
+        () => !stop && (tempState = { s: "error", valid_ms: 0 }),
+      );
+    };
+    load();
+    const t = setInterval(load, 30 * 60_000);
+    return () => {
+      stop = true;
+      clearInterval(t);
+    };
+  });
+  const tempNote = $derived(
+    tempState.s === "loading"
+      ? "Loading from NOAA…"
+      : tempState.s === "error"
+        ? "NOAA not reachable"
+        : tempState.valid_ms
+          ? `Forecast for ${new Date(tempState.valid_ms).toISOString().slice(11, 13)}00Z`
+          : "",
+  );
 
   // Leaving the Map tab (or opening Photos): tools and cards put away.
   $effect(() => {
@@ -2410,6 +2520,9 @@
   }}
   taxiOpen={taxiState.open}
   ontaxi={() => (taxiState.open = !taxiState.open)}
+  {navNote}
+  onnavrefresh={() => api.navaidsRefresh().then(() => setTimeout(loadNav, 3000), () => {})}
+  {tempNote}
   profileOpen={profileState.open}
   onprofile={planner ? () => (profileState.open = !profileState.open) : undefined}
   pfdOpen={pfdState.open}

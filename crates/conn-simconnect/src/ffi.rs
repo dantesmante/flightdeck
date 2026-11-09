@@ -21,6 +21,14 @@ pub const RECV_ID_QUIT: u32 = 3;
 pub const RECV_ID_EVENT: u32 = 4;
 pub const RECV_ID_SIMOBJECT_DATA: u32 = 8;
 pub const RECV_ID_SYSTEM_STATE: u32 = 15;
+pub const RECV_ID_VOR_LIST: u32 = 19;
+pub const RECV_ID_NDB_LIST: u32 = 20;
+pub const RECV_ID_WAYPOINT_LIST: u32 = 21;
+
+// SIMCONNECT_FACILITY_LIST_TYPE
+pub const FACILITY_LIST_WAYPOINT: u32 = 1;
+pub const FACILITY_LIST_NDB: u32 = 2;
+pub const FACILITY_LIST_VOR: u32 = 3;
 
 // SIMCONNECT_DATATYPE
 pub const DATATYPE_FLOAT64: u32 = 4;
@@ -46,6 +54,9 @@ type SubscribeToSystemEventFn = unsafe extern "system" fn(Handle, u32, *const c_
 type RequestSystemStateFn = unsafe extern "system" fn(Handle, u32, *const c_char) -> HResult;
 type GetLastSentPacketIdFn = unsafe extern "system" fn(Handle, *mut u32) -> HResult;
 type GetNextDispatchFn = unsafe extern "system" fn(Handle, *mut *mut u8, *mut u32) -> HResult;
+/// SimConnect_RequestFacilitiesList and SimConnect_RequestAllFacilities
+/// (MSFS 2024's SimConnect.dll only): (handle, list type, request id).
+type RequestFacilitiesFn = unsafe extern "system" fn(Handle, u32, u32) -> HResult;
 
 /// The loaded DLL and its function pointers.
 pub struct Api {
@@ -58,6 +69,8 @@ pub struct Api {
     request_system_state: RequestSystemStateFn,
     get_last_sent_packet_id: GetLastSentPacketIdFn,
     get_next_dispatch: GetNextDispatchFn,
+    request_facilities_list: Option<RequestFacilitiesFn>,
+    request_all_facilities: Option<RequestFacilitiesFn>,
 }
 
 // The function pointers are plain C functions; SimConnect handles are used
@@ -113,6 +126,12 @@ impl Api {
         let request_system_state = sym!(lib, b"SimConnect_RequestSystemState\0");
         let get_last_sent_packet_id = sym!(lib, b"SimConnect_GetLastSentPacketID\0");
         let get_next_dispatch = sym!(lib, b"SimConnect_GetNextDispatch\0");
+        // Optional: older SimConnect.dll files lack them.
+        // SAFETY: the symbol types match the SimConnect.h declarations above.
+        let opt = |name: &[u8]| -> Option<RequestFacilitiesFn> { unsafe { lib.get::<RequestFacilitiesFn>(name).ok().map(|s| *s) } };
+        let request_facilities_list = opt(b"SimConnect_RequestFacilitiesList\0");
+        // The SDK spells it both ways.
+        let request_all_facilities = opt(b"SimConnect_RequestAllFacilities\0").or_else(|| opt(b"SimConnect_RequestAllFacilites\0"));
         Ok(Api {
             _lib: lib,
             open,
@@ -123,6 +142,8 @@ impl Api {
             request_system_state,
             get_last_sent_packet_id,
             get_next_dispatch,
+            request_facilities_list,
+            request_all_facilities,
         })
     }
 
@@ -172,6 +193,19 @@ impl Api {
         let state = CString::new(state).unwrap();
         // SAFETY: valid NUL-terminated state name.
         unsafe { (self.request_system_state)(h, req, state.as_ptr()) }
+    }
+
+    /// Every VOR, NDB or waypoint in the world (MSFS 2024), or None when
+    /// this SimConnect.dll cannot.
+    pub fn request_all_facilities(&self, h: Handle, list_type: u32, req: u32) -> Option<HResult> {
+        // SAFETY: plain integer arguments.
+        self.request_all_facilities.map(|f| unsafe { f(h, list_type, req) })
+    }
+
+    /// Those in the sim's cache around the aircraft.
+    pub fn request_facilities_list(&self, h: Handle, list_type: u32, req: u32) -> Option<HResult> {
+        // SAFETY: plain integer arguments.
+        self.request_facilities_list.map(|f| unsafe { f(h, list_type, req) })
     }
 
     /// ID of the last request sent, used to match exceptions to requests.

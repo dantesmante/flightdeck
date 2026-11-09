@@ -588,11 +588,11 @@ const VIEW: &[&str] = &[
     "get_status", "list_flights", "get_totals", "get_flight", "current_briefing", "demo_routes", "get_settings",
     "get_pilot", "get_logbook", "find_duplicates", "aircraft_with_registration", "get_passport", "get_hangar",
     "get_routes", "spotter_photo", "aircraft_flights", "get_aircraft_photo", "app_version", "simbrief_latest",
-    "search_airports", "get_pilot_profile", "airport_at", "map_airports", "airport_card", "runway_ends", "divert_options", "flight_screenshots", "screenshots_since", "photos", "airport_weather", "online_network", "online_pilot", "wx_categories", "wx_advisories", "wind_grid", "us_airspace", "pln_text", "pfd_watch", "us_obstacles",
+    "search_airports", "get_pilot_profile", "airport_at", "map_airports", "airport_card", "runway_ends", "divert_options", "flight_screenshots", "screenshots_since", "photos", "airport_weather", "online_network", "online_pilot", "wx_categories", "wx_advisories", "wind_grid", "temperature_grid", "navaids", "us_airspace", "pln_text", "pfd_watch", "us_obstacles",
 ];
 /// Commands that change something: only when editing is allowed.
 const EDIT: &[&str] = &[
-    "delete_flight", "start_demo", "stop_demo", "end_flight", "cancel_flight", "start_flight", "set_plan", "divert", "set_landing_runway", "set_setting",
+    "delete_flight", "start_demo", "stop_demo", "end_flight", "cancel_flight", "start_flight", "set_plan", "divert", "set_landing_runway", "navaids_refresh", "set_setting",
     "set_pilot", "update_log_entry", "update_flight", "add_manual_entry", "update_aircraft", "add_aircraft",
     "delete_aircraft", "delete_flights", "set_aircraft_favorite", "set_aircraft_photo", "import_volanta",
     "import_elevatex", "preview_import", "add_sample_flights", "remove_sample_flights", "set_banner", "set_pilot_photo",

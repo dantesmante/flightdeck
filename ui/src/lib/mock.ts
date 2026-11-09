@@ -455,6 +455,48 @@ export async function mockCall<T>(cmd: string, _args?: Record<string, unknown>):
       winds: AIRPORTS.map((a, i) => [a.icao, a.lon, a.lat, i % 7 === 3 ? -1 : (i * 47) % 360, [0, 4, 9, 14, 19, 27, 36][i % 7], i % 3 === 0 ? 25 : 0]),
     } as T;
   }
+  if (cmd === "temperature_grid") {
+    // Warm tropics, cold poles, colder over a few made-up mountain spots.
+    const t = new Int16Array(360 * 181);
+    for (let r = 0; r < 181; r++) {
+      const lat = 90 - r;
+      for (let c = 0; c < 360; c++) {
+        const base = 30 - 0.0085 * lat * lat - (lat > 0 ? 6 : 0);
+        const wave = 5 * Math.sin((c / 360) * Math.PI * 6) * Math.cos((lat / 90) * Math.PI);
+        t[r * 360 + c] = Math.round((base + wave) * 10);
+      }
+    }
+    const bytes = new Uint8Array(t.buffer);
+    let s = "";
+    for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+    const now = Date.now();
+    return { run_ms: now - 6 * 3_600_000, valid_ms: now, nx: 360, ny: 181, t: btoa(s), error: null } as T;
+  }
+  if (cmd === "navaids") {
+    // A few made-up aids around Portland and Seattle, and a waypoint grid.
+    const a = (_args ?? {}) as { w: number; s: number; e: number; n: number; waypoints: boolean };
+    const all = [
+      { kind: "vor", ident: "BTG", region: "K1", lat: 45.7477, lon: -122.5921, freq_hz: 116_600_000, dme: true, dme_only: false },
+      { kind: "vor", ident: "UBG", region: "K1", lat: 45.3524, lon: -123.0168, freq_hz: 117_000_000, dme: true, dme_only: false },
+      { kind: "vor", ident: "SEA", region: "K1", lat: 47.4353, lon: -122.3098, freq_hz: 116_800_000, dme: true, dme_only: false },
+      { kind: "vor", ident: "LTJ", region: "K1", lat: 45.7135, lon: -121.1006, freq_hz: 113_800_000, dme: false, dme_only: false },
+      { kind: "ndb", ident: "LA", region: "K1", lat: 45.586, lon: -122.735, freq_hz: 332_000, dme: false, dme_only: false },
+      { kind: "ndb", ident: "OS", region: "K1", lat: 45.65, lon: -122.85, freq_hz: 350_000, dme: false, dme_only: false },
+      ...Array.from({ length: 60 }, (_, i) => ({
+        kind: "waypoint",
+        ident: ["HAMUR", "TMBRS", "COUGA", "YKM", "JOTBA", "MIGEL", "ROTRA", "BUFFY", "LAVAA", "SHIPZ"][i % 10] + (i >= 10 ? String.fromCharCode(65 + Math.floor(i / 10)) : ""),
+        region: "K1",
+        lat: 45.2 + (i % 8) * 0.12,
+        lon: -123.2 + Math.floor(i / 8) * 0.17,
+        freq_hz: null,
+        dme: false,
+        dme_only: false,
+      })),
+    ];
+    const items = all.filter((x) => x.lat >= a.s && x.lat <= a.n && x.lon >= a.w && x.lon <= a.e && (a.waypoints || x.kind !== "waypoint"));
+    return { items, more: false, known: all.length, world_ms: Date.now() - 86_400_000 } as T;
+  }
+  if (cmd === "navaids_refresh") return undefined as T;
   if (cmd === "wind_grid") {
     // A made-up world: a westerly jet in each hemisphere and an easterly
     // trade belt, stronger with height, with a wave so it curves.

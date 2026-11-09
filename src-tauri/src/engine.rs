@@ -232,6 +232,14 @@ struct Engine {
     db: Arc<Mutex<Store>>,
     refdata: Arc<refdata::RefData>,
     journal_dir: PathBuf,
+    /// Nav aids from the sim, for the map layer.
+    nav: crate::navaids::Shared,
+    /// Asked the sim for the whole world's nav aids on this connection.
+    nav_asked: bool,
+    /// This SimConnect can only list nav aids around the aircraft: ask now
+    /// and then (when last asked).
+    nav_near: Option<Instant>,
+    nav_saved: Instant,
     watcher: watcher::Watcher,
     conn: Option<Box<dyn SimConnector>>,
     demo: bool,
@@ -312,6 +320,7 @@ pub fn spawn(
     db: Arc<Mutex<Store>>,
     refdata: Arc<refdata::RefData>,
     journal_dir: PathBuf,
+    nav: crate::navaids::Shared,
     rx: Receiver<Command>,
 ) {
     std::thread::Builder::new()
@@ -323,6 +332,10 @@ pub fn spawn(
                 db,
                 refdata,
                 journal_dir,
+                nav,
+                nav_asked: false,
+                nav_near: None,
+                nav_saved: Instant::now(),
                 watcher: watcher::Watcher::new(),
                 conn: None,
                 demo: false,
@@ -455,8 +468,48 @@ impl Engine {
                 }
             }
         }
+        self.navaids();
         if self.last_status.elapsed() >= STATUS_EVERY {
             self.publish(false);
+        }
+    }
+
+    /// While the Nav aids layer is on and MSFS is connected: ask the sim
+    /// for its nav aids, the whole world once per AIRAC cycle (or when the
+    /// pilot asks), else those around the aircraft every 90 seconds.
+    fn navaids(&mut self) {
+        let Some(conn) = self.conn.as_mut() else { return };
+        if self.demo || self.sim_version.is_none() {
+            return;
+        }
+        let (wanted, refresh, world_ms) = {
+            let n = self.nav.lock().unwrap();
+            (n.wanted, n.refresh, n.world_ms)
+        };
+        if !wanted {
+            return;
+        }
+        let now = now_ms();
+        if refresh || (!self.nav_asked && now - world_ms > crate::navaids::STALE_MS) {
+            self.nav_asked = true;
+            self.nav.lock().unwrap().refresh = false;
+            if conn.request_navaids(true) {
+                log::info!("asked MSFS for the world's nav aids");
+                self.nav_near = None;
+            } else {
+                log::info!("this SimConnect lists nav aids around the aircraft only");
+                self.nav_near = Some(Instant::now() - Duration::from_secs(3600));
+            }
+        }
+        if let Some(t) = self.nav_near {
+            if t.elapsed() >= Duration::from_secs(90) && self.last_sample.is_some() {
+                conn.request_navaids(false);
+                self.nav_near = Some(Instant::now());
+            }
+            if self.nav_saved.elapsed() >= Duration::from_secs(600) && self.nav.lock().unwrap().dirty {
+                self.nav_saved = Instant::now();
+                crate::navaids::save_soon(&self.nav, self.journal_dir.clone());
+            }
         }
     }
 
@@ -524,6 +577,14 @@ impl Engine {
             SimMessage::Disconnected { reason } => {
                 self.end_flight(&reason);
                 self.disconnect();
+            }
+            SimMessage::NavAids(b) => {
+                let world_done = self.nav.lock().unwrap().merge(b, now_ms());
+                if world_done {
+                    log::info!("nav aids: the whole world received");
+                    self.nav_saved = Instant::now();
+                    crate::navaids::save_soon(&self.nav, self.journal_dir.clone());
+                }
             }
         }
     }
@@ -742,6 +803,11 @@ impl Engine {
 
     fn disconnect(&mut self) {
         self.conn = None;
+        self.nav_asked = false;
+        self.nav_near = None;
+        if self.nav.lock().unwrap().dirty {
+            crate::navaids::save_soon(&self.nav, self.journal_dir.clone());
+        }
         self.in_world = InWorld::default();
         self.demo = false;
         self.sim = None;

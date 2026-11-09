@@ -185,12 +185,9 @@ fn find_forecast() -> Result<(i64, i64, String), String> {
     Err(last)
 }
 
-/// Wind at one level ("sfc", "850", ... "200"), at most one forecast step old.
-pub fn wind(level: &str) -> WindGrid {
-    let Some(&(_, idx_level)) = LEVELS.iter().find(|(k, _)| *k == level) else {
-        return WindGrid { level: level.into(), error: Some("Unknown wind level".into()), ..Default::default() };
-    };
-    let mut c = cache().lock().unwrap();
+/// The forecast in use (run, step, index), looking for a newer one now and
+/// then; clears the stored grids when it changes.
+fn current(c: &mut Cache) -> Result<(i64, i64, String), String> {
     if c.current.is_none() || c.checked.is_none_or(|t| t.elapsed() > RECHECK) {
         match find_forecast() {
             Ok(f) => {
@@ -205,12 +202,24 @@ pub fn wind(level: &str) -> WindGrid {
                 // Keep what we have; try again in a few minutes.
                 c.checked = Some(Instant::now() - RECHECK + Duration::from_secs(300));
                 if c.current.is_none() {
-                    return WindGrid { level: level.into(), error: Some(e), ..Default::default() };
+                    return Err(e);
                 }
             }
         }
     }
-    let (run, step, idx) = c.current.clone().unwrap();
+    Ok(c.current.clone().unwrap())
+}
+
+/// Wind at one level ("sfc", "850", ... "200"), at most one forecast step old.
+pub fn wind(level: &str) -> WindGrid {
+    let Some(&(_, idx_level)) = LEVELS.iter().find(|(k, _)| *k == level) else {
+        return WindGrid { level: level.into(), error: Some("Unknown wind level".into()), ..Default::default() };
+    };
+    let mut c = cache().lock().unwrap();
+    let (run, step, idx) = match current(&mut c) {
+        Ok(f) => f,
+        Err(e) => return WindGrid { level: level.into(), error: Some(e), ..Default::default() },
+    };
     let key = (run, step, level.to_string());
     if let Some(g) = c.grids.get(&key) {
         return g.clone();
@@ -239,6 +248,54 @@ pub fn wind(level: &str) -> WindGrid {
         Err(e) => {
             log::warn!("winds {level}: {e}");
             WindGrid { level: level.into(), error: Some(e), ..Default::default() }
+        }
+    }
+}
+
+/// Air temperature 2 m above the ground on the one-degree grid, for the
+/// map's temperature layer. Same forecast file as the wind (one field,
+/// about 60 KB), at most once per forecast step.
+#[derive(Debug, Clone, Serialize, Default)]
+pub struct TempGrid {
+    pub run_ms: i64,
+    pub valid_ms: i64,
+    pub nx: usize,
+    pub ny: usize,
+    /// Tenths of a degree Celsius, row by row from 90N, columns from 0E, as
+    /// little-endian 16-bit integers, base64.
+    pub t: String,
+    pub error: Option<String>,
+}
+
+pub fn temperature() -> TempGrid {
+    static GRID: OnceLock<Mutex<Option<(i64, i64, TempGrid)>>> = OnceLock::new();
+    let slot = GRID.get_or_init(|| Mutex::new(None));
+    let (run, step, idx) = {
+        let mut c = cache().lock().unwrap();
+        match current(&mut c) {
+            Ok(f) => f,
+            Err(e) => return TempGrid { error: Some(e), ..Default::default() },
+        }
+    };
+    let mut held = slot.lock().unwrap();
+    if let Some((r, s, g)) = held.as_ref() {
+        if (*r, *s) == (run, step) {
+            return g.clone();
+        }
+    }
+    let got = find_range(&idx, "TMP", "2 m above ground")
+        .ok_or_else(|| "Temperature is missing from the forecast".to_string())
+        .and_then(|range| decode_field(&get(&file_url(run, step), Some(range))?));
+    match got {
+        Ok(k) => {
+            let tenths: Vec<f32> = k.into_iter().map(|x| if x.is_finite() { (x - 273.15) * 10.0 } else { f32::NAN }).collect();
+            let g = TempGrid { run_ms: run, valid_ms: run + step * 3_600_000, nx: 360, ny: 181, t: pack(&tenths), error: None };
+            *held = Some((run, step, g.clone()));
+            g
+        }
+        Err(e) => {
+            log::warn!("temperature: {e}");
+            TempGrid { error: Some(e), ..Default::default() }
         }
     }
 }

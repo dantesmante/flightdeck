@@ -41,12 +41,38 @@
     onprofile?: () => void;
     taxiOpen?: boolean;
     ontaxi?: () => void;
+    /** Under the Nav aids card ("12,345 from MSFS", "Needs MSFS"…). */
+    navNote?: string;
+    onnavrefresh?: () => void;
+    /** Under the Temperature card. */
+    tempNote?: string;
     ringCount?: number;
     ringSet?: string;
     onrings?: (count: number, set: string) => void;
     onroadsopacity?: (o: number) => void;
   }
-  let { three, on, onthree, ontoggle, radarTime, radarError, parkedLayer = false, airportDetail = 1, ondetail, windLevel = "auto", onwindlevel, cardOpen = false, measuring = false, onmeasure, airspaceState = "idle", pfdOpen = false, onpfd, obstaclesState = "idle", hasAircraft = false, roadsOpacity = 1, onroadsopacity, ringCount = 2, ringSet = "auto", onrings, profileOpen = false, onprofile, taxiOpen = false, ontaxi }: Props = $props();
+  let { three, on, onthree, ontoggle, radarTime, radarError, parkedLayer = false, airportDetail = 1, ondetail, windLevel = "auto", onwindlevel, cardOpen = false, measuring = false, onmeasure, airspaceState = "idle", pfdOpen = false, onpfd, obstaclesState = "idle", hasAircraft = false, roadsOpacity = 1, onroadsopacity, ringCount = 2, ringSet = "auto", onrings, profileOpen = false, onprofile, taxiOpen = false, ontaxi, navNote = "", onnavrefresh, tempNote = "" }: Props = $props();
+  /** The Tools drawer (Measure, Taxi, Profile, PFD): stays out until closed. */
+  const TOOLS_KEY = "fd.toolsOpen";
+  let toolsOpen = $state(
+    (() => {
+      try {
+        return localStorage.getItem(TOOLS_KEY) === "1";
+      } catch {
+        return false;
+      }
+    })(),
+  );
+  function toggleTools() {
+    toolsOpen = !toolsOpen;
+    try {
+      localStorage.setItem(TOOLS_KEY, toolsOpen ? "1" : "0");
+    } catch {
+      /* not remembered */
+    }
+  }
+  const anyTool = $derived(measuring || taxiOpen || profileOpen || pfdOpen);
+  const hasTools = $derived(!!(onmeasure || ontaxi || onprofile || onpfd));
   const DETAIL = ["Major airports only", "Major and regional airports", "All airports and airstrips"];
 
   /** The Layers panel's tabs: airports and flights, weather, the map itself. */
@@ -54,8 +80,8 @@
   const TABS: { id: Menu; label: string; title: string; icon: string }[] = [
     {
       id: "traffic",
-      label: "Airports & Flights",
-      title: "Airports and flights",
+      label: "Aviation",
+      title: "Aviation",
       icon: "M2.5 13.5l7-1.5 5-8h2.5l-2.5 8 5.5-.5 1.8-2.5H23l-1.2 4 1.2 4h-1.2L20 14.5l-5.5-.5 2.5 8h-2.5l-5-8-7-1.5z",
     },
     { id: "weather", label: "Weather", title: "Weather", icon: "M7 18h10a4 4 0 0 0 .6-7.96A6 6 0 0 0 6.1 9.1 4.5 4.5 0 0 0 7 18z" },
@@ -63,8 +89,8 @@
   ];
   /** The layers in each tab, to mark a tab that has something on. */
   const IN_TAB: Record<Menu, string[]> = {
-    traffic: ["world", "airports", "routes", "airspace", "parked", "vatsim-atc", "vatsim-pilots", "ivao-atc", "ivao-pilots"],
-    weather: ["radar", "wx-cat", "wx-adv", "wind", "wx-wind"],
+    traffic: ["world", "airports", "routes", "airspace", "navaids", "parked", "vatsim-atc", "vatsim-pilots", "ivao-atc", "ivao-pilots"],
+    weather: ["radar", "wx-cat", "wx-adv", "wind", "wx-wind", "temp"],
     map: ["night", "satellite", "terrain", "borders", "roads", "taws", "obstacles", "rings"],
   };
   const tabOn = (t: Menu) => IN_TAB[t].some((k) => on.has(k)) || (t === "traffic" && !on.has("aeroway-off")) || (t === "map" && three);
@@ -219,6 +245,29 @@
       <circle cx="102" cy="16" r="10" fill="none" stroke="#c25bb0" stroke-width="1.6" />
       <circle cx="98" cy="50" r="9" fill="none" stroke="#4a8ce8" stroke-width="1.3" stroke-dasharray="3 2" />
       <text x="56" y="11" text-anchor="middle" font-size="7.5" font-weight="700" fill="#4a8ce8">100/30</text>
+    {:else if kind === "navaids"}
+      <rect width="120" height="64" fill="#15181c" />
+      <path d="M14 50 L52 22 L100 40" fill="none" stroke="#5a6068" stroke-width="1" />
+      <g transform="translate(52 22)" fill="#14181e" stroke="#5aa9ff" stroke-width="1.6">
+        <rect x="-9" y="-7.5" width="18" height="15" /><path d="M6 0 L3 5.2 L-3 5.2 L-6 0 L-3 -5.2 L3 -5.2 Z" />
+      </g>
+      <circle cx="52" cy="22" r="1.4" fill="#5aa9ff" />
+      <text x="52" y="40" text-anchor="middle" font-size="7" font-weight="700" fill="#5aa9ff">BTG</text>
+      {#each [0, 1, 2, 3, 4, 5, 6, 7, 8, 9] as i (i)}
+        <circle cx={100 + 7 * Math.cos((i * Math.PI) / 5)} cy={40 + 7 * Math.sin((i * Math.PI) / 5)} r="0.9" fill="#c98bff" />
+      {/each}
+      <circle cx="100" cy="40" r="1.6" fill="#c98bff" />
+      <path d="M14 45 L18 52 L10 52 Z" fill="#14181e" stroke="#c9ced6" stroke-width="1.2" />
+      <text x="14" y="60" text-anchor="middle" font-size="5.5" fill="#c9ced6">HAMUR</text>
+    {:else if kind === "temp"}
+      <defs>
+        <linearGradient id="la-temp" x1="0" x2="0" y1="0" y2="1">
+          <stop offset="0" stop-color="#784aa8" /><stop offset="0.3" stop-color="#3c8ce6" /><stop offset="0.5" stop-color="#5ac878" /><stop offset="0.72" stop-color="#ebdc50" /><stop offset="1" stop-color="#d22828" />
+        </linearGradient>
+      </defs>
+      <rect width="120" height="64" fill="url(#la-temp)" opacity="0.75" />
+      <path d="M0 22 C 30 14, 60 30, 120 18 M0 44 C 40 36, 70 52, 120 40" fill="none" stroke="#fff" stroke-width="0.8" opacity="0.4" />
+      <text x="96" y="58" text-anchor="middle" font-size="10" font-weight="700" fill="#fff">24°</text>
     {:else if kind === "radar"}
       <path d="M10 40 C 20 20, 44 18, 52 30 C 60 42, 40 56, 22 52 C 12 50, 6 46, 10 40 Z" fill="#3aa0ff" opacity="0.55" />
       <path d="M22 40 C 26 32, 38 30, 42 36 C 46 44, 32 48, 26 46 Z" fill="#7ce0ff" opacity="0.8" />
@@ -267,6 +316,14 @@
   </span>
 {/snippet}
 
+{#snippet navaidsNote()}
+  <span class="note">{on.has("navaids") && navNote ? navNote : "VOR, NDB, waypoints · from MSFS"}</span>
+{/snippet}
+
+{#snippet tempNote2()}
+  <span class="note">{on.has("temp") && tempNote ? tempNote : "2 m above ground"}</span>
+{/snippet}
+
 {#snippet tawsNote()}
   <span class="note">{on.has("taws") && !hasAircraft ? "Needs the sim" : "100 mi around you"}</span>
 {/snippet}
@@ -292,6 +349,8 @@
     <button role="radio" aria-checked={!three} class:on={!three} onclick={() => onthree(false)}>2D</button>
     <button role="radio" aria-checked={three} class:on={three} onclick={() => onthree(true)}>3D</button>
   </div>
+  {#if hasTools}
+  <div class="drawer" class:out={toolsOpen} aria-hidden={!toolsOpen} inert={!toolsOpen}>
   {#if onmeasure}
     <button class="layers-btn" class:open={measuring} aria-pressed={measuring} title="Measure distances" onclick={() => ((open = null), onmeasure())}>
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 16.5L16.5 3 21 7.5 7.5 21z" /><path d="M7 12.5l1.8 1.8M10 9.5l2.6 2.6M13 6.5l1.8 1.8" /></svg>
@@ -315,6 +374,17 @@
       <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M3 13l18-3M9 11.5l3 1.5 3-1.5" /></svg>
       <span>PFD</span>
     </button>
+  {/if}
+  </div>
+  <button class="layers-btn tools" class:open={toolsOpen} aria-expanded={toolsOpen} title={toolsOpen ? "Put the tools away" : "Measure, Taxi, Profile, PFD"} onclick={toggleTools}>
+    {#if toolsOpen}
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l6 6-6 6" /><path d="M9 6l6 6-6 6" opacity="0.45" /></svg>
+    {:else}
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 6.5a4 4 0 0 0-5.3 5.3L3.5 17.5l3 3 5.7-5.7a4 4 0 0 0 5.3-5.3l-2.4 2.4-2.6-.6-.6-2.6z" /></svg>
+    {/if}
+    <span>Tools</span>
+    {#if anyTool && !toolsOpen}<i class="tdot" aria-label="(a tool is on)"></i>{/if}
+  </button>
   {/if}
   <button class="layers-btn" class:open={!!open} aria-expanded={!!open} onclick={togglePanel}>
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l9 5-9 5-9-5 9-5zM3 13l9 5 9-5" /></svg>
@@ -398,7 +468,18 @@
       {@render card("wx-adv", "SIGMET / AIRMET", on.has("wx-adv"), () => ontoggle("wx-adv"))}
       {@render card("wind", "Wind", on.has("wind"), () => ontoggle("wind"), windNote)}
       {@render card("wx-wind", "Airport wind", on.has("wx-wind"), () => ontoggle("wx-wind"))}
+      {@render card("temp", "Temperature", on.has("temp"), () => ontoggle("temp"), tempNote2)}
     </div>
+    {#if on.has("temp")}
+      <div class="tscale" aria-label="Temperature colours">
+        <span class="bar"></span>
+        <span class="ticks">
+          {#each [-40, -20, 0, 20, 40] as c (c)}
+            <span style:left="{((c + 40) / 80) * 100}%">{c}°C<br />{Math.round(c * 1.8 + 32)}°F</span>
+          {/each}
+        </span>
+      </div>
+    {/if}
     {#if on.has("wind")}
       <div class="levels" role="radiogroup" aria-label="Wind level">
         {#each [{ id: "auto", label: "Auto" }, ...WIND_LEVELS.map((l) => ({ id: l.id, label: l.id === "sfc" ? "SFC" : l.label }))] as l (l.id)}
@@ -413,7 +494,8 @@
     {/if}
       <p class="credit">
         Radar RainViewer · METARs, SIGMETs and AIRMETs NOAA Aviation Weather Center (every 10 min while on) · Wind
-        forecast NOAA GFS (one level, about 100 KB, every 3 h while on; drawn on the processor, not the graphics card)
+        forecast NOAA GFS (one level, about 100 KB, every 3 h while on; drawn on the processor, not the graphics card) ·
+        Temperature NOAA GFS (2 m above ground, about 60 KB, every 3 h while on; one picture on the map)
       </p>
     {:else}
     <div class="grid">
@@ -422,6 +504,7 @@
       {@render card("routes", "Past routes", on.has("routes"), () => ontoggle("routes"))}
       {@render card("aeroway", "Runways", !on.has("aeroway-off"), () => ontoggle("aeroway-off"))}
       {@render card("airspace", "Airspace", on.has("airspace"), () => ontoggle("airspace"), airspaceNote)}
+      {@render card("navaids", "Nav aids", on.has("navaids"), () => ontoggle("navaids"), navaidsNote)}
       {#if parkedLayer}
         {@render card("parked", "Parked aircraft", on.has("parked"), () => ontoggle("parked"))}
       {/if}
@@ -441,6 +524,12 @@
         <div class="ticks"><span>Major</span><span>Regional</span><span>All</span></div>
       </div>
     {/if}
+    {#if on.has("navaids")}
+      <div class="detail navd">
+        <span>From MSFS's own navigation data while it runs, kept on this PC. Radio aids from zoom 5, waypoints from zoom 8.</span>
+        {#if onnavrefresh}<button onclick={onnavrefresh}>Read again from MSFS</button>{/if}
+      </div>
+    {/if}
     <h4>Online networks</h4>
     <div class="grid two">
       {@render netCard("vatsim", "VATSIM")}
@@ -448,7 +537,7 @@
     </div>
     <p class="credit">
       Airports OurAirports · Runways and taxiways OpenStreetMap · Airspace FAA (US only, every 28 days) · Live traffic VATSIM and IVAO (every 30 s while on) ·
-      ATC areas VAT-Spy Data Project (CC BY-SA 4.0)
+      ATC areas VAT-Spy Data Project (CC BY-SA 4.0) · Nav aids your MSFS (read on this PC, never shared)
     </p>
     {/if}
   </div>
@@ -544,6 +633,77 @@
     stroke: currentColor;
     stroke-width: 1.8;
     stroke-linejoin: round;
+  }
+  .drawer {
+    display: flex;
+    gap: 8px;
+    max-width: 0;
+    overflow: hidden;
+    opacity: 0;
+    transform: translateX(24px);
+    transition:
+      max-width 0.28s ease,
+      opacity 0.2s ease,
+      transform 0.28s ease;
+  }
+  .drawer.out {
+    max-width: 560px;
+    opacity: 1;
+    transform: none;
+  }
+  .layers-btn.tools {
+    position: relative;
+  }
+  .tdot {
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--amber);
+  }
+  .tscale {
+    margin: 10px 2px 0;
+  }
+  .tscale .bar {
+    display: block;
+    margin: 0 14px;
+    height: 10px;
+    border-radius: 5px;
+    background: linear-gradient(90deg, #783caa 0%, #4650c8 18.75%, #3c8ce6 37.5%, #6ec8f0 50%, #5ac878 62.5%, #ebdc50 75%, #f08c32 87.5%, #d22828 100%);
+  }
+  .tscale .ticks {
+    display: block;
+    position: relative;
+    height: 26px;
+    margin: 4px 14px 0;
+    font-size: 10.5px;
+    line-height: 1.2;
+    color: var(--ink-faint, #7d828a);
+    text-align: center;
+  }
+  .tscale .ticks span {
+    position: absolute;
+    transform: translateX(-50%);
+    white-space: nowrap;
+  }
+  .navd {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    font-size: 12px;
+    color: var(--ink-dim);
+  }
+  .navd button {
+    flex: none;
+    border: 1px solid var(--rule);
+    background: transparent;
+    color: var(--ink);
+    border-radius: 7px;
+    padding: 5px 9px;
+    font: inherit;
+    cursor: pointer;
   }
   .layers-btn:hover,
   .layers-btn.open {

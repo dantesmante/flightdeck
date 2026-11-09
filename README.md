@@ -306,16 +306,20 @@ MIT licensed.
   lists the points to give any of them its own altitude (shown beside it on
   the map; the rest follow the cruise); the profile climbs and descends to
   them, and the .PLN carries them.
-- **Measure** (left of Layers): click points on the map to
+- **Tools** (left of Layers): opens a drawer that slides out with
+  **Measure**, **Taxi**, **Profile** and **PFD**; it stays out until you
+  press Tools again (remembered on each device). With the drawer closed, a
+  dot on Tools shows a tool is on.
+- **Measure** (in Tools): click points on the map to
   measure a route, leg by leg, in nautical miles with the course of each
   leg, and the total in miles and kilometres too. Great-circle distances.
   Backspace or right-click takes back the last point; Escape or Done ends.
-- **Layers**, beside 2D/3D, Profile, Measure and PFD: one panel with three buttons
+- **Layers**, beside Tools: one panel with three buttons
   under its title,
-  **Airports & Flights** (world airports, your airports, past routes,
-  runways and taxiways, US airspace, parked aircraft, VATSIM and IVAO),
-  **Weather** (radar, flight category, SIGMETs and AIRMETs, wind, airport
-  wind) and **Map** (3D flight, day/night, satellite, topographic,
+  **Aviation** (world airports, your airports, past routes,
+  runways and taxiways, US airspace, nav aids, parked aircraft, VATSIM and
+  IVAO), **Weather** (radar, flight category, SIGMETs and AIRMETs, wind,
+  airport wind, temperature) and **Map** (3D flight, day/night, satellite, topographic,
   borders). It opens on the section used last; a dot marks a section
   with something switched on.
 - **Flights** page: the list of flights is a card floating over the left
@@ -386,6 +390,24 @@ MIT licensed.
   hazard, validity, levels and the raw text. From the NOAA Aviation Weather
   Center (public domain), downloaded only while a layer is on, every 10
   minutes.
+- **Nav aids** (Layers, Aviation): VORs (blue hexagon; in a box with
+  DME), DME-only stations, NDBs (purple dotted rose) and waypoints
+  (triangles), with ident and frequency, from MSFS's own navigation data.
+  While the layer is on and MSFS is connected, FlightDeck asks the sim for
+  them: with MSFS 2024's SimConnect.dll the whole world at once (again
+  every 28 days, or with **Read again from MSFS**), with an older one
+  those around the aircraft every 90 s, filling in as you fly. They are
+  kept on this PC (navaids-msfs.tsv in FlightDeck's folder) so the layer
+  also shows with the sim off; never uploaded. Radio aids from zoom 5,
+  waypoints from zoom 8; only what is in view is drawn. ILS localizers
+  are left out.
+- **Temperature** (Layers, Weather): the map tinted by the forecast air
+  temperature 2 m above the ground (purple −40 °C, blue near freezing,
+  green mild, yellow, orange, red 40 °C), with a °C/°F scale under the
+  card. NOAA GFS one-degree forecast (public domain; the same file as the
+  wind, one field of about 60 KB, every 3 h while on), drawn once into a
+  single picture over the map, so it costs the graphics card nothing to
+  speak of.
 - **Wind** (Map layers, Weather): moving particles show the forecast wind,
   coloured by speed (blue light, green and yellow moderate, orange and red
   strong, magenta jet stream over 140 kt), at the surface or FL050, FL100,

@@ -177,6 +177,45 @@ pub enum SimMessage {
     Instruments(Instruments),
     /// The sim closed or the link dropped.
     Disconnected { reason: String },
+    /// Radio aids and waypoints from the sim's own navigation database.
+    NavAids(NavBatch),
+}
+
+/// A kind of navigation aid.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum NavKind {
+    Vor,
+    Ndb,
+    Waypoint,
+}
+
+/// A VOR, NDB or waypoint, as the sim knows it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NavAid {
+    pub kind: NavKind,
+    pub ident: String,
+    /// ICAO region code ("K2"), telling apart aids with the same ident.
+    pub region: String,
+    pub lat: f64,
+    pub lon: f64,
+    /// Radio frequency in Hz (VOR/DME ~108–118 MHz, NDB ~190–1750 kHz).
+    pub freq_hz: Option<u32>,
+    /// A VOR with DME (VOR-DME, VORTAC), or a DME-only station.
+    pub dme: bool,
+    /// A VOR station without a VOR (DME-only) — no NAV signal.
+    pub dme_only: bool,
+}
+
+/// Part of a list of aids from the sim.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NavBatch {
+    pub kind: NavKind,
+    pub items: Vec<NavAid>,
+    /// The last part of the list asked for.
+    pub last: bool,
+    /// The whole world (not only around the aircraft).
+    pub world: bool,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -194,6 +233,13 @@ pub enum ConnectorError {
 pub trait SimConnector: Send {
     fn sim(&self) -> SimKind;
     fn poll(&mut self) -> Result<Vec<SimMessage>, ConnectorError>;
+    /// Ask the sim for its VORs, NDBs and waypoints: the whole world when it
+    /// can (`world` true; MSFS 2024), else those around the aircraft. The
+    /// answer arrives as `SimMessage::NavAids` from later polls. Returns
+    /// false when the sim cannot list them.
+    fn request_navaids(&mut self, _world: bool) -> bool {
+        false
+    }
 }
 
 /// A position along a flight's track, as stored and drawn on the map.
