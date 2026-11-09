@@ -3,7 +3,7 @@
   // each a panel of picture cards you switch on and off.
   import type { Snippet } from "svelte";
   import { WIND_LEVELS } from "./wind/wind";
-  import { ICING_BANDS, ICING_FLS, icingSwatch } from "./icingLayer";
+  import { ICING_ADV, ICING_BANDS, ICING_FLS, icingSwatch } from "./icingLayer";
 
   interface Props {
     three: boolean;
@@ -50,6 +50,7 @@
     ontemplevel?: (l: string) => void;
     icingNote?: string;
     icingInfo?: string;
+    icingAdvNote?: string;
     /** "auto" or a flight level ("120"). */
     icingFl?: string;
     onicingfl?: (l: string) => void;
@@ -58,7 +59,7 @@
     onrings?: (count: number, set: string) => void;
     onroadsopacity?: (o: number) => void;
   }
-  let { three, on, onthree, ontoggle, radarTime, radarError, parkedLayer = false, airportDetail = 1, ondetail, windLevel = "auto", onwindlevel, cardOpen = false, measuring = false, onmeasure, airspaceState = "idle", pfdOpen = false, onpfd, obstaclesState = "idle", hasAircraft = false, roadsOpacity = 1, onroadsopacity, ringCount = 2, ringSet = "auto", onrings, profileOpen = false, onprofile, taxiOpen = false, ontaxi, navNote = "", tempNote = "", tempLevel = "auto", ontemplevel, icingNote = "", icingInfo = "", icingFl = "auto", onicingfl }: Props = $props();
+  let { three, on, onthree, ontoggle, radarTime, radarError, parkedLayer = false, airportDetail = 1, ondetail, windLevel = "auto", onwindlevel, cardOpen = false, measuring = false, onmeasure, airspaceState = "idle", pfdOpen = false, onpfd, obstaclesState = "idle", hasAircraft = false, roadsOpacity = 1, onroadsopacity, ringCount = 2, ringSet = "auto", onrings, profileOpen = false, onprofile, taxiOpen = false, ontaxi, navNote = "", tempNote = "", tempLevel = "auto", ontemplevel, icingNote = "", icingInfo = "", icingAdvNote = "", icingFl = "auto", onicingfl }: Props = $props();
   /** The Tools drawer (Measure, Taxi, Profile, PFD): stays out until closed. */
   const TOOLS_KEY = "fd.toolsOpen";
   let toolsOpen = $state(
@@ -504,6 +505,12 @@
           <span class="ib"><img src={icingSwatch(i)} alt="" />{b.label}</span>
         {/each}
       </div>
+      <div class="iscale adv" aria-label="Icing SIGMETs and AIRMETs">
+        {#each Object.values(ICING_ADV) as a (a.label)}
+          <span class="ib"><i class="dash" style:--c={a.color}></i>{a.label}</span>
+        {/each}
+      </div>
+      {#if icingAdvNote}<p class="inote">{icingAdvNote} · faint when not at this level · click one for details</p>{/if}
       {#if icingInfo}<p class="inote">{icingInfo}</p>{/if}
       <p class="inote">Test version · FlightDeck's own estimate from the forecast, for flight simulation only. Not observed icing, not for real-world flying.</p>
     {/if}
@@ -718,6 +725,11 @@
     height: 18px;
     border-radius: 3px;
     border: 1px solid var(--rule);
+  }
+  .iscale .dash {
+    width: 18px;
+    height: 0;
+    border-top: 2px dashed var(--c);
   }
   .inote {
     margin: 8px 2px 0;

@@ -7,7 +7,7 @@
   import AirportCard from "./AirportCard.svelte";
   import NetworkCard, { NET_COLOR, POSITION, type NetPick } from "./NetworkCard.svelte";
   import WxCard, { CATEGORY, WX_GROUP } from "./WxCard.svelte";
-  import type { WxAdvisoryProps } from "./api";
+  import type { WxAdvisories, WxAdvisoryProps } from "./api";
   import type { Net, NetworkData } from "./api";
   import { showRoads, setRoadsOpacity, showTaws, showObstacles, showRings, autoRingStep, C as BASE, STYLE, addAirportLayout, addRegionLines, approachLines, offlineStyle, runwayEnds, setBorders, showAirportLayout, showSatellite, showTerrain, tintMap } from "./mapStyle";
   import MapLayers from "./MapLayers.svelte";
@@ -25,8 +25,8 @@
   import { profileState } from "./profile/store.svelte";
   import { taxiState } from "./taxi/store.svelte";
   import { NAV_MIN_ZOOM, WPT_MIN_ZOOM, setNavData, showNavLayers } from "./navLayer";
-  import { decodeTemps, setTempCanvas, showTemp, tempImage } from "./tempLayer";
-  import { decodeIcing, flFor, icingShapes, setIcingShapes, showIcing } from "./icingLayer";
+  import { decodeTemps, setTempCanvas, showTemp, tempImage, tempAt, TEMP_BAR } from "./tempLayer";
+  import { coversFl, decodeIcing, flFor, icingSeverity, icingShapes, setIcingAdvisories, setIcingShapes, showIcing } from "./icingLayer";
   import TaxiAssist from "./taxi/TaxiAssist.svelte";
   import { altColor, altGradient, altLabel, altRange, lonLat, sideOnBearing, wallFeatures, wallScale, type Pt } from "./track";
 
@@ -441,6 +441,9 @@
   let tempCanvas: HTMLCanvasElement | null = null;
   /** The forecast step and level the picture is for. */
   let tempKey = "";
+  /** The decoded grid, for the value under the mouse in the key. */
+  let tempField = $state.raw<{ t: Float32Array; nx: number; ny: number } | null>(null);
+  let tempHere = $state<string | null>(null);
   let tempState = $state<{ s: "idle" | "loading" | "ok" | "error"; valid_ms: number }>({ s: "idle", valid_ms: 0 });
   /** Temperature level chosen: "auto" follows the aircraft, like the wind. */
   const tempPref = $derived(prefs.s.map_temp_level ?? "auto");
@@ -471,7 +474,9 @@
             return;
           }
           tempKey = key;
-          tempCanvas = tempImage(decodeTemps(g.t), g.nx, g.ny);
+          const t = decodeTemps(g.t);
+          tempField = { t, nx: g.nx, ny: g.ny };
+          tempCanvas = tempImage(t, g.nx, g.ny);
           setTempCanvas(m, tempCanvas);
           showTemp(m, true);
           tempState = { s: "ok", valid_ms: g.valid_ms };
@@ -541,6 +546,52 @@
       clearInterval(t);
     };
   });
+  // Icing SIGMETs and AIRMETs on the icing layer (the Aviation Weather
+  // Center's feed, FlightDeck's 10-minute cache): every 10 minutes while on.
+  let icingAdv = $state.raw<WxAdvisories["features"]>([]);
+  let icingAdvErr = $state(false);
+  $effect(() => {
+    const on = layers.has("icing") && !bare;
+    if (!loaded || !map || !on) return;
+    let stop = false;
+    const load = () => {
+      if (document.hidden) return;
+      api.wxAdvisories().then(
+        (d) => {
+          if (stop || !d) return;
+          icingAdvErr = !!d.error && !d.features.length;
+          icingAdv = d.features.filter((f) => f.properties.group === "ICE" && !/FZ/i.test(f.properties.hazard));
+        },
+        () => !stop && (icingAdvErr = true),
+      );
+    };
+    load();
+    const t = setInterval(load, 10 * 60_000);
+    return () => {
+      stop = true;
+      clearInterval(t);
+    };
+  });
+  /** How many advisories touch the level shown. */
+  let icingAdvAt = $state(0);
+  $effect(() => {
+    const fl = icingFl;
+    const all = icingAdv;
+    if (!loaded || !map) return;
+    const features = all.map((f) => {
+      const p = f.properties;
+      const sev = icingSeverity(p.kind, p.qualifier);
+      return { ...f, properties: { ...p, sev, qualifier: p.qualifier && !/^\d+$/.test(p.qualifier) ? p.qualifier : sev, at: coversFl(p.base, p.top, fl) } };
+    });
+    icingAdvAt = features.filter((f) => f.properties.at).length;
+    setIcingAdvisories(map, { type: "FeatureCollection", features });
+    showIcing(map, layers.has("icing") && !bare);
+  });
+  const icingAdvNote = $derived(
+    icingAdvErr
+      ? "SIGMETs and AIRMETs not reachable"
+      : `${icingAdv.length} icing SIGMET${icingAdv.length === 1 ? "" : "s"}/AIRMET${icingAdv.length === 1 ? "" : "s"} now${icingAdv.length ? ` · ${icingAdvAt} at FL${String(icingFl).padStart(3, "0")}` : ""}`,
+  );
   const icingNote = $derived(
     icingState.s === "loading" ? "Downloading from NOAA (first time can take a minute)…" : icingState.s === "error" ? `Not available: ${icingState.msg}` : icingState.msg,
   );
@@ -740,6 +791,17 @@
     const [dir, kt] = dirSpeed(sample(f, e.lngLat.lng, e.lngLat.lat));
     windAt = kt < 1 ? "Calm" : `${String(dir).padStart(3, "0")}° ${Math.round(kt)} kt`;
   }
+  /** Temperature under the mouse (or, on touch screens, at the map centre). */
+  function tempUnder(lon: number, lat: number) {
+    const f = tempField;
+    if (!f || !layers.has("temp")) {
+      tempHere = null;
+      return;
+    }
+    const c = tempAt(f.t, f.nx, f.ny, lon, lat);
+    tempHere = Number.isFinite(c) ? `${Math.round(c)}°C · ${Math.round(c * 1.8 + 32)}°F` : null;
+  }
+  const touchOnly = typeof matchMedia !== "undefined" && matchMedia("(hover: none)").matches;
   const windKey = $derived(
     `linear-gradient(90deg, ${WIND_STOPS.map(([kt, c]) => `${c} ${Math.round((kt / 140) * 100)}%`).join(", ")})`,
   );
@@ -2048,8 +2110,9 @@
           return;
         }
         // A SIGMET or AIRMET under the click.
-        if (map?.getLayer("wx-adv-fill")) {
-          const f = map.queryRenderedFeatures(e.point, { layers: ["wx-adv-fill"] })[0];
+        const advLayers = ["fd-icing-adv-fill", "wx-adv-fill"].filter((id) => map?.getLayer(id) && map.getLayoutProperty(id, "visibility") !== "none");
+        if (advLayers.length) {
+          const f = map!.queryRenderedFeatures(e.point, { layers: advLayers })[0];
           if (f) {
             openAirport = null;
             netPick = null;
@@ -2089,6 +2152,11 @@
       if (windFocus && map!.getZoom() < 8) windFocus = null;
     });
     map.on("mousemove", windUnder);
+    if (touchOnly) map.on("moveend", () => map && tempUnder(map.getCenter().lng, map.getCenter().lat));
+    else {
+      map.on("mousemove", (e) => tempUnder(e.lngLat.lng, e.lngLat.lat));
+      map.getCanvas().addEventListener("mouseleave", () => (tempHere = null));
+    }
     // Runway numbers at the runway ends, for the runways in view.
     map.on("idle", () => {
       if (!map) return;
@@ -2583,6 +2651,7 @@
   tempLevel={tempPref}
   {icingNote}
   icingInfo={icingState.info ?? ""}
+  {icingAdvNote}
   icingFl={icingPref}
   onicingfl={(l) => setPref("map_icing_fl", l)}
   ontemplevel={(l) => setPref("map_temp_level", l)}
@@ -2634,6 +2703,16 @@
     <span class="ends"><span>0</span><span>70</span><span>140+ kt</span></span>
     <span class="sub">
       {#if windError && !windField}Forecast not reachable{:else if !windField}Loading…{:else if windAt}Here: {windAt}{:else}GFS {zulu(windField.run_ms)} run, for {zulu(windField.valid_ms)}{/if}
+    </span>
+  </div>
+{/if}
+{#if layers.has("temp") && !bare}
+  <div class="wind-key temp-key" aria-label="Temperature colours">
+    <span class="t">Temperature <em>{WIND_LEVELS.find((l) => l.id === tempLevel)?.label ?? ""}</em></span>
+    <span class="bar" style:background={TEMP_BAR}></span>
+    <span class="ends"><span>−40</span><span>0</span><span>+40°C</span></span>
+    <span class="sub here">
+      {#if tempState.s === "error"}NOAA not reachable{:else if !tempField}Loading…{:else if tempHere}{touchOnly ? "Centre" : "Here"}: <b>{tempHere}</b>{:else}{touchOnly ? "Move the map" : "Point at the map"} for a value{/if}
     </span>
   </div>
 {/if}
@@ -3054,14 +3133,29 @@
       max-width: none;
     }
   }
+  /* Keys sit side by side from the bottom right; when they run out of
+     room they wrap upwards, so they never overlap. */
   .keys {
     position: absolute;
     right: 56px;
     bottom: 16px;
+    /* Leaves the bottom-left corner ("Start a flight") free. */
+    max-width: calc(100% - 300px);
     display: flex;
-    flex-direction: column;
+    flex-direction: row-reverse;
+    flex-wrap: wrap-reverse;
+    align-items: flex-end;
     gap: 8px;
     pointer-events: none;
+  }
+  .temp-key .t em {
+    font-style: normal;
+    color: var(--ink);
+    letter-spacing: 0.02em;
+  }
+  .temp-key .here b {
+    color: var(--ink);
+    font-weight: 600;
   }
   .wind-key {
     width: 190px;
@@ -3189,6 +3283,7 @@
     .keys {
       right: 10px;
       bottom: 10px;
+      max-width: calc(100% - 20px);
     }
     .keys > * {
       width: 170px;

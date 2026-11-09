@@ -555,6 +555,7 @@ export async function mockCall<T>(cmd: string, _args?: Record<string, unknown>):
         f(sq(-100, 33, 6, 4), { kind: "CONVECTIVE", group: "TS", hazard: "CONVECTIVE", name: "KKCI 45C", top: "45000", raw: "CONVECTIVE SIGMET 45C VALID UNTIL 0455Z TX OK AREA TS MOV FROM 24025KT. TOPS ABV FL450." }),
         f(sq(-125, 40, 8, 6), { kind: "AIRMET", group: "TURB", hazard: "TURB-HI", name: "TANGO", base: "FL240", top: "FL400", raw: "" }),
         f(sq(-110, 44, 7, 5), { kind: "AIRMET", group: "ICE", hazard: "ICE", name: "ZULU", base: "FL080", top: "FL200", raw: "" }),
+        f(sq(-98, 46, 6, 4), { kind: "SIGMET", group: "ICE", hazard: "ICE", qualifier: "SEV", name: "KKCI ZULU 2", base: "12000", top: "22000", raw: "SIGMET ZULU 2 VALID UNTIL 0300Z MN WI SEV ICE BTN 120 AND FL220. CONDS CONTG BYD 0300Z." }),
         f(sq(-40, 50, 15, 8), { kind: "SIGMET", group: "TURB", hazard: "TURB", qualifier: "SEV", name: "SHANWICK OCEANIC A3", base: "FL300", top: "FL380", raw: "EGGX SIGMET A3 VALID 040100/040500 EGRR- SHANWICK OCEANIC SEV TURB FCST FL300/380 MOV E 20KT NC=" }),
       ],
     } as T;

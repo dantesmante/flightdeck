@@ -410,18 +410,24 @@ MIT licensed.
   temperature at a level picked like the wind's (Auto follows the
   aircraft; SFC is 2 m above the ground, then 850 to 200 hPa) (purple −40 °C, blue near freezing,
   green mild, yellow, orange, red 40 °C), with a °C/°F scale under the
-  card. NOAA GFS one-degree forecast (public domain; the same file as the
+  card and a key at the bottom right (beside the wind key; keys never
+  overlap) that reads out the temperature under the mouse, or at the map
+  centre on touch screens. NOAA GFS one-degree forecast (public domain; the same file as the
   wind, one field of about 60 KB, every 3 h while on), drawn once into a
   single picture over the map (drawn on a canvas in the app, so nothing
   is fetched for it but the forecast), so it costs the graphics card
   nothing to speak of.
 - **Icing Potential** (Layers, Weather; test version): FlightDeck's own
   estimate, 0–100, of how likely an aircraft is to pick up ice at a flight
-  level (Auto follows the aircraft, or FL050–FL400), drawn as hatching
-  from light blue to deep purple that builds up into a dense cross-hatch
-  as the score rises (so it never looks like temperature or radar);
+  level (Auto follows the aircraft, or FL050–FL400), drawn as a
+  see-through tint from light blue to deep purple with faint fine hatching
+  in it, deepening as the score rises (so it never looks like temperature
+  or radar, and the map still shows through);
   nothing below 6, and nothing where the data runs out (under the
-  terrain, gaps). The forecast fields (about 25 MB downloaded, about 30 MB
+  terrain, gaps). On top, the official icing SIGMETs (severe, pink) and
+  AIRMETs (moderate, white) from the Aviation Weather Center, dashed and
+  labelled, faint when they do not reach the level shown; click one for
+  its card (times, levels, the text). The forecast fields (about 25 MB downloaded, about 30 MB
   of memory in FlightDeck while the layer is on) are never written to
   disk. Worked out from NOAA GFS
   temperature, humidity, cloud liquid water and ice, vertical velocity and

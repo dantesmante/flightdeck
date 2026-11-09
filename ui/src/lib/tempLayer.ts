@@ -44,6 +44,22 @@ export function decodeTemps(b64: string): Float32Array {
   return out;
 }
 
+/** Temperature (°C) at a point, bilinear between grid points; NaN if missing. */
+export function tempAt(t: Float32Array, nx: number, ny: number, lon: number, lat: number): number {
+  const fr = Math.min(ny - 1, Math.max(0, 90 - lat));
+  const fc = (((lon % 360) + 360) % 360);
+  const r0 = Math.min(ny - 2, Math.floor(fr));
+  const c0 = Math.floor(fc) % nx;
+  const c1 = (c0 + 1) % nx;
+  const rt = fr - r0;
+  const ct = fc - Math.floor(fc);
+  const v = (r: number, c: number) => t[r * nx + c];
+  return (v(r0, c0) * (1 - ct) + v(r0, c1) * ct) * (1 - rt) + (v(r0 + 1, c0) * (1 - ct) + v(r0 + 1, c1) * ct) * rt;
+}
+
+/** The key's colour bar, −40 to +40 °C. */
+export const TEMP_BAR = `linear-gradient(90deg, ${TEMP_STOPS.map(([c, [r, g, b]]) => `rgb(${r},${g},${b}) ${((c + 40) / 80) * 100}%`).join(", ")})`;
+
 const MAX_LAT = 85.0511;
 
 /** The picture: `size` pixels square, Mercator, longitudes −180..180. */
