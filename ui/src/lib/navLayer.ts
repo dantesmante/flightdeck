@@ -166,8 +166,72 @@ export function setNavData(map: maplibregl.Map, items: NavAid[]) {
         k: a.kind === "waypoint" ? "wpt" : a.kind === "ndb" ? "ndb" : a.dme_only ? "dme" : a.dme ? "vordme" : "vor",
         id: a.ident,
         f: navFreq(a),
+        r: a.region,
       },
       geometry: { type: "Point", coordinates: [a.lon, a.lat] },
     })),
   });
+}
+
+const KIND_NAME: Record<string, string> = { vor: "VOR", vordme: "VOR-DME", dme: "DME", ndb: "NDB", wpt: "Waypoint / intersection" };
+
+/** "N39.1238° W121.7695°" */
+function coord(lat: number, lon: number): string {
+  return `${lat >= 0 ? "N" : "S"}${Math.abs(lat).toFixed(4)}° ${lon >= 0 ? "E" : "W"}${Math.abs(lon).toFixed(4)}°`;
+}
+
+/** The nav aid under a point on the map (a few pixels of slack), if any. */
+export function navAt(map: maplibregl.Map, p: { x: number; y: number }): maplibregl.MapGeoJSONFeature | undefined {
+  const layers = NAV_IDS.filter((id) => map.getLayer(id) && map.getLayoutProperty(id, "visibility") !== "none");
+  if (!layers.length) return undefined;
+  const r = 7;
+  const near = map.queryRenderedFeatures(
+    [
+      [p.x - r, p.y - r],
+      [p.x + r, p.y + r],
+    ],
+    { layers },
+  );
+  // Radio aids before waypoints, then the closest.
+  const at = (f: maplibregl.MapGeoJSONFeature) => {
+    const c = map.project((f.geometry as GeoJSON.Point).coordinates as [number, number]);
+    return (f.properties.k === "wpt" ? 1000 : 0) + Math.hypot(c.x - p.x, c.y - p.y);
+  };
+  return near.sort((a, b) => at(a) - at(b))[0];
+}
+
+/** The little card for a clicked nav aid. */
+export function navCard(f: maplibregl.MapGeoJSONFeature, onclose: () => void): HTMLElement {
+  const p = f.properties as { k: string; id: string; f?: string; r?: string };
+  const [lon, lat] = (f.geometry as GeoJSON.Point).coordinates;
+  const box = document.createElement("div");
+  box.className = "nav-card";
+  const head = document.createElement("div");
+  head.className = "nc-head";
+  const title = document.createElement("strong");
+  title.textContent = p.id;
+  const x = document.createElement("button");
+  x.type = "button";
+  x.className = "nc-x";
+  x.setAttribute("aria-label", "Close");
+  x.textContent = "×";
+  x.onclick = onclose;
+  head.append(title, x);
+  const rows: [string, string][] = [["Type", KIND_NAME[p.k] ?? p.k]];
+  if (p.f) rows.push(["Frequency", p.k === "ndb" ? `${p.f} kHz` : `${p.f} MHz`]);
+  if (p.r) rows.push(["Region", p.r]);
+  rows.push(["Coordinates", coord(lat, lon)]);
+  const dl = document.createElement("dl");
+  for (const [k, v] of rows) {
+    const dt = document.createElement("dt");
+    dt.textContent = k;
+    const dd = document.createElement("dd");
+    dd.textContent = v;
+    dl.append(dt, dd);
+  }
+  const src = document.createElement("p");
+  src.className = "nc-src";
+  src.textContent = "From MSFS's navigation data";
+  box.append(head, dl, src);
+  return box;
 }

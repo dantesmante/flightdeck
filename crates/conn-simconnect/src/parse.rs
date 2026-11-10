@@ -125,6 +125,26 @@ fn tail_len(kind: NavKind) -> usize {
     }
 }
 
+/// The ident's length in this list's entries: 6 (MSFS 2020's layout) or 9
+/// (MSFS 2024's). Taken from the entry size when it matches the known
+/// layout, otherwise from whichever length reads as real places (the
+/// layout of a list can differ between sim versions; waypoints did).
+fn ident_len(b: &[u8], n: usize, stride: usize, kind: NavKind) -> Option<usize> {
+    let known = stride.checked_sub(tail_len(kind)).filter(|il| [6, 9].contains(il));
+    let reads = |il: usize| {
+        if stride < il + 3 + 24 {
+            return false;
+        }
+        (0..n.min(5)).all(|i| {
+            let o = LIST_OFFSET + i * stride;
+            let ok_str = |at: usize, len: usize| b.get(at..at + len).is_some_and(|s| s.iter().all(|&c| c == 0 || c.is_ascii_alphanumeric() || c == b' '));
+            let (Some(lat), Some(lon), Some(alt)) = (f64_at(b, o + il + 3), f64_at(b, o + il + 11), f64_at(b, o + il + 19)) else { return false };
+            ok_str(o, il) && ok_str(o + il, 3) && lat.abs() <= 90.0 && lon.abs() <= 180.0 && alt.is_finite() && alt.abs() < 20_000.0 && (lat != 0.0 || lon != 0.0)
+        })
+    };
+    known.filter(|&il| reads(il)).or_else(|| [9, 6].into_iter().find(|&il| reads(il)))
+}
+
 /// A VOR, NDB or waypoint list. The ident is 6 bytes long in MSFS 2020's
 /// layout and 9 in MSFS 2024's, so the entry size tells which.
 fn parse_facilities(b: &[u8], kind: NavKind, world: bool) -> Option<NavBatch> {
@@ -136,10 +156,10 @@ fn parse_facilities(b: &[u8], kind: NavKind, world: bool) -> Option<NavBatch> {
         return Some(NavBatch { kind, items: Vec::new(), last, world });
     }
     let stride = (b.len().checked_sub(LIST_OFFSET)?) / n;
-    let il = stride.checked_sub(tail_len(kind))?;
-    if !(4..=12).contains(&il) {
+    let Some(il) = ident_len(b, n, stride, kind) else {
+        log::warn!("MSFS {kind:?} list not understood: {n} entries in {} bytes ({stride} each)", b.len());
         return None;
-    }
+    };
     let mut items = Vec::with_capacity(n);
     for i in 0..n {
         let o = LIST_OFFSET + i * stride;
@@ -151,10 +171,10 @@ fn parse_facilities(b: &[u8], kind: NavKind, world: bool) -> Option<NavBatch> {
             continue;
         }
         let (mut freq_hz, mut dme, mut dme_only) = (None, false, false);
-        if kind != NavKind::Waypoint {
+        if kind != NavKind::Waypoint && stride >= il + 35 {
             freq_hz = u32_at(b, o + il + 31).filter(|&f| f > 0);
         }
-        if kind == NavKind::Vor {
+        if kind == NavKind::Vor && stride >= il + 39 {
             let flags = u32_at(b, o + il + 35).unwrap_or(0);
             // ILS localizers come in the VOR list too: not VORs.
             if flags & 0x2 != 0 {
@@ -424,7 +444,12 @@ mod tests {
 
     /// A facilities list message with entries laid out with an ident of `il` bytes.
     fn list_msg(id: u32, req: u32, il: usize, kind: NavKind, entries: &[(&str, &str, f64, f64, u32, u32)], entry: u32, out_of: u32) -> Vec<u8> {
-        let stride = il + tail_len(kind);
+        list_msg_extra(id, req, il, kind, entries, entry, out_of, 0)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn list_msg_extra(id: u32, req: u32, il: usize, kind: NavKind, entries: &[(&str, &str, f64, f64, u32, u32)], entry: u32, out_of: u32, extra: usize) -> Vec<u8> {
+        let stride = il + tail_len(kind) + extra;
         let mut b = header(id, LIST_OFFSET + stride * entries.len());
         b[HEADER..HEADER + 4].copy_from_slice(&req.to_le_bytes());
         b[HEADER + 4..HEADER + 8].copy_from_slice(&(entries.len() as u32).to_le_bytes());
@@ -479,6 +504,21 @@ mod tests {
         assert_eq!(b.items.len(), 1);
         assert_eq!(b.items[0].ident, "HAMUR");
         assert_eq!(b.items[0].freq_hz, None);
+    }
+
+    #[test]
+    fn waypoints_in_an_unexpected_layout_still_read() {
+        // Entries longer than the documented layout (another sim version):
+        // the ident length is found from where the places make sense.
+        let mut st = State::default();
+        let pts = [("HITBA", "K2", 39.02, -122.95, 0, 0), ("LAPED", "K2", 39.08, -122.79, 0, 0), ("ZOGNA", "K2", 39.05, -122.85, 0, 0)];
+        for (il, extra) in [(9, 8), (6, 12), (9, 0)] {
+            let m = list_msg_extra(crate::ffi::RECV_ID_WAYPOINT_LIST, NAV_WORLD + 2, il, NavKind::Waypoint, &pts, 0, 1, extra);
+            let Parsed::NavAids(b) = parse(&m, &mut st, 0) else { panic!("{il} {extra}") };
+            assert_eq!(b.items.len(), 3, "{il} {extra}");
+            assert_eq!(b.items[1].ident, "LAPED");
+            assert!((b.items[1].lon + 122.79).abs() < 1e-9);
+        }
     }
 
     fn header(id: u32, size: usize) -> Vec<u8> {

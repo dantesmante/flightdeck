@@ -49,6 +49,11 @@ impl NavDb {
         self.items.len()
     }
 
+    /// How many waypoints are known (the rest are VORs and NDBs).
+    pub fn waypoints(&self) -> usize {
+        self.items.iter().filter(|a| a.kind == NavKind::Waypoint).count()
+    }
+
     fn insert(&mut self, a: NavAid) {
         // Same ident and region can repeat far apart (terminal waypoints);
         // the position (to about 1 km) tells them apart.
@@ -73,6 +78,7 @@ impl NavDb {
         self.dirty |= n > 0;
         if b.world && b.last {
             self.world_done.insert(b.kind);
+            log::info!("nav aids: the world's {:?} list received ({} known now)", b.kind, self.items.len());
             if self.world_done.len() == 3 {
                 self.world_done.clear();
                 self.world_ms = now_ms;
@@ -200,6 +206,8 @@ pub struct NavView {
     pub more: bool,
     /// Known in all, and when the whole world was last listed (0 never).
     pub known: usize,
+    /// Of those, waypoints.
+    pub waypoints: usize,
     pub world_ms: i64,
 }
 

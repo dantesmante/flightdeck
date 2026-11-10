@@ -495,11 +495,14 @@ impl Engine {
             self.nav.lock().unwrap().refresh = false;
             if conn.request_navaids(true) {
                 log::info!("asked MSFS for the world's nav aids");
-                self.nav_near = None;
             } else {
                 log::info!("this SimConnect lists nav aids around the aircraft only");
-                self.nav_near = Some(Instant::now() - Duration::from_secs(3600));
             }
+        }
+        // Around the aircraft too, always: fills in whatever the world list
+        // left out (some sims send no waypoints in it) and keeps it current.
+        if self.nav_near.is_none() {
+            self.nav_near = Some(Instant::now() - Duration::from_secs(3600));
         }
         if let Some(t) = self.nav_near {
             if t.elapsed() >= Duration::from_secs(90) && self.last_sample.is_some() {

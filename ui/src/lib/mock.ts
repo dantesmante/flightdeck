@@ -534,7 +534,7 @@ export async function mockCall<T>(cmd: string, _args?: Record<string, unknown>):
       })),
     ];
     const items = all.filter((x) => x.lat >= a.s && x.lat <= a.n && x.lon >= a.w && x.lon <= a.e && (a.waypoints || x.kind !== "waypoint"));
-    return { items, more: false, known: all.length, world_ms: Date.now() - 86_400_000 } as T;
+    return { items, more: false, known: all.length, waypoints: 60, world_ms: Date.now() - 86_400_000 } as T;
   }
   if (cmd === "navaids_refresh") return undefined as T;
   if (cmd === "wind_grid") {

@@ -880,6 +880,8 @@ export interface NavView {
   more: boolean;
   /** Known in all, and when the whole world was last read from the sim (0 never). */
   known: number;
+  /** Of those, waypoints. */
+  waypoints?: number;
   world_ms: number;
 }
 export interface WxAdvisoryProps {

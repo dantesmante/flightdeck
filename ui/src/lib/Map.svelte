@@ -24,7 +24,7 @@
   import { pfdState } from "./pfd/store.svelte";
   import { profileState } from "./profile/store.svelte";
   import { taxiState } from "./taxi/store.svelte";
-  import { NAV_MIN_ZOOM, WPT_MIN_ZOOM, setNavData, showNavLayers } from "./navLayer";
+  import { NAV_MIN_ZOOM, WPT_MIN_ZOOM, navAt, navCard, setNavData, showNavLayers } from "./navLayer";
   import { decodeTemps, setTempCanvas, showTemp, tempImage, tempAt, TEMP_BAR, gridImage, setGridCanvas, showGrid, cloudColor, visColor, visMiles, CLOUD_BAR, VIS_BANDS } from "./tempLayer";
   import { coversFl, decodeIcing, icingSeverity, icingShapes, setIcingAdvisories, setIcingShapes, showIcing } from "./icingLayer";
   import TaxiAssist from "./taxi/TaxiAssist.svelte";
@@ -383,7 +383,8 @@
   // --- Nav aids (from the sim's own navigation data) -------------------------
   // Only what is in view, fetched after the map stops moving and every 20 s
   // (data arrives from the sim while connected).
-  let navInfo = $state<{ known: number; world_ms: number; more: boolean; zoom: number } | null>(null);
+  let navInfo = $state<{ known: number; waypoints: number; world_ms: number; more: boolean; zoom: number } | null>(null);
+  let navPop: maplibregl.Popup | null = null;
   let navTimer: ReturnType<typeof setTimeout> | undefined;
   function loadNav() {
     const m = map;
@@ -400,7 +401,7 @@
     const pad = (b.getNorth() - b.getSouth()) * 0.1;
     if (z < NAV_MIN_ZOOM) {
       setNavData(m, []);
-      api.navaids(0, 0, 0, 0, false).then((v) => (navInfo = { known: v.known, world_ms: v.world_ms, more: false, zoom: z }), () => {});
+      api.navaids(0, 0, 0, 0, false).then((v) => (navInfo = { known: v.known, waypoints: v.waypoints ?? 0, world_ms: v.world_ms, more: false, zoom: z }), () => {});
       return;
     }
     api
@@ -408,7 +409,7 @@
       .then((v) => {
         if (map !== m || !untrack(() => layers.has("navaids"))) return;
         setNavData(m, v.items);
-        navInfo = { known: v.known, world_ms: v.world_ms, more: v.more, zoom: z };
+        navInfo = { known: v.known, waypoints: v.waypoints ?? 0, world_ms: v.world_ms, more: v.more, zoom: z };
       }, () => {});
   }
   $effect(() => {
@@ -434,7 +435,9 @@
     if (!navInfo) return "Loading…";
     if (!navInfo.known) return acAltFt != null ? "Reading from MSFS…" : "Needs MSFS the first time";
     if (navInfo.zoom < NAV_MIN_ZOOM) return "Zoom in to see them";
-    return `${navInfo.known.toLocaleString()} from MSFS${navInfo.zoom < WPT_MIN_ZOOM ? " · waypoints from zoom 8" : ""}`;
+    const radio = navInfo.known - navInfo.waypoints;
+    if (navInfo.zoom < WPT_MIN_ZOOM) return `${radio.toLocaleString()} radio aids · waypoints from zoom 8`;
+    return `${radio.toLocaleString()} radio aids · ${navInfo.waypoints.toLocaleString()} waypoints`;
   });
 
   // --- Temperature (NOAA GFS, 2 m) -------------------------------------------
@@ -2176,7 +2179,19 @@
         return;
       }
       const hit = airportHit(e.point);
+      navPop?.remove();
+      navPop = null;
       if (!hit) {
+        // A VOR, NDB or waypoint: its card on the map.
+        const nav = navAt(map!, e.point);
+        if (nav) {
+          const pop = new maplibregl.Popup({ className: "nav-tip", offset: 14, closeButton: false, closeOnClick: false, maxWidth: "260px" })
+            .setLngLat((nav.geometry as GeoJSON.Point).coordinates as [number, number])
+            .setDOMContent(navCard(nav, () => pop.remove()))
+            .addTo(map!);
+          navPop = pop;
+          return;
+        }
         // Online network: a pilot, a staffed airport or a controlled area.
         const pick = netAt(e.point);
         if (pick) {
@@ -2895,6 +2910,62 @@
     padding: 10px 12px;
     box-shadow: 0 10px 24px rgba(0, 0, 0, 0.45);
     font-size: 12.5px;
+  }
+  .map :global(.nav-tip .maplibregl-popup-content) {
+    background: var(--panel);
+    color: var(--ink);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    padding: 8px 10px 9px;
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.45);
+    font-size: 12px;
+    min-width: 200px;
+  }
+  .map :global(.nav-tip .maplibregl-popup-tip) {
+    display: none;
+  }
+  .map :global(.nc-head) {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 6px;
+  }
+  .map :global(.nc-head strong) {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 14px;
+    letter-spacing: 0.03em;
+  }
+  .map :global(.nc-x) {
+    border: 0;
+    background: none;
+    color: var(--ink-dim);
+    font-size: 17px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0 2px;
+  }
+  .map :global(.nav-card dl) {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 3px 12px;
+    margin: 0;
+    padding: 7px 9px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.04);
+  }
+  .map :global(.nav-card dt) {
+    color: var(--ink-dim);
+  }
+  .map :global(.nav-card dd) {
+    margin: 0;
+    white-space: nowrap;
+    text-align: right;
+    font-weight: 600;
+  }
+  .map :global(.nc-src) {
+    margin: 6px 0 0;
+    font-size: 10.5px;
+    color: var(--ink-faint);
   }
   .map :global(.parked-tip .maplibregl-popup-tip) {
     display: none;

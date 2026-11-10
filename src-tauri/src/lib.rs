@@ -360,7 +360,7 @@ fn navaids(state: tauri::State<AppState>, w: f64, s: f64, e: f64, n: f64, waypoi
     let mut db = state.nav.lock().unwrap();
     db.wanted = true;
     let (items, more) = db.query(w, s, e, n, waypoints, 3000);
-    navaids::NavView { items, more, known: db.len(), world_ms: db.world_ms }
+    navaids::NavView { items, more, known: db.len(), waypoints: db.waypoints(), world_ms: db.world_ms }
 }
 
 /// Ask the sim for the whole world's nav aids again (new navdata).

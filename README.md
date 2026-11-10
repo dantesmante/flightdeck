@@ -400,8 +400,12 @@ MIT licensed.
   (triangles), with ident and frequency, from MSFS's own navigation data.
   While the layer is on and MSFS is connected, FlightDeck asks the sim for
   them: with MSFS 2024's SimConnect.dll the whole world at once (again
-  every 28 days), with an older one
-  those around the aircraft every 90 s, filling in as you fly. They are
+  every 28 days), and always those around the aircraft every 90 s, so
+  whatever the world list leaves out fills in as you fly. A list whose
+  layout differs from the documented one is read by finding where the
+  places make sense (and logged if it can't be). The card shows how many
+  radio aids and waypoints are known. Click one for a small card: ident,
+  type, frequency, region and coordinates. They are
   kept on this PC (navaids-msfs.tsv in FlightDeck's folder) so the layer
   also shows with the sim off; never uploaded. Radio aids from zoom 5,
   waypoints from zoom 8; only what is in view is drawn. ILS localizers
