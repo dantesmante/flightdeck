@@ -389,6 +389,12 @@ async fn temperature_grid(level: Option<String>) -> CmdResult<winds::TempGrid> {
     tauri::async_runtime::spawn_blocking(move || winds::temperature(&level)).await.map_err(err)
 }
 
+/// Cloud cover ("cloud") or surface visibility ("vis") from the forecast.
+#[tauri::command]
+async fn sky_grid(kind: String) -> CmdResult<winds::TempGrid> {
+    tauri::async_runtime::spawn_blocking(move || winds::sky(&kind)).await.map_err(err)
+}
+
 #[tauri::command]
 async fn wind_grid(level: String) -> CmdResult<winds::WindGrid> {
     tauri::async_runtime::spawn_blocking(move || winds::wind(&level)).await.map_err(err)
@@ -1545,6 +1551,7 @@ pub(crate) async fn dispatch(app: &tauri::AppHandle, cmd: &str, a: serde_json::V
         "wx_categories" => ok(to_value(wx_categories().await?)),
         "wind_grid" => ok(to_value(wind_grid(arg(&a, "level")?).await?)),
         "temperature_grid" => ok(to_value(temperature_grid(arg(&a, "level").ok()).await?)),
+        "sky_grid" => ok(to_value(sky_grid(arg(&a, "kind")?).await?)),
         "icing_grid" => ok(to_value(icing_grid(arg(&a, "fl")?).await?)),
         "icing_point" => ok(to_value(icing_point(arg(&a, "lat")?, arg(&a, "lon")?, arg(&a, "fl")?).await?)),
         "navaids" => ok(to_value(navaids(st(), arg(&a, "w")?, arg(&a, "s")?, arg(&a, "e")?, arg(&a, "n")?, arg(&a, "waypoints")?))),
@@ -1733,6 +1740,7 @@ pub fn run() {
             wx_categories,
             wind_grid,
             temperature_grid,
+            sky_grid,
             icing_grid,
             icing_point,
             navaids,

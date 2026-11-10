@@ -25,8 +25,8 @@
   import { profileState } from "./profile/store.svelte";
   import { taxiState } from "./taxi/store.svelte";
   import { NAV_MIN_ZOOM, WPT_MIN_ZOOM, setNavData, showNavLayers } from "./navLayer";
-  import { decodeTemps, setTempCanvas, showTemp, tempImage, tempAt, TEMP_BAR } from "./tempLayer";
-  import { coversFl, decodeIcing, flFor, icingSeverity, icingShapes, setIcingAdvisories, setIcingShapes, showIcing } from "./icingLayer";
+  import { decodeTemps, setTempCanvas, showTemp, tempImage, tempAt, TEMP_BAR, gridImage, setGridCanvas, showGrid, cloudColor, visColor, visMiles, CLOUD_BAR, VIS_BANDS } from "./tempLayer";
+  import { coversFl, decodeIcing, icingSeverity, icingShapes, setIcingAdvisories, setIcingShapes, showIcing } from "./icingLayer";
   import TaxiAssist from "./taxi/TaxiAssist.svelte";
   import { altColor, altGradient, altLabel, altRange, lonLat, sideOnBearing, wallFeatures, wallScale, type Pt } from "./track";
 
@@ -445,9 +445,14 @@
   let tempField = $state.raw<{ t: Float32Array; nx: number; ny: number } | null>(null);
   let tempHere = $state<string | null>(null);
   let tempState = $state<{ s: "idle" | "loading" | "ok" | "error"; valid_ms: number }>({ s: "idle", valid_ms: 0 });
-  /** Temperature level chosen: "auto" follows the aircraft, like the wind. */
-  const tempPref = $derived(prefs.s.map_temp_level ?? "auto");
-  const tempLevel = $derived.by(() => (tempPref === "auto" ? levelFor(flyingAlt ?? 0) : tempPref));
+  /**
+   * One level for wind, temperature and icing ("auto" follows the
+   * aircraft). Kept in the wind's setting, the one that came first.
+   */
+  const levelPref = $derived(prefs.s.map_wind_level ?? "auto");
+  const mapLevel = $derived.by(() => (levelPref === "auto" ? levelFor(flyingAlt ?? 0) : levelPref));
+  const levelLabel = $derived(WIND_LEVELS.find((l) => l.id === mapLevel)?.label ?? "");
+  const tempLevel = $derived(mapLevel);
   $effect(() => {
     const on = layers.has("temp") && !bare;
     const level = tempLevel;
@@ -497,16 +502,80 @@
       : tempState.s === "error"
         ? "NOAA not reachable"
         : tempState.valid_ms
-          ? `${WIND_LEVELS.find((l) => l.id === tempLevel)?.label ?? ""}${tempPref === "auto" ? " (auto)" : ""} · for ${new Date(tempState.valid_ms).toISOString().slice(11, 13)}00Z`
+          ? `${levelLabel} · for ${new Date(tempState.valid_ms).toISOString().slice(11, 13)}Z`
           : "",
   );
+
+  // --- Cloud cover and visibility (NOAA GFS, same file as the wind) -----------
+  type Sky = "cloud" | "vis";
+  let sky = $state<Record<Sky, { s: "idle" | "loading" | "ok" | "error"; valid_ms: number }>>({
+    cloud: { s: "idle", valid_ms: 0 },
+    vis: { s: "idle", valid_ms: 0 },
+  });
+  let skyField = $state.raw<Record<Sky, { t: Float32Array; nx: number; ny: number } | null>>({ cloud: null, vis: null });
+  let skyHere = $state<Record<Sky, string | null>>({ cloud: null, vis: null });
+  const skyCanvas: Record<Sky, HTMLCanvasElement | null> = { cloud: null, vis: null };
+  const skyKey: Record<Sky, number> = { cloud: 0, vis: 0 };
+  function skyLayer(kind: Sky) {
+    const id = `fd-${kind}`;
+    const opacity = kind === "cloud" ? 0.85 : 1;
+    $effect(() => {
+      const on = layers.has(kind) && !bare;
+      if (!loaded || !map) return;
+      const m = map;
+      const c = skyCanvas[kind];
+      if (on && c && !m.getSource(id)) setGridCanvas(m, id, c, opacity);
+      showGrid(m, id, on);
+      if (!on) return;
+      let stop = false;
+      const load = () => {
+        untrack(() => {
+          if (sky[kind].s !== "ok") sky[kind] = { s: "loading", valid_ms: sky[kind].valid_ms };
+        });
+        api.skyGrid(kind).then(
+          (g) => {
+            if (stop || map !== m) return;
+            if (g.error || !g.t) {
+              sky[kind] = { s: "error", valid_ms: 0 };
+              return;
+            }
+            if (g.valid_ms !== skyKey[kind] || !skyCanvas[kind]) {
+              skyKey[kind] = g.valid_ms;
+              const t = decodeTemps(g.t);
+              skyField = { ...skyField, [kind]: { t, nx: g.nx, ny: g.ny } };
+              skyCanvas[kind] = gridImage(t, g.nx, g.ny, kind === "cloud" ? cloudColor : visColor);
+              setGridCanvas(m, id, skyCanvas[kind]!, opacity);
+              showGrid(m, id, true);
+            }
+            sky[kind] = { s: "ok", valid_ms: g.valid_ms };
+          },
+          () => !stop && (sky[kind] = { s: "error", valid_ms: 0 }),
+        );
+      };
+      load();
+      const t = setInterval(load, 30 * 60_000);
+      return () => {
+        stop = true;
+        clearInterval(t);
+      };
+    });
+  }
+  skyLayer("cloud");
+  skyLayer("vis");
+  function skyNote(kind: Sky): string {
+    const st = sky[kind];
+    if (st.s === "loading") return "Loading from NOAA…";
+    if (st.s === "error") return "NOAA not reachable";
+    if (!st.valid_ms) return "";
+    return `${kind === "cloud" ? "Whole sky" : "Surface"} · for ${new Date(st.valid_ms).toISOString().slice(11, 13)}Z`;
+  }
 
   // --- Icing Potential (test version; GFS, FlightDeck's own estimate) ---------
   let icingFc: GeoJSON.FeatureCollection | null = null;
   let icingKey = "";
   let icingState = $state<{ s: "idle" | "loading" | "ok" | "error"; msg: string; info?: string }>({ s: "idle", msg: "" });
-  const icingPref = $derived(prefs.s.map_icing_fl ?? "auto");
-  const icingFl = $derived.by(() => (icingPref === "auto" ? flFor(flyingAlt ?? 12_000) : Number(icingPref) || 120));
+  /** Icing at the shared level: its flight level (SFC: FL030, the lowest worth estimating). */
+  const icingFl = $derived(mapLevel === "sfc" ? 30 : Number(levelLabel.replace("FL", "")) || 100);
   $effect(() => {
     const on = layers.has("icing") && !bare;
     const fl = icingFl;
@@ -733,7 +802,7 @@
   // --- Wind -----------------------------------------------------------------
 
   /** Wind level chosen: "auto" follows the aircraft, else a level id. */
-  const windPref = $derived(prefs.s.map_wind_level ?? "auto");
+  const windPref = $derived(levelPref);
   const flyingAlt = $derived(live.length ? live[live.length - 1][2] : null);
   const windLevel = $derived(windPref === "auto" ? levelFor(flyingAlt ?? 0) : windPref);
   let windField = $state<Field | null>(null);
@@ -794,12 +863,20 @@
   /** Temperature under the mouse (or, on touch screens, at the map centre). */
   function tempUnder(lon: number, lat: number) {
     const f = tempField;
-    if (!f || !layers.has("temp")) {
-      tempHere = null;
-      return;
+    if (!f || !layers.has("temp")) tempHere = null;
+    else {
+      const c = tempAt(f.t, f.nx, f.ny, lon, lat);
+      tempHere = Number.isFinite(c) ? `${Math.round(c)}°C · ${Math.round(c * 1.8 + 32)}°F` : null;
     }
-    const c = tempAt(f.t, f.nx, f.ny, lon, lat);
-    tempHere = Number.isFinite(c) ? `${Math.round(c)}°C · ${Math.round(c * 1.8 + 32)}°F` : null;
+    const cf = skyField.cloud;
+    const cv = cf && layers.has("cloud") ? tempAt(cf.t, cf.nx, cf.ny, lon, lat) : NaN;
+    const vf = skyField.vis;
+    const vv = vf && layers.has("vis") ? tempAt(vf.t, vf.nx, vf.ny, lon, lat) : NaN;
+    const mi = visMiles(vv);
+    skyHere = {
+      cloud: Number.isFinite(cv) ? `${Math.round(Math.max(0, Math.min(100, cv)))}%` : null,
+      vis: Number.isFinite(mi) ? (mi >= 10 ? "10+ SM" : `${mi < 3 ? mi.toFixed(1) : Math.round(mi)} SM · ${(mi * 1.609).toFixed(mi < 3 ? 1 : 0)} km`) : null,
+    };
   }
   const touchOnly = typeof matchMedia !== "undefined" && matchMedia("(hover: none)").matches;
   const windKey = $derived(
@@ -2155,7 +2232,10 @@
     if (touchOnly) map.on("moveend", () => map && tempUnder(map.getCenter().lng, map.getCenter().lat));
     else {
       map.on("mousemove", (e) => tempUnder(e.lngLat.lng, e.lngLat.lat));
-      map.getCanvas().addEventListener("mouseleave", () => (tempHere = null));
+      map.getCanvas().addEventListener("mouseleave", () => {
+        tempHere = null;
+        skyHere = { cloud: null, vis: null };
+      });
     }
     // Runway numbers at the runway ends, for the runways in view.
     map.on("idle", () => {
@@ -2628,8 +2708,9 @@
   parkedLayer={parked != null}
   {airportDetail}
   ondetail={(d) => setPref("map_airport_detail", String(d))}
-  windLevel={windPref}
-  onwindlevel={(l) => setPref("map_wind_level", l)}
+  level={levelPref}
+  levelNow={levelLabel}
+  onlevel={(l) => setPref("map_wind_level", l)}
   cardOpen={!!(openAirport || (netPick && !openAirport) || (wxPick && !openAirport && !netPick))}
   {measuring}
   onmeasure={() => setMeasuring(!measuring)}
@@ -2648,13 +2729,11 @@
   ontaxi={() => (taxiState.open = !taxiState.open)}
   {navNote}
   {tempNote}
-  tempLevel={tempPref}
   {icingNote}
   icingInfo={icingState.info ?? ""}
   {icingAdvNote}
-  icingFl={icingPref}
-  onicingfl={(l) => setPref("map_icing_fl", l)}
-  ontemplevel={(l) => setPref("map_temp_level", l)}
+  cloudNote={skyNote("cloud")}
+  visNote={skyNote("vis")}
   profileOpen={profileState.open}
   onprofile={planner ? () => (profileState.open = !profileState.open) : undefined}
   pfdOpen={pfdState.open}
@@ -2692,13 +2771,7 @@
 <div class="keys">
 {#if layers.has("wind")}
   <div class="wind-key" aria-label="Wind speed colours">
-    <span class="t">
-      Wind
-      <select aria-label="Wind level" value={windPref} onchange={(e) => setPref("map_wind_level", (e.currentTarget as HTMLSelectElement).value)}>
-        <option value="auto">Auto ({WIND_LEVELS.find((l) => l.id === windLevel)?.label})</option>
-        {#each WIND_LEVELS as l (l.id)}<option value={l.id}>{l.label}</option>{/each}
-      </select>
-    </span>
+    <span class="t">Wind <em>{levelLabel}</em></span>
     <span class="bar" style:background={windKey}></span>
     <span class="ends"><span>0</span><span>70</span><span>140+ kt</span></span>
     <span class="sub">
@@ -2708,11 +2781,30 @@
 {/if}
 {#if layers.has("temp") && !bare}
   <div class="wind-key temp-key" aria-label="Temperature colours">
-    <span class="t">Temperature <em>{WIND_LEVELS.find((l) => l.id === tempLevel)?.label ?? ""}</em></span>
+    <span class="t">Temperature <em>{levelLabel}</em></span>
     <span class="bar" style:background={TEMP_BAR}></span>
     <span class="ends"><span>−40</span><span>0</span><span>+40°C</span></span>
     <span class="sub here">
-      {#if tempState.s === "error"}NOAA not reachable{:else if !tempField}Loading…{:else if tempHere}{touchOnly ? "Centre" : "Here"}: <b>{tempHere}</b>{:else}{touchOnly ? "Move the map" : "Point at the map"} for a value{/if}
+      {#if tempState.s === "error"}NOAA not reachable{:else if !tempField}Loading…{:else if tempHere}{touchOnly ? "Centre" : "Here"}: <b>{tempHere}</b>{:else}{touchOnly ? "Move the map" : "Point at the map"}{/if}
+    </span>
+  </div>
+{/if}
+{#if layers.has("cloud") && !bare}
+  <div class="wind-key temp-key" aria-label="Cloud cover">
+    <span class="t">Cloud cover <em>whole sky</em></span>
+    <span class="bar cloud-bar" style:background={CLOUD_BAR}></span>
+    <span class="ends"><span>10%</span><span>50%</span><span>100%</span></span>
+    <span class="sub here">
+      {#if sky.cloud.s === "error"}NOAA not reachable{:else if !skyField.cloud}Loading…{:else if skyHere.cloud}{touchOnly ? "Centre" : "Here"}: <b>{skyHere.cloud}</b>{:else}{touchOnly ? "Move the map" : "Point at the map"}{/if}
+    </span>
+  </div>
+{/if}
+{#if layers.has("vis") && !bare}
+  <div class="wind-key temp-key" aria-label="Visibility">
+    <span class="t">Visibility <em>surface</em></span>
+    <span class="vbands">{#each VIS_BANDS as b (b.label)}<span style:--c={b.color}>{b.label}</span>{/each}<span>5+ SM</span></span>
+    <span class="sub here">
+      {#if sky.vis.s === "error"}NOAA not reachable{:else if !skyField.vis}Loading…{:else if skyHere.vis}{touchOnly ? "Centre" : "Here"}: <b>{skyHere.vis}</b>{:else}{touchOnly ? "Move the map" : "Point at the map"}{/if}
     </span>
   </div>
 {/if}
@@ -3148,10 +3240,29 @@
     gap: 8px;
     pointer-events: none;
   }
+  .wind-key .t em,
   .temp-key .t em {
     font-style: normal;
     color: var(--ink);
     letter-spacing: 0.02em;
+  }
+  .cloud-bar {
+    background-color: #2a3a52 !important;
+  }
+  .vbands {
+    display: flex;
+    gap: 3px;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10.5px;
+  }
+  .vbands span {
+    flex: 1;
+    text-align: center;
+    padding: 1px 0;
+    border-radius: 3px;
+    color: var(--ink);
+    background: color-mix(in srgb, var(--c, transparent) 55%, transparent);
+    border: 1px solid var(--c, var(--rule));
   }
   .temp-key .here b {
     color: var(--ink);
@@ -3176,16 +3287,6 @@
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--ink-dim);
-  }
-  .wind-key select {
-    pointer-events: auto;
-    padding: 1px 4px;
-    border: 1px solid var(--rule);
-    border-radius: 5px;
-    background: var(--panel-2);
-    color: var(--ink);
-    font: 600 11.5px var(--cond);
-    letter-spacing: 0.02em;
   }
   .wind-key .bar {
     height: 6px;

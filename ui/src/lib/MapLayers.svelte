@@ -3,7 +3,7 @@
   // each a panel of picture cards you switch on and off.
   import type { Snippet } from "svelte";
   import { WIND_LEVELS } from "./wind/wind";
-  import { ICING_ADV, ICING_BANDS, ICING_FLS, icingSwatch } from "./icingLayer";
+  import { ICING_ADV, ICING_BANDS, icingSwatch } from "./icingLayer";
 
   interface Props {
     three: boolean;
@@ -19,8 +19,11 @@
     airportDetail?: number;
     ondetail?: (d: number) => void;
     /** Wind level: "auto" (follows the aircraft) or a level id. */
-    windLevel?: string;
-    onwindlevel?: (l: string) => void;
+    /** The level for wind, temperature and icing: "auto" or a level id ("850"). */
+    level?: string;
+    /** What Auto means now ("FL240"). */
+    levelNow?: string;
+    onlevel?: (l: string) => void;
     /** A card is open on the right (airport, network, weather): menus open beside it. */
     cardOpen?: boolean;
     /** The measuring tool is on. Leave out onmeasure to not offer it. */
@@ -46,20 +49,17 @@
     navNote?: string;
     /** Under the Temperature card. */
     tempNote?: string;
-    tempLevel?: string;
-    ontemplevel?: (l: string) => void;
     icingNote?: string;
     icingInfo?: string;
     icingAdvNote?: string;
-    /** "auto" or a flight level ("120"). */
-    icingFl?: string;
-    onicingfl?: (l: string) => void;
+    cloudNote?: string;
+    visNote?: string;
     ringCount?: number;
     ringSet?: string;
     onrings?: (count: number, set: string) => void;
     onroadsopacity?: (o: number) => void;
   }
-  let { three, on, onthree, ontoggle, radarTime, radarError, parkedLayer = false, airportDetail = 1, ondetail, windLevel = "auto", onwindlevel, cardOpen = false, measuring = false, onmeasure, airspaceState = "idle", pfdOpen = false, onpfd, obstaclesState = "idle", hasAircraft = false, roadsOpacity = 1, onroadsopacity, ringCount = 2, ringSet = "auto", onrings, profileOpen = false, onprofile, taxiOpen = false, ontaxi, navNote = "", tempNote = "", tempLevel = "auto", ontemplevel, icingNote = "", icingInfo = "", icingAdvNote = "", icingFl = "auto", onicingfl }: Props = $props();
+  let { three, on, onthree, ontoggle, radarTime, radarError, parkedLayer = false, airportDetail = 1, ondetail, level = "auto", levelNow = "", onlevel, cardOpen = false, measuring = false, onmeasure, airspaceState = "idle", pfdOpen = false, onpfd, obstaclesState = "idle", hasAircraft = false, roadsOpacity = 1, onroadsopacity, ringCount = 2, ringSet = "auto", onrings, profileOpen = false, onprofile, taxiOpen = false, ontaxi, navNote = "", tempNote = "", icingNote = "", icingInfo = "", icingAdvNote = "", cloudNote = "", visNote = "" }: Props = $props();
   /** The Tools drawer (Measure, Taxi, Profile, PFD): stays out until closed. */
   const TOOLS_KEY = "fd.toolsOpen";
   let toolsOpen = $state(
@@ -79,6 +79,7 @@
       /* not remembered */
     }
   }
+  const levelLabel = $derived(level === "auto" ? levelNow : WIND_LEVELS.find((l) => l.id === level)?.label);
   const anyTool = $derived(measuring || taxiOpen || profileOpen || pfdOpen);
   const hasTools = $derived(!!(onmeasure || ontaxi || onprofile || onpfd));
   const DETAIL = ["Major airports only", "Major and regional airports", "All airports and airstrips"];
@@ -98,7 +99,7 @@
   /** The layers in each tab, to mark a tab that has something on. */
   const IN_TAB: Record<Menu, string[]> = {
     traffic: ["world", "airports", "routes", "airspace", "navaids", "parked", "vatsim-atc", "vatsim-pilots", "ivao-atc", "ivao-pilots"],
-    weather: ["radar", "wx-cat", "wx-adv", "wind", "wx-wind", "temp", "icing"],
+    weather: ["radar", "wx-cat", "wx-adv", "wind", "wx-wind", "temp", "icing", "cloud", "vis"],
     map: ["night", "satellite", "terrain", "borders", "roads", "taws", "obstacles", "rings"],
   };
   const tabOn = (t: Menu) => IN_TAB[t].some((k) => on.has(k)) || (t === "traffic" && !on.has("aeroway-off")) || (t === "map" && three);
@@ -287,6 +288,16 @@
       <rect width="120" height="64" fill="url(#la-temp)" opacity="0.75" />
       <path d="M0 22 C 30 14, 60 30, 120 18 M0 44 C 40 36, 70 52, 120 40" fill="none" stroke="#fff" stroke-width="0.8" opacity="0.4" />
       <text x="96" y="58" text-anchor="middle" font-size="10" font-weight="700" fill="#fff">24°</text>
+    {:else if kind === "cloud"}
+      <rect width="120" height="64" fill="#2a3a52" />
+      <path d="M8 40 C 8 28, 26 24, 34 32 C 40 20, 64 22, 66 36 C 78 32, 90 40, 84 50 L 12 50 C 4 50, 2 44, 8 40 Z" fill="#e8edf3" opacity="0.85" />
+      <path d="M70 22 C 74 12, 92 12, 96 20 C 106 18, 116 26, 110 34 L 72 34 C 64 34, 64 26, 70 22 Z" fill="#c9d2dc" opacity="0.6" />
+    {:else if kind === "vis"}
+      <rect width="120" height="64" fill="#1f2a24" />
+      <rect x="0" y="0" width="40" height="64" fill="#cf5bd6" opacity="0.5" />
+      <rect x="40" y="0" width="34" height="64" fill="#e2453c" opacity="0.45" />
+      <rect x="74" y="0" width="28" height="64" fill="#4f8fe8" opacity="0.4" />
+      <text x="20" y="40" text-anchor="middle" font-size="10" font-weight="700" fill="#fff">½ SM</text>
     {:else if kind === "radar"}
       <path d="M10 40 C 20 20, 44 18, 52 30 C 60 42, 40 56, 22 52 C 12 50, 6 46, 10 40 Z" fill="#3aa0ff" opacity="0.55" />
       <path d="M22 40 C 26 32, 38 30, 42 36 C 46 44, 32 48, 26 46 Z" fill="#7ce0ff" opacity="0.8" />
@@ -296,12 +307,12 @@
   </svg>
 {/snippet}
 
-{#snippet card(key: string, label: string, active: boolean, toggle: () => void, extra?: Snippet)}
-  <button class="card" class:active role="switch" aria-checked={active} onclick={toggle}>
+{#snippet card(key: string, label: string, active: boolean, toggle: () => void, extra?: Snippet | string)}
+  <button class="card" class:active role="switch" aria-checked={active} onclick={toggle} title={typeof extra === "string" ? `${label}: ${extra}` : label}>
     <span class="thumb">{@render art(key)}</span>
     <span class="text">
       <span class="label">{label}</span>
-      {#if extra}{@render extra()}{/if}
+      {#if typeof extra === "string"}<span class="note">{extra}</span>{:else if extra}{@render extra()}{:else}<span class="note">&nbsp;</span>{/if}
     </span>
     <span class="tick" aria-hidden="true">
       <svg viewBox="0 0 16 16"><path d="M3.5 8.5l3 3 6-7" /></svg>
@@ -326,7 +337,7 @@
 {/snippet}
 
 {#snippet windNote()}
-  <span class="note">{on.has("wind") ? (WIND_LEVELS.find((l) => l.id === windLevel)?.label ?? "Auto") : "Moving flow"}</span>
+  <span class="note">{on.has("wind") ? (levelLabel ?? "Auto") : "Moving flow"}</span>
 {/snippet}
 
 {#snippet airspaceNote()}
@@ -336,15 +347,23 @@
 {/snippet}
 
 {#snippet navaidsNote()}
-  <span class="note">{on.has("navaids") && navNote ? navNote : "VOR, NDB, waypoints · from MSFS"}</span>
+  <span class="note">{on.has("navaids") && navNote ? navNote : "VOR, NDB, waypoints"}</span>
 {/snippet}
 
 {#snippet icingNote2()}
-  <span class="note">{on.has("icing") && icingNote ? icingNote : "Test · by flight level"}</span>
+  <span class="note">{on.has("icing") && icingNote ? icingNote : "By flight level (test)"}</span>
 {/snippet}
 
 {#snippet tempNote2()}
-  <span class="note">{on.has("temp") && tempNote ? tempNote : "2 m above ground"}</span>
+  <span class="note">{on.has("temp") && tempNote ? tempNote : "Air temperature"}</span>
+{/snippet}
+
+{#snippet cloudNote2()}
+  <span class="note">{on.has("cloud") && cloudNote ? cloudNote : "Total cloud cover"}</span>
+{/snippet}
+
+{#snippet visNote2()}
+  <span class="note">{on.has("vis") && visNote ? visNote : "At the surface"}</span>
 {/snippet}
 
 {#snippet tawsNote()}
@@ -435,12 +454,12 @@
     </div>
     {#if open === "map"}
     <div class="grid">
-      {@render card("3d", "3D flight", three, () => onthree(!three))}
-      {@render card("night", "Day / night", on.has("night"), () => ontoggle("night"))}
-      {@render card("satellite", "Satellite", on.has("satellite"), () => ontoggle("satellite"))}
-      {@render card("terrain", "Topographic", on.has("terrain"), () => ontoggle("terrain"))}
-      {@render card("borders", "Strong borders", on.has("borders"), () => ontoggle("borders"))}
-      {@render card("roads", "Roads", on.has("roads"), () => ontoggle("roads"))}
+      {@render card("3d", "3D flight", three, () => onthree(!three), "Tilted, with terrain")}
+      {@render card("night", "Day / night", on.has("night"), () => ontoggle("night"), "Where it is night")}
+      {@render card("satellite", "Satellite", on.has("satellite"), () => ontoggle("satellite"), "Imagery")}
+      {@render card("terrain", "Topographic", on.has("terrain"), () => ontoggle("terrain"), "Hills and mountains")}
+      {@render card("borders", "Strong borders", on.has("borders"), () => ontoggle("borders"), "Countries, states")}
+      {@render card("roads", "Roads", on.has("roads"), () => ontoggle("roads"), "Roads and highways")}
       {@render card("taws", "Terrain", on.has("taws"), () => ontoggle("taws"), tawsNote)}
       {@render card("obstacles", "Obstacles", on.has("obstacles"), () => ontoggle("obstacles"), obstNote)}
       {@render card("rings", "Range rings", on.has("rings"), () => ontoggle("rings"), ringsNote)}
@@ -483,23 +502,30 @@
         <span style:--c="#d62622">Above you or within 100 ft below</span><span style:--c="#ecc428">100–1,000 ft below</span><span style:--c="#2ea043">1,000–2,000 ft below</span><span style:--c="#3a3d42">2,000 ft+ below</span>
       </p>
     {/if}
-    <p class="credit">Satellite Esri · Terrain AWS Terrain Tiles · Map OpenFreeMap, OpenStreetMap · Obstacles FAA Digital Obstacle File (US, every 28 days)</p>
+    <details class="credit"><summary>Data sources</summary><p>Satellite Esri · Terrain AWS Terrain Tiles · Map OpenFreeMap, OpenStreetMap · Obstacles FAA Digital Obstacle File (US, every 28 days)</p></details>
     {:else if open === "weather"}
     <div class="grid">
       {@render card("radar", "Rain radar", on.has("radar"), () => ontoggle("radar"), radarNote)}
-      {@render card("wx-cat", "Flight category", on.has("wx-cat"), () => ontoggle("wx-cat"))}
-      {@render card("wx-adv", "SIGMET / AIRMET", on.has("wx-adv"), () => ontoggle("wx-adv"))}
+      {@render card("wx-cat", "Flight category", on.has("wx-cat"), () => ontoggle("wx-cat"), "VFR to LIFR")}
+      {@render card("wx-adv", "SIGMET / AIRMET", on.has("wx-adv"), () => ontoggle("wx-adv"), "Hazard areas")}
       {@render card("wind", "Wind", on.has("wind"), () => ontoggle("wind"), windNote)}
-      {@render card("wx-wind", "Airport wind", on.has("wx-wind"), () => ontoggle("wx-wind"))}
+      {@render card("wx-wind", "Airport wind", on.has("wx-wind"), () => ontoggle("wx-wind"), "Reported at airports")}
       {@render card("temp", "Temperature", on.has("temp"), () => ontoggle("temp"), tempNote2)}
       {@render card("icing", "Icing Potential", on.has("icing"), () => ontoggle("icing"), icingNote2)}
+      {@render card("cloud", "Cloud cover", on.has("cloud"), () => ontoggle("cloud"), cloudNote2)}
+      {@render card("vis", "Visibility", on.has("vis"), () => ontoggle("vis"), visNote2)}
     </div>
-    {#if on.has("icing")}
-      <div class="levels" role="radiogroup" aria-label="Icing flight level">
-        {#each ["auto", ...ICING_FLS.map(String)] as l (l)}
-          <button role="radio" aria-checked={icingFl === l} class:on={icingFl === l} onclick={() => onicingfl?.(l)}>{l === "auto" ? "Auto" : `FL${l.padStart(3, "0")}`}</button>
-        {/each}
+    {#if on.has("wind") || on.has("temp") || on.has("icing")}
+      <div class="lvl">
+        <span class="lbl">Level <em>for {[on.has("wind") && "wind", on.has("temp") && "temperature", on.has("icing") && "icing"].filter(Boolean).join(", ")}</em></span>
+        <div class="levels" role="radiogroup" aria-label="Level for wind, temperature and icing">
+          {#each [{ id: "auto", label: levelNow ? `Auto · ${levelNow}` : "Auto" }, ...WIND_LEVELS.map((l) => ({ id: l.id, label: l.id === "sfc" ? "SFC" : l.label }))] as l (l.id)}
+            <button role="radio" aria-checked={level === l.id} class:on={level === l.id} onclick={() => onlevel?.(l.id)}>{l.label}</button>
+          {/each}
+        </div>
       </div>
+    {/if}
+    {#if on.has("icing")}
       <div class="iscale" aria-label="Icing Potential colours">
         {#each ICING_BANDS as b, i (b.min)}
           <span class="ib"><img src={icingSwatch(i)} alt="" />{b.label}</span>
@@ -511,52 +537,26 @@
         {/each}
       </div>
       {#if icingAdvNote}<p class="inote">{icingAdvNote} · faint when not at this level · click one for details</p>{/if}
-      {#if icingInfo}<p class="inote">{icingInfo}</p>{/if}
-      <p class="inote">Test version · FlightDeck's own estimate from the forecast, for flight simulation only. Not observed icing, not for real-world flying.</p>
-    {/if}
-    {#if on.has("temp")}
-      <div class="levels" role="radiogroup" aria-label="Temperature level">
-        {#each [{ id: "auto", label: "Auto" }, ...WIND_LEVELS.map((l) => ({ id: l.id, label: l.id === "sfc" ? "SFC" : l.label }))] as l (l.id)}
-          <button role="radio" aria-checked={tempLevel === l.id} class:on={tempLevel === l.id} onclick={() => ontemplevel?.(l.id)}>{l.label}</button>
-        {/each}
-      </div>
-      <div class="tscale" aria-label="Temperature colours">
-        <span class="bar"></span>
-        <span class="ticks">
-          {#each [-40, -20, 0, 20, 40] as c (c)}
-            <span style:left="{((c + 40) / 80) * 100}%">{c}°C<br />{Math.round(c * 1.8 + 32)}°F</span>
-          {/each}
-        </span>
-      </div>
-    {/if}
-    {#if on.has("wind")}
-      <div class="levels" role="radiogroup" aria-label="Wind level">
-        {#each [{ id: "auto", label: "Auto" }, ...WIND_LEVELS.map((l) => ({ id: l.id, label: l.id === "sfc" ? "SFC" : l.label }))] as l (l.id)}
-          <button role="radio" aria-checked={windLevel === l.id} class:on={windLevel === l.id} onclick={() => onwindlevel?.(l.id)}>{l.label}</button>
-        {/each}
-      </div>
+      <p class="inote">Test version: FlightDeck's own estimate from the forecast, for flight simulation only. Not observed icing, not for real-world flying.</p>
     {/if}
     {#if on.has("wx-cat")}
       <p class="legend">
         <span style:--c="#2fbf71">VFR</span><span style:--c="#4f8fe8">MVFR</span><span style:--c="#e2453c">IFR</span><span style:--c="#cf5bd6">LIFR</span>
       </p>
     {/if}
-      <p class="credit">
-        Radar RainViewer · METARs, SIGMETs and AIRMETs NOAA Aviation Weather Center (every 10 min while on) · Wind
-        forecast NOAA GFS (one level, about 100 KB, every 3 h while on; drawn on the processor, not the graphics card) ·
-        Temperature NOAA GFS (2 m above ground, about 60 KB, every 3 h while on; one picture on the map) ·
-        Icing Potential FlightDeck's estimate from NOAA GFS temperature, humidity, cloud water and ice, vertical velocity and height on 20 levels (about 25 MB per forecast step, while on)
-      </p>
+      <details class="credit"><summary>Data sources</summary><p>Radar RainViewer · METARs, SIGMETs and AIRMETs NOAA Aviation Weather Center (every 10 min while on) · Wind,
+        temperature, cloud cover and visibility NOAA GFS (about 60–100 KB each, every 3 h while on) · Icing Potential
+        FlightDeck's estimate from NOAA GFS on 20 levels (about 25 MB per forecast step, while on){#if icingInfo} · {icingInfo}{/if}</p></details>
     {:else}
     <div class="grid">
-      {@render card("world", "World airports", on.has("world"), () => ontoggle("world"))}
-      {@render card("airports", "Your airports", on.has("airports"), () => ontoggle("airports"))}
-      {@render card("routes", "Past routes", on.has("routes"), () => ontoggle("routes"))}
-      {@render card("aeroway", "Runways", !on.has("aeroway-off"), () => ontoggle("aeroway-off"))}
+      {@render card("world", "World airports", on.has("world"), () => ontoggle("world"), "Every airport")}
+      {@render card("airports", "Your airports", on.has("airports"), () => ontoggle("airports"), "Where you've flown")}
+      {@render card("routes", "Past routes", on.has("routes"), () => ontoggle("routes"), "Your flights")}
+      {@render card("aeroway", "Runways", !on.has("aeroway-off"), () => ontoggle("aeroway-off"), "And taxiways")}
       {@render card("airspace", "Airspace", on.has("airspace"), () => ontoggle("airspace"), airspaceNote)}
       {@render card("navaids", "Nav aids", on.has("navaids"), () => ontoggle("navaids"), navaidsNote)}
       {#if parkedLayer}
-        {@render card("parked", "Parked aircraft", on.has("parked"), () => ontoggle("parked"))}
+        {@render card("parked", "Parked aircraft", on.has("parked"), () => ontoggle("parked"), "Where you left them")}
       {/if}
     </div>
     {#if on.has("world")}
@@ -579,10 +579,8 @@
       {@render netCard("vatsim", "VATSIM")}
       {@render netCard("ivao", "IVAO")}
     </div>
-    <p class="credit">
-      Airports OurAirports · Runways and taxiways OpenStreetMap · Airspace FAA (US only, every 28 days) · Live traffic VATSIM and IVAO (every 30 s while on) ·
-      ATC areas VAT-Spy Data Project (CC BY-SA 4.0) · Nav aids from MSFS's own navigation data while it runs (kept on this PC, never shared; radio aids from zoom 5, waypoints from zoom 8)
-    </p>
+    <details class="credit"><summary>Data sources</summary><p>Airports OurAirports · Runways and taxiways OpenStreetMap · Airspace FAA (US only, every 28 days) · Live traffic VATSIM and IVAO (every 30 s while on) ·
+      ATC areas VAT-Spy Data Project (CC BY-SA 4.0) · Nav aids from MSFS's own navigation data while it runs (kept on this PC, never shared; radio aids from zoom 5, waypoints from zoom 8)</p></details>
     {/if}
   </div>
 {/if}
@@ -737,31 +735,6 @@
     line-height: 1.35;
     color: var(--ink-faint, #7d828a);
   }
-  .tscale {
-    margin: 10px 2px 0;
-  }
-  .tscale .bar {
-    display: block;
-    margin: 0 14px;
-    height: 10px;
-    border-radius: 5px;
-    background: linear-gradient(90deg, #783caa 0%, #4650c8 18.75%, #3c8ce6 37.5%, #6ec8f0 50%, #5ac878 62.5%, #ebdc50 75%, #f08c32 87.5%, #d22828 100%);
-  }
-  .tscale .ticks {
-    display: block;
-    position: relative;
-    height: 26px;
-    margin: 4px 14px 0;
-    font-size: 10.5px;
-    line-height: 1.2;
-    color: var(--ink-faint, #7d828a);
-    text-align: center;
-  }
-  .tscale .ticks span {
-    position: absolute;
-    transform: translateX(-50%);
-    white-space: nowrap;
-  }
   .layers-btn:hover,
   .layers-btn.open {
     color: var(--ink);
@@ -881,7 +854,8 @@
   }
   .grid {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-auto-rows: 68px;
     gap: 7px;
   }
   /* Tiles: a short picture strip over the name, a tick when on. */
@@ -916,15 +890,24 @@
   }
   .text {
     display: grid;
+    min-width: 0;
     padding: 5px 7px 6px;
+  }
+  /* Every tile the same size: one line of name, one line of description. */
+  .label,
+  .note {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
   }
   .label {
     font-size: 12px;
     font-weight: 600;
-    line-height: 1.15;
+    line-height: 1.25;
   }
   .note {
     font-size: 10.5px;
+    line-height: 1.3;
     color: var(--ink-dim);
   }
   .tick {
@@ -955,7 +938,21 @@
     transform: none;
   }
   .grid.two {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .lvl {
+    margin: 10px 2px 0;
+  }
+  .lvl .lbl {
+    font-size: 12px;
+    color: var(--ink);
+  }
+  .lvl .lbl em {
+    font-style: normal;
+    color: var(--ink-dim);
+  }
+  .lvl .levels {
+    margin-top: 5px;
   }
   .card.net .text {
     display: flex;
@@ -1033,6 +1030,23 @@
     font-size: 10.5px;
     line-height: 1.4;
     color: var(--ink-faint);
+  }
+  .credit summary {
+    cursor: pointer;
+    list-style: none;
+    width: max-content;
+  }
+  .credit summary::-webkit-details-marker {
+    display: none;
+  }
+  .credit summary::before {
+    content: "ⓘ ";
+  }
+  .credit summary:hover {
+    color: var(--ink-dim);
+  }
+  .credit p {
+    margin: 4px 0 0;
   }
   /* Tablets and narrow windows: the menu buttons show their icons only, so
      they stay clear of the cards on the left. */

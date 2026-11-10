@@ -569,10 +569,10 @@
             <button type="button" role="radio" aria-checked={rules === "IFR"} class:on={rules === "IFR"} onclick={() => (rules = "IFR")}>IFR</button>
           </span>
         </div>
-        <div class="row">
-          <button type="button" class="pln" disabled={saving} onclick={savePln}>
+        <div class="row acts">
+          <button type="button" class="pln" disabled={saving} onclick={savePln} title="Save as a .PLN file for MSFS">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 19h14" /></svg>
-            {saving ? "Saving…" : "Save as .PLN"}
+            {saving ? "Saving…" : "Save .PLN"}
           </button>
           <button type="button" class="ghost" onclick={() => startDrawing(true)}>Edit</button>
           <button type="button" class="ghost" onclick={() => startDrawing()}>Redraw</button>
@@ -1108,6 +1108,21 @@
     align-items: center;
     gap: 6px;
     margin-right: auto;
+  }
+  /* Save, Edit, Redraw and Remove on one line. */
+  .drawn .acts {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 5px;
+  }
+  .drawn .acts button {
+    padding: 6px 9px;
+    font-size: 12.5px;
+    white-space: nowrap;
+    flex: none;
+  }
+  .drawn .acts .pln {
+    padding: 6px 10px;
   }
   .pln svg {
     width: 16px;

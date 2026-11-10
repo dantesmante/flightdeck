@@ -329,6 +329,49 @@ pub fn temperature(level: &str) -> TempGrid {
     }
 }
 
+/// Cloud cover or visibility from the same forecast file as the wind:
+/// "cloud" is total cloud cover (TCDC, whole atmosphere) in tenths of a
+/// percent; "vis" is surface visibility (VIS) in tens of metres. Same grid
+/// layout as the temperature. Kept per forecast step.
+pub fn sky(kind: &str) -> TempGrid {
+    type Held = std::collections::HashMap<String, (i64, i64, TempGrid)>;
+    static GRID: OnceLock<Mutex<Held>> = OnceLock::new();
+    let (var, level, scale, name) = match kind {
+        "cloud" => ("TCDC", "entire atmosphere", 10.0f32, "Cloud cover"),
+        "vis" => ("VIS", "surface", 0.1, "Visibility"),
+        _ => return TempGrid { error: Some("Unknown layer".into()), ..Default::default() },
+    };
+    let slot = GRID.get_or_init(Default::default);
+    let (run, step, idx) = {
+        let mut c = cache().lock().unwrap();
+        match current(&mut c) {
+            Ok(f) => f,
+            Err(e) => return TempGrid { error: Some(e), ..Default::default() },
+        }
+    };
+    let mut held = slot.lock().unwrap();
+    if let Some((r, s, g)) = held.get(kind) {
+        if (*r, *s) == (run, step) {
+            return g.clone();
+        }
+    }
+    let got = find_range(&idx, var, level)
+        .ok_or_else(|| format!("{name} is missing from the forecast"))
+        .and_then(|range| decode_field(&get(&file_url(run, step), Some(range))?));
+    match got {
+        Ok(v) => {
+            let vals: Vec<f32> = v.into_iter().map(|x| if x.is_finite() { x * scale } else { f32::NAN }).collect();
+            let g = TempGrid { run_ms: run, valid_ms: run + step * 3_600_000, nx: 360, ny: 181, t: pack(&vals), error: None };
+            held.insert(kind.to_string(), (run, step, g.clone()));
+            g
+        }
+        Err(e) => {
+            log::warn!("{name}: {e}");
+            TempGrid { error: Some(e), ..Default::default() }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

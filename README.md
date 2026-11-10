@@ -406,6 +406,17 @@ MIT licensed.
   also shows with the sim off; never uploaded. Radio aids from zoom 5,
   waypoints from zoom 8; only what is in view is drawn. ILS localizers
   are left out.
+- **One level for the weather** (Layers, Weather): wind, temperature and
+  Icing Potential share one level row (Auto follows the aircraft; SFC,
+  FL050–FL390), shown under the cards when any of them is on; icing at SFC
+  is drawn for FL030. Layer cards are all one size, with one line of
+  description, and each tab's data sources fold away under "Data sources".
+- **Cloud cover** and **Visibility** (Layers, Weather): NOAA GFS total
+  cloud cover (white, more solid as it thickens; nothing under 10 %) and
+  surface visibility (magenta under 1 SM, red 1–3 SM, blue 3–5 SM, nothing
+  at 5 SM and more), from the same forecast file as the wind (one field
+  each, about 60–100 KB, every 3 h while on; public domain), each with a
+  key that reads out the value under the mouse.
 - **Temperature** (Layers, Weather): the map tinted by the forecast air
   temperature at a level picked like the wind's (Auto follows the
   aircraft; SFC is 2 m above the ground, then 850 to 200 hPa) (purple −40 °C, blue near freezing,

@@ -1006,6 +1006,8 @@ export const api = {
   wxCategories: () => call<WxCategories>("wx_categories"),
   windGrid: (level: string) => call<WindGrid>("wind_grid", { level }),
   temperatureGrid: (level: string) => call<TempGrid>("temperature_grid", { level }),
+  /** Cloud cover (tenths of a percent) or surface visibility (tens of metres), same layout as the temperature. */
+  skyGrid: (kind: "cloud" | "vis") => call<TempGrid>("sky_grid", { kind }),
   icingGrid: (fl: number) => call<IcingGrid>("icing_grid", { fl }),
   navaids: (w: number, s: number, e: number, n: number, waypoints: boolean) => call<NavView>("navaids", { w, s, e, n, waypoints }),
   navaidsRefresh: () => call<void>("navaids_refresh"),

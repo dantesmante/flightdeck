@@ -64,6 +64,20 @@ const MAX_LAT = 85.0511;
 
 /** The picture: `size` pixels square, Mercator, longitudes −180..180. */
 export function tempImage(t: Float32Array, nx: number, ny: number, size = 512): HTMLCanvasElement {
+  return gridImage(t, nx, ny, (v) => [...tempColor(v), 255], size);
+}
+
+/**
+ * Any one-degree grid as a picture (Mercator, −180..180), each value
+ * coloured by `color` (RGBA, or null for nothing).
+ */
+export function gridImage(
+  t: Float32Array,
+  nx: number,
+  ny: number,
+  color: (v: number) => readonly [number, number, number, number] | null,
+  size = 512,
+): HTMLCanvasElement {
   const c = document.createElement("canvas");
   c.width = c.height = size;
   const g = c.getContext("2d")!;
@@ -84,11 +98,12 @@ export function tempImage(t: Float32Array, nx: number, ny: number, size = 512): 
         (at(r0, c0) * (1 - ct) + at(r0, c0 + 1) * ct) * (1 - rt) + (at(r0 + 1, c0) * (1 - ct) + at(r0 + 1, c0 + 1) * ct) * rt;
       const i = (y * size + x) * 4;
       if (!Number.isFinite(v)) continue;
-      const [r, gg, b] = tempColor(v);
-      img.data[i] = r;
-      img.data[i + 1] = gg;
-      img.data[i + 2] = b;
-      img.data[i + 3] = 255;
+      const col = color(v);
+      if (!col) continue;
+      img.data[i] = col[0];
+      img.data[i + 1] = col[1];
+      img.data[i + 2] = col[2];
+      img.data[i + 3] = col[3];
     }
   }
   g.putImageData(img, 0, 0);
@@ -108,15 +123,49 @@ const COORDS: [[number, number], [number, number], [number, number], [number, nu
  * get in the way. A new picture replaces the source.
  */
 export function setTempCanvas(map: maplibregl.Map, canvas: HTMLCanvasElement) {
-  if (map.getLayer("fd-temp")) map.removeLayer("fd-temp");
-  if (map.getSource("fd-temp")) map.removeSource("fd-temp");
-  map.addSource("fd-temp", { type: "canvas", canvas, coordinates: COORDS, animate: false });
+  setGridCanvas(map, "fd-temp", canvas, 0.5);
+}
+
+export function showTemp(map: maplibregl.Map, on: boolean) {
+  showGrid(map, "fd-temp", on);
+}
+
+/** A grid picture as its own map layer (`id`), under the routes. */
+export function setGridCanvas(map: maplibregl.Map, id: string, canvas: HTMLCanvasElement, opacity: number) {
+  if (map.getLayer(id)) map.removeLayer(id);
+  if (map.getSource(id)) map.removeSource(id);
+  map.addSource(id, { type: "canvas", canvas, coordinates: COORDS, animate: false });
   map.addLayer(
-    { id: "fd-temp", type: "raster", source: "fd-temp", paint: { "raster-opacity": 0.5, "raster-resampling": "linear", "raster-fade-duration": 0 } },
+    { id, type: "raster", source: id, paint: { "raster-opacity": opacity, "raster-resampling": "linear", "raster-fade-duration": 0 } },
     map.getLayer("routes-line") ? "routes-line" : undefined,
   );
 }
 
-export function showTemp(map: maplibregl.Map, on: boolean) {
-  if (map.getLayer("fd-temp")) map.setLayoutProperty("fd-temp", "visibility", on ? "visible" : "none");
+export function showGrid(map: maplibregl.Map, id: string, on: boolean) {
+  if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", on ? "visible" : "none");
+}
+
+// --- Cloud cover and visibility (same forecast file, same kind of picture) ---
+
+/** Cloud cover (%): white, more solid as it thickens; nothing under 10 %. */
+export function cloudColor(pct: number): readonly [number, number, number, number] | null {
+  if (pct < 10) return null;
+  const a = Math.min(1, (pct - 10) / 90);
+  return [236, 240, 245, Math.round(30 + a * 170)];
+}
+export const CLOUD_BAR = "linear-gradient(90deg, rgba(236,240,245,0.05), rgba(236,240,245,0.78))";
+
+/** Visibility, statute miles: flight-category colours; clear (5 SM and more) shows nothing. */
+export const VIS_BANDS = [
+  { max: 1, label: "< 1", color: "#cf5bd6", rgba: [207, 91, 214, 150] },
+  { max: 3, label: "1–3", color: "#e2453c", rgba: [226, 69, 60, 120] },
+  { max: 5, label: "3–5", color: "#4f8fe8", rgba: [79, 143, 232, 95] },
+] as const;
+export const SM = 1609.344;
+/** Grid value (hundreds of metres after decoding) → statute miles. */
+export const visMiles = (v: number) => (v * 100) / SM;
+export function visColor(v: number): readonly [number, number, number, number] | null {
+  const mi = visMiles(v);
+  for (const b of VIS_BANDS) if (mi < b.max) return b.rgba;
+  return null;
 }

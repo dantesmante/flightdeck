@@ -455,6 +455,22 @@ export async function mockCall<T>(cmd: string, _args?: Record<string, unknown>):
       winds: AIRPORTS.map((a, i) => [a.icao, a.lon, a.lat, i % 7 === 3 ? -1 : (i * 47) % 360, [0, 4, 9, 14, 19, 27, 36][i % 7], i % 3 === 0 ? 25 : 0]),
     } as T;
   }
+  if (cmd === "sky_grid") {
+    // Made-up weather systems: bands of cloud, poor visibility under them.
+    const kind = (_args as { kind: string }).kind;
+    const v = new Int16Array(360 * 181);
+    for (let r = 0; r < 181; r++)
+      for (let c = 0; c < 360; c++) {
+        const lat = 90 - r;
+        const w = Math.max(0, Math.sin((c / 360) * Math.PI * 8 + lat / 12) * Math.cos((lat / 90) * Math.PI * 2.5));
+        v[r * 360 + c] = kind === "cloud" ? Math.round(Math.min(100, w * 130) * 10) : Math.round((24000 - Math.min(23500, w * 30000)) * 0.1);
+      }
+    const bytes = new Uint8Array(v.buffer);
+    let s = "";
+    for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+    const now = Date.now();
+    return { run_ms: now - 6 * 3600_000, valid_ms: now, nx: 360, ny: 181, t: btoa(s), error: null } as T;
+  }
   if (cmd === "temperature_grid") {
     // Warm tropics, cold poles, colder over a few made-up mountain spots.
     const t = new Int16Array(360 * 181);
