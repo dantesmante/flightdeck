@@ -46,6 +46,7 @@
   let redo = $state.raw<Stroke[]>([]);
   let picking = $state(false);
   let small = $state(false);
+  let padW = $state(1000);
   const page = $derived(pages[template] ?? { strokes: [] });
   const current = $derived(TEMPLATES.find((x) => x.id === template)!);
 
@@ -224,7 +225,7 @@
   </svg>
 {/snippet}
 
-<section class="pad" class:small style:left={small ? null : `${16 + insetLeft}px`} aria-label="Scratch pad">
+<section class="pad" class:small bind:clientWidth={padW} style:left={small ? null : `${16 + insetLeft}px`} aria-label="Scratch pad">
   <header>
     <div class="pickwrap" bind:this={picker}>
       <button class="pick" onclick={() => (picking = !picking)} aria-expanded={picking} aria-haspopup="listbox">
@@ -277,7 +278,7 @@
     <canvas bind:this={canvas} class:off={template === "type"} class:erase={pen.erasing} onpointerdown={down} onpointermove={move} onpointerup={up} onpointercancel={up}></canvas>
     {#if template !== "type"}
       <div class="dock">
-        <DrawPalette canUndo={page.strokes.length > 0} canRedo={redo.length > 0} onundo={undo} onredo={again} onclear={clear} />
+        <DrawPalette compact={padW < 720} canUndo={page.strokes.length > 0} canRedo={redo.length > 0} onundo={undo} onredo={again} onclear={clear} />
       </div>
     {:else}
       <div class="dock">

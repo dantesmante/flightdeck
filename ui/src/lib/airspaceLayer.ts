@@ -36,6 +36,7 @@ const isDashed = ["in", ["get", "c"], ["literal", DASHED]] as unknown as maplibr
 const isSolid = ["!", ["in", ["get", "c"], ["literal", DASHED]]] as unknown as maplibregl.FilterSpecification;
 
 export const SOURCES = ["us-airspace", "world-airspace"] as const;
+const baseFill: unknown = ["match", ["get", "c"], ["P", "R"], 0.08, ["D", "E", "G", "F", "CTR"], 0.035, 0.055];
 const ids = (src: string) => ({ fill: `${src}-fill`, line: `${src}-line`, dash: `${src}-dash`, block: `${src}-3d` });
 
 export function addAirspaceLayers(map: maplibregl.Map, three: boolean) {
@@ -50,7 +51,7 @@ export function addAirspaceLayers(map: maplibregl.Map, three: boolean) {
       source: src,
       minzoom: 5,
       layout: { visibility: "none" },
-      paint: { "fill-color": color, "fill-opacity": ["match", ["get", "c"], ["P", "R"], 0.07, ["D", "E", "G", "F", "CTR"], 0.025, 0.045] as unknown as maplibregl.ExpressionSpecification },
+      paint: { "fill-color": color, "fill-opacity": baseFill as maplibregl.ExpressionSpecification },
     });
     map.addLayer({
       id: L.block,
@@ -100,22 +101,15 @@ export function addAirspaceLayers(map: maplibregl.Map, three: boolean) {
       });
     rim("asp-rim-top", ["get", "hb"], ["get", "ht"]);
     rim("asp-rim-low", ["get", "lb"], ["get", "lt"]);
-    map.addLayer({
-      id: "asp-ribbon-edge",
-      type: "line",
-      source: "asp-over",
-      filter: ["==", ["get", "t"], "ribbon"],
-      layout: { visibility: "none", "line-cap": "round", "line-join": "round" },
-      paint: { "line-color": color, "line-width": 18 },
-    });
-    map.addLayer({
-      id: "asp-ribbon",
-      type: "line",
-      source: "asp-over",
-      filter: ["==", ["get", "t"], "ribbon"],
-      layout: { visibility: "none", "line-cap": "round", "line-join": "round" },
-      paint: { "line-color": "rgba(14,15,18,0.95)", "line-width": 15 },
-    });
+    // Altitude boxes as VFR charts print them: ceiling over floor, a line
+    // between, in a box of the area's colour.
+    for (const k of KINDS) {
+      const id = `asp-alt-${k}`;
+      if (!map.hasImage(id)) {
+        const b = altBox(ASP_KINDS[k].color);
+        map.addImage(id, b.img, b.opts);
+      }
+    }
     if (map.getStyle().glyphs)
       map.addLayer({
         id: "asp-label",
@@ -124,21 +118,68 @@ export function addAirspaceLayers(map: maplibregl.Map, three: boolean) {
         filter: ["==", ["get", "t"], "label"],
         layout: {
           visibility: "none",
-          "symbol-placement": "line-center",
           "text-field": ["get", "label"],
           "text-font": ["Noto Sans Bold"],
           "text-size": 11,
-          "text-letter-spacing": 0.03,
-          "text-keep-upright": false,
-          "text-max-angle": 85,
-          "text-allow-overlap": true,
-          "text-ignore-placement": true,
-          "text-rotation-alignment": "map",
+          "text-line-height": 1.35,
+          "text-letter-spacing": 0.02,
+          "text-padding": 4,
+          "icon-image": ["concat", "asp-alt-", ["get", "c"]],
+          "icon-text-fit": "both",
+          "icon-text-fit-padding": [3, 6, 3, 6],
         },
-        paint: { "text-color": "#f2f4f7" },
+        paint: { "text-color": "#ffffff" },
       });
   }
   showAirspace(map, false, three);
+}
+
+/** A box in the area's colour with a thin line across its middle. */
+function altBox(c: string) {
+  const W = 24;
+  const H = 40;
+  const cv = document.createElement("canvas");
+  cv.width = W;
+  cv.height = H;
+  const g = cv.getContext("2d")!;
+  const r = 5;
+  g.beginPath();
+  g.moveTo(r, 0);
+  g.arcTo(W, 0, W, H, r);
+  g.arcTo(W, H, 0, H, r);
+  g.arcTo(0, H, 0, 0, r);
+  g.arcTo(0, 0, W, 0, r);
+  g.closePath();
+  g.fillStyle = c;
+  g.globalAlpha = 0.92;
+  g.fill();
+  g.globalAlpha = 1;
+  g.fillStyle = "rgba(255,255,255,0.8)";
+  g.fillRect(5, H / 2 - 1, W - 10, 2);
+  return {
+    img: g.getImageData(0, 0, W, H),
+    opts: { pixelRatio: 2, stretchX: [[8, 16]] as [number, number][], stretchY: [[6, 17], [23, 34]] as [number, number][], content: [6, 5, 18, 35] as [number, number, number, number] },
+  };
+}
+
+/** "10000MSL" → "100", "GND" → "SFC", "2000AGL" → "20 AGL", "FL180" stays. */
+export function chartAlt(t: string): string {
+  if (!t) return "";
+  if (t === "GND") return "SFC";
+  if (t === "UNL" || t.startsWith("FL")) return t;
+  const m = /^(\d+)(MSL|AGL)$/.exec(t);
+  if (!m) return t;
+  const h = Math.round(Number(m[1]) / 100);
+  return m[2] === "AGL" ? `${h} AGL` : String(h);
+}
+
+/** Fill only the areas the aircraft is in by height (2D); all when there is none. */
+export function fillForAltitude(map: maplibregl.Map, alt: number | null) {
+  for (const src of SOURCES) {
+    const id = ids(src).fill;
+    if (!map.getLayer(id)) continue;
+    map.setPaintProperty(id, "fill-opacity", (alt == null ? baseFill : ["case", ["all", [">=", alt, ["get", "lo"]], ["<=", alt, ["get", "hi"]]], baseFill, 0]) as maplibregl.ExpressionSpecification);
+  }
 }
 
 const rimColor = ["match", ["get", "c"], ...KINDS.flatMap((k) => [k, lighten(ASP_KINDS[k].color)]), "#cfe0ff"] as unknown as maplibregl.ExpressionSpecification;
@@ -159,7 +200,7 @@ export function showAirspace(map: maplibregl.Map, on: boolean, three: boolean) {
     vis(L.dash, on);
   }
   const vis = (id: string, v: boolean) => map.getLayer(id) && map.setLayoutProperty(id, "visibility", v ? "visible" : "none");
-  for (const id of ["asp-ribbon-edge", "asp-ribbon", "asp-label"]) vis(id, on);
+  vis("asp-label", on);
   for (const id of ["asp-rim-top", "asp-rim-low"]) vis(id, on && three);
 }
 
@@ -204,21 +245,67 @@ function polygons(f: GeoJSON.Feature): number[][][][] {
   return [];
 }
 
-const textPx = (s: string) => s.length * 7.9 + 26;
 
-/** A polyline shifted sideways by d pixels (positive = to the right of travel). */
-function offset(pts: P[], d: number): P[] {
-  return pts.map((p, i) => {
-    const a = pts[Math.max(0, i - 1)];
-    const b = pts[Math.min(pts.length - 1, i + 1)];
-    let nx = -(b[1] - a[1]);
-    let ny = b[0] - a[0];
-    const l = Math.hypot(nx, ny) || 1;
-    nx /= l;
-    ny /= l;
-    // (nx, ny) is the right of travel on screen (y down).
-    return [p[0] + nx * d, p[1] + ny * d];
-  });
+/**
+ * The point inside a polygon (screen rings, holes after the first) furthest
+ * from its edges, kept within the view; null if no spot is at least `need`
+ * pixels from every edge.
+ */
+function inside(rings: P[][], W: number, H: number, need: number): P | null {
+  const outer = rings[0];
+  let x0 = Infinity;
+  let y0 = Infinity;
+  let x1 = -Infinity;
+  let y1 = -Infinity;
+  for (const [x, y] of outer) {
+    x0 = Math.min(x0, x);
+    y0 = Math.min(y0, y);
+    x1 = Math.max(x1, x);
+    y1 = Math.max(y1, y);
+  }
+  x0 = Math.max(x0, 30);
+  y0 = Math.max(y0, 70);
+  x1 = Math.min(x1, W - 30);
+  y1 = Math.min(y1, H - 30);
+  if (x1 - x0 < need * 2 || y1 - y0 < need * 1.2) return null;
+  const isIn = (x: number, y: number) => {
+    let c = false;
+    for (const r of rings)
+      for (let i = 0, j = r.length - 1; i < r.length; j = i++) {
+        const [xi, yi] = r[i];
+        const [xj, yj] = r[j];
+        if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) c = !c;
+      }
+    return c;
+  };
+  const dist = (x: number, y: number) => {
+    let d = Infinity;
+    for (const r of rings)
+      for (let i = 1; i < r.length; i++) {
+        const [ax, ay] = r[i - 1];
+        const dx = r[i][0] - ax;
+        const dy = r[i][1] - ay;
+        const l2 = dx * dx + dy * dy || 1;
+        const t = Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / l2));
+        d = Math.min(d, Math.hypot(x - ax - t * dx, y - ay - t * dy));
+      }
+    return d;
+  };
+  let best: P | null = null;
+  let bd = need;
+  const N = 9;
+  for (let i = 0; i <= N; i++)
+    for (let j = 0; j <= N; j++) {
+      const x = x0 + ((x1 - x0) * (i + 0.5)) / (N + 1);
+      const y = y0 + ((y1 - y0) * (j + 0.5)) / (N + 1);
+      if (!isIn(x, y)) continue;
+      const d = dist(x, y);
+      if (d > bd) {
+        bd = d;
+        best = [x, y];
+      }
+    }
+  return best;
 }
 
 /** Douglas-Peucker on screen points: the indices kept (tolerance in pixels). */
@@ -251,25 +338,10 @@ function simplifyIdx(pts: P[], tol: number): number[] {
   return out;
 }
 
-/** Part of a polyline from distance s0 to s1 (pixels along it). */
-function slice(pts: P[], cum: number[], s0: number, s1: number): P[] {
-  const at = (s: number): P => {
-    let i = 1;
-    while (i < cum.length - 1 && cum[i] < s) i++;
-    const t = (s - cum[i - 1]) / (cum[i] - cum[i - 1] || 1);
-    return [pts[i - 1][0] + (pts[i][0] - pts[i - 1][0]) * t, pts[i - 1][1] + (pts[i][1] - pts[i - 1][1]) * t];
-  };
-  const out: P[] = [at(s0)];
-  for (let i = 0; i < pts.length; i++) if (cum[i] > s0 && cum[i] < s1) out.push(pts[i]);
-  out.push(at(s1));
-  return out;
-}
-
 /**
- * Labels in the view: each area's label along its own edge, just inside it,
- * reading left to right. Where the edge curves gently the label follows it;
- * where it is jagged the label sits on a straight line drawn far enough in.
- * Rims (3D): thin bands at the floor and ceiling of each block in view.
+ * Made for the view: an altitude box inside each area (ceiling over floor,
+ * as VFR charts print them), and in 3D thin rims at each block's floor and
+ * ceiling.
  */
 export function airspaceOverlay(map: maplibregl.Map, feats: GeoJSON.Feature[], three: boolean): GeoJSON.FeatureCollection {
   const out: GeoJSON.Feature[] = [];
@@ -282,109 +354,29 @@ export function airspaceOverlay(map: maplibregl.Map, feats: GeoJSON.Feature[], t
     const b = bbox(f);
     return b[2] >= v.getWest() && b[0] <= v.getEast() && b[3] >= v.getSouth() && b[1] <= v.getNorth();
   });
-  const placed: { x: number; y: number; r: number }[] = [];
   const un = (p: P): [number, number] => {
     const l = map.unproject(p);
     return [l.lng, l.lat];
   };
+  // One altitude box per area, at the point inside it furthest from its
+  // edges (within the view), so it is clear which area it belongs to.
   for (const f of inView.slice(0, 800)) {
-    const label = String(f.properties?.label ?? "");
-    const need = textPx(label);
+    const pr = f.properties ?? {};
+    const hiT = chartAlt(String(pr.hi_t ?? ""));
+    const loT = chartAlt(String(pr.lo_t ?? ""));
+    if (!hiT && !loT) continue;
+    const label = `${hiT || "?"}\n${loT || "?"}`;
+    const boxW = Math.max(hiT.length, loT.length) * 7.5 + 16;
     for (const poly of polygons(f)) {
-      poly.forEach((ring, ri) => {
+      const rings: P[][] = poly.map((ring) => {
         const pts: P[] = ring.map((c) => {
           const q = map.project(c as [number, number]);
           return [q.x, q.y];
         });
-        if (pts.length < 3) return;
-        // Which side the area is on: clockwise on screen (y down) = right.
-        let area = 0;
-        for (let i = 0; i < pts.length - 1; i++) area += pts[i][0] * pts[i + 1][1] - pts[i + 1][0] * pts[i][1];
-        const insideRight = ri === 0 ? area > 0 : area < 0;
-        // Runs where the edge goes one way across the screen, judged on the
-        // edge with its small wiggles smoothed out (a jagged coast is one run).
-        const keep = simplifyIdx(pts, 10);
-        let start = keep[0];
-        const runs: [number, number, number][] = [];
-        let dir = 0;
-        for (let j = 1; j < keep.length; j++) {
-          const dx = pts[keep[j]][0] - pts[keep[j - 1]][0];
-          const d = dx > 0.5 ? 1 : dx < -0.5 ? -1 : 0;
-          if (d === 0) continue;
-          if (dir === 0) dir = d;
-          else if (d !== dir) {
-            runs.push([start, keep[j - 1], dir]);
-            start = keep[j - 1];
-            dir = d;
-          }
-        }
-        runs.push([start, keep[keep.length - 1], dir || 1]);
-        for (const [a, b, d] of runs) {
-          let run = pts.slice(a, b + 1);
-          if (d < 0) run = run.reverse();
-          // After reversing, the inside is on the other side.
-          const right = d > 0 ? insideRight : !insideRight;
-          const cum = [0];
-          for (let i = 1; i < run.length; i++) cum.push(cum[i - 1] + Math.hypot(run[i][0] - run[i - 1][0], run[i][1] - run[i - 1][1]));
-          const len = cum[cum.length - 1];
-          if (len < need + 24) continue;
-          const n = Math.max(1, Math.floor(len / 700));
-          for (let k = 0; k < n; k++) {
-            const mid = (len * (k + 0.5)) / n;
-            let piece = slice(run, cum, mid - need / 2, mid + need / 2);
-            const c = piece[Math.floor(piece.length / 2)];
-            if (c[0] < 20 || c[0] > W - 20 || c[1] < 20 || c[1] > H - 20) continue;
-            // Jagged: many turns both ways. Then a straight line, set in
-            // past the edge's bumps.
-            let turn = 0;
-            let net = 0;
-            for (let i = 2; i < piece.length; i++) {
-              const a1 = Math.atan2(piece[i - 1][1] - piece[i - 2][1], piece[i - 1][0] - piece[i - 2][0]);
-              const a2 = Math.atan2(piece[i][1] - piece[i - 1][1], piece[i][0] - piece[i - 1][0]);
-              let t = a2 - a1;
-              while (t > Math.PI) t -= 2 * Math.PI;
-              while (t < -Math.PI) t += 2 * Math.PI;
-              turn += Math.abs(t);
-              net += t;
-            }
-            const sign = right ? 1 : -1;
-            let gap = 13;
-            // The text's own line is longer: MapLibre fits a label at the
-            // map's whole zoom level, where everything is up to half the size.
-            const half = Math.min(mid, len - mid, (need * Math.pow(2, z - Math.floor(z))) / 2 + 12);
-            let textLine = slice(run, cum, mid - half, mid + half);
-            const jagged = turn > Math.abs(net) * 1.5 + 0.35;
-            if (jagged) {
-              const p0 = piece[0];
-              const p1 = piece[piece.length - 1];
-              // How far the edge pokes in past the straight line.
-              const dx = p1[0] - p0[0];
-              const dy = p1[1] - p0[1];
-              const l = Math.hypot(dx, dy) || 1;
-              let poke = 0;
-              for (const q of piece) poke = Math.max(poke, sign * ((q[0] - p0[0]) * -dy + (q[1] - p0[1]) * dx) / l);
-              gap = 16 + Math.max(0, poke);
-              piece = [p0, p1];
-              const ux = dx / l;
-              const uy = dy / l;
-              const mx = (p0[0] + p1[0]) / 2;
-              const my = (p0[1] + p1[1]) / 2;
-              const h = (need * Math.pow(2, z - Math.floor(z))) / 2 + 12;
-              textLine = [
-                [mx - ux * h, my - uy * h],
-                [mx + ux * h, my + uy * h],
-              ];
-            }
-            const line = offset(piece, sign * gap);
-            const cc = line[Math.floor(line.length / 2)];
-            const r = need * 0.55;
-            if (placed.some((q) => Math.hypot(q.x - cc[0], q.y - cc[1]) < Math.max(r, q.r))) continue;
-            placed.push({ x: cc[0], y: cc[1], r });
-            out.push({ type: "Feature", properties: { t: "ribbon", c: f.properties?.c }, geometry: { type: "LineString", coordinates: line.map(un) } });
-            out.push({ type: "Feature", properties: { t: "label", c: f.properties?.c, label }, geometry: { type: "LineString", coordinates: offset(textLine, sign * gap).map(un) } });
-          }
-        }
+        return simplifyIdx(pts, 2).map((i) => pts[i]);
       });
+      const at = inside(rings, W, H, Math.max(22, boxW / 2 + 4));
+      if (at) out.push({ type: "Feature", properties: { t: "label", c: pr.c, label }, geometry: { type: "Point", coordinates: un(at) } });
     }
   }
   if (three) {

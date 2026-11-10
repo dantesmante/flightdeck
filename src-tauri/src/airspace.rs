@@ -122,8 +122,25 @@ pub fn sua(data_dir: &Path) -> Result<String, String> {
 /// (about 50 m) and rounded.
 const SUA_URL: &str = "https://services6.arcgis.com/ssFJjBXIUyZDrSYZ/arcgis/rest/services/Special_Use_Airspace/FeatureServer/0/query?where=1%3D1&outFields=NAME,TYPE_CODE,UPPER_VAL,UPPER_UOM,UPPER_CODE,LOWER_VAL,LOWER_UOM,LOWER_CODE&returnGeometry=true&maxAllowableOffset=0.0005&geometryPrecision=5&outSR=4326&f=geojson";
 
+/// For big files: no limit on the whole download (a country's airspace can
+/// be tens of MB on a slow line), only on connecting and on silence.
+fn big_agent() -> ureq::Agent {
+    let tls = ureq::tls::TlsConfig::builder().root_certs(ureq::tls::RootCerts::PlatformVerifier).build();
+    ureq::Agent::config_builder()
+        .tls_config(tls)
+        .proxy(ureq::Proxy::try_from_env())
+        .timeout_connect(Some(std::time::Duration::from_secs(20)))
+        .timeout_recv_response(Some(std::time::Duration::from_secs(60)))
+        .timeout_recv_body(Some(std::time::Duration::from_secs(600)))
+        .user_agent(concat!("FlightDeck/", env!("CARGO_PKG_VERSION")))
+        .build()
+        .into()
+}
+
 fn get_text(url: &str, who: &str) -> Result<String, String> {
-    let mut res = crate::update::agent().get(url).call().map_err(|e| format!("Could not reach {who}: {e}"))?;
+    let t = std::time::Instant::now();
+    let mut res = big_agent().get(url).call().map_err(|e| format!("Could not reach {who}: {e}"))?;
+    log::info!("airspace: {url} answered in {:.1} s", t.elapsed().as_secs_f32());
     res.body_mut().with_config().limit(100 * 1024 * 1024).read_to_string().map_err(|e| format!("Unexpected answer from {who}: {e}"))
 }
 
@@ -244,6 +261,8 @@ const OPENAIP: &str = "https://storage.googleapis.com/29f98e10-a489-4c82-ae5e-48
 /// One country's airspace, ready to answer for a box.
 struct Country {
     features: Vec<([f64; 4], Value)>,
+    /// Could not be read (offline, openAIP down): try again after a while.
+    failed: Option<std::time::Instant>,
 }
 
 type Loaded = std::collections::HashMap<String, std::sync::Arc<Country>>;
@@ -259,7 +278,13 @@ pub fn world(data_dir: &Path, w: f64, s: f64, e: f64, n: f64, max_new: usize) ->
     let mut more = false;
     let mut list: Vec<std::sync::Arc<Country>> = Vec::new();
     for cc in codes {
-        let have = WORLD.lock().unwrap().get_or_insert_with(Default::default).get(&cc).cloned();
+        let have = WORLD
+            .lock()
+            .unwrap()
+            .get_or_insert_with(Default::default)
+            .get(&cc)
+            .cloned()
+            .filter(|c| c.failed.is_none_or(|t| t.elapsed() < std::time::Duration::from_secs(120)));
         let c = match have {
             Some(c) => c,
             None if fresh < max_new => {
@@ -327,6 +352,7 @@ fn load_country(data_dir: &Path, cc: &str) -> Country {
         }
         Ok(json!({ "type": "FeatureCollection", "features": features }).to_string())
     });
+    let mut failed = None;
     let features = match json {
         Ok(j) => serde_json::from_str::<Value>(&j)
             .ok()
@@ -337,10 +363,11 @@ fn load_country(data_dir: &Path, cc: &str) -> Country {
             .collect(),
         Err(e) => {
             log::warn!("airspace: openAIP {cc}: {e}");
+            failed = Some(std::time::Instant::now());
             Vec::new()
         }
     };
-    Country { features }
+    Country { features, failed }
 }
 
 fn bbox(g: &Value) -> Option<[f64; 4]> {

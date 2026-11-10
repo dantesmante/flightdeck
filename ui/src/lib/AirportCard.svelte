@@ -213,7 +213,8 @@
   .ap {
     position: absolute;
     top: 74px;
-    right: 16px;
+    /* Left of the layers panel when that is open (it keeps the top right). */
+    right: var(--card-r, 16px);
     width: 340px;
     max-width: calc(100% - 32px);
     max-height: calc(100% - 90px);

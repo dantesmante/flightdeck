@@ -43,6 +43,8 @@
     onmarkup?: () => void;
     /** The map's width: narrow maps show the tools as icons, or in a list. */
     width?: number;
+    /** The layers panel opened or closed (other cards make room for it). */
+    onpanel?: (open: boolean) => void;
     obstaclesState?: "idle" | "loading" | "ok" | "error";
     /** A sim is connected: terrain and obstacles can be coloured against it. */
     hasAircraft?: boolean;
@@ -68,7 +70,7 @@
     onrings?: (count: number, set: string) => void;
     onroadsopacity?: (o: number) => void;
   }
-  let { three, on, onthree, ontoggle, radarTime, radarError, parkedLayer = false, airportDetail = 1, ondetail, level = "auto", levelNow = "", onlevel, cardOpen = false, measuring = false, onmeasure, airspaceState = "idle", airspaceNote = "", pfdOpen = false, onpfd, padOpen = false, onpad, markupOpen = false, onmarkup, width = 0, obstaclesState = "idle", hasAircraft = false, roadsOpacity = 1, onroadsopacity, ringCount = 2, ringSet = "auto", onrings, profileOpen = false, onprofile, taxiOpen = false, ontaxi, navNote = "", tempNote = "", icingNote = "", icingInfo = "", icingAdvNote = "", cloudNote = "", visNote = "" }: Props = $props();
+  let { three, on, onthree, ontoggle, radarTime, radarError, parkedLayer = false, airportDetail = 1, ondetail, level = "auto", levelNow = "", onlevel, cardOpen = false, measuring = false, onmeasure, airspaceState = "idle", airspaceNote = "", pfdOpen = false, onpfd, padOpen = false, onpad, markupOpen = false, onmarkup, width = 0, onpanel, obstaclesState = "idle", hasAircraft = false, roadsOpacity = 1, onroadsopacity, ringCount = 2, ringSet = "auto", onrings, profileOpen = false, onprofile, taxiOpen = false, ontaxi, navNote = "", tempNote = "", icingNote = "", icingInfo = "", icingAdvNote = "", cloudNote = "", visNote = "" }: Props = $props();
   /** The Tools drawer (Measure, Taxi, Profile, PFD): stays out until closed. */
   const TOOLS_KEY = "fd.toolsOpen";
   let toolsOpen = $state(
@@ -82,6 +84,7 @@
   );
   function toggleTools() {
     toolsOpen = !toolsOpen;
+    open = null;
     try {
       localStorage.setItem(TOOLS_KEY, toolsOpen ? "1" : "0");
     } catch {
@@ -117,6 +120,9 @@
   const tabOn = (t: Menu) => IN_TAB[t].some((k) => on.has(k)) || (t === "traffic" && !on.has("aeroway-off")) || (t === "map" && three);
   /** The panel is open on this tab. */
   let open = $state<Menu | null>(null);
+  $effect(() => {
+    onpanel?.(open != null);
+  });
   // The panel opens on the tab used last (this device only).
   const TAB_KEY = "fd.layersTab";
   let lastTab: Menu = (() => {

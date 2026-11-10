@@ -170,12 +170,14 @@ MIT licensed.
     zoom 5: controlled areas by class (A–G, control zones), prohibited,
     restricted, danger, warning, alert and military areas. Flight
     information regions, sectors and airways are left out.
-  - Labels in a small box just inside each area's own edge (so it is
-    clear which area they belong to), as the user likes them:
-    "G: GND-2000AGL", "R-2508: GND-UNL", "A: FL025-FL245". On a curved
-    edge the box and the text follow the curve; on a jagged edge (a coast)
-    the label sits on a straight line set in past the bumps. Made for the
-    view after the map stops moving, from zoom 7.5.
+  - Altitudes as VFR charts print them, ceiling over floor in hundreds of
+    feet with a line between ("100" over "30", "SFC", "FL180", "20 AGL"),
+    in a small box of the area's colour, placed inside the area where it
+    has most room. Made for the view after the map stops moving, from
+    zoom 7.5.
+  - In 2D an area is filled only while the aircraft (or the replayed one)
+    is between its floor and ceiling; otherwise it is just an outline.
+    With no aircraft every area is filled. 3D is unchanged.
   - Click an area for its card: name, kind, floor and ceiling (every area
     at that spot when they overlap).
   - In 3D each area stands as a see-through block from its floor to its
@@ -352,13 +354,16 @@ MIT licensed.
   buttons) to write on with a finger, pen or mouse, or to type. The sheet
   menu picks Blank, Typed notes, Grid, CRAFT (clearance), Takeoff or
   Landing briefing; each keeps its own sheet. A pen palette at the bottom:
-  pen or eraser, colours, a 2–10 px slider, undo, redo (Ctrl+Z /
-  Ctrl+Shift+Z) and Clear. Fills the map by default; can be made smaller.
+  pen or eraser, colours (one swatch that opens them when space is short),
+  a 2–10 px slider, undo, redo (Ctrl+Z / Ctrl+Shift+Z) and Clear. Fills the map by default; can be made smaller.
   Kept in each device's browser.
 - **Markup** (Tools → Markup): draw on the map with the same palette; the
   marks stick to the map, stay after the tool closes and are kept in the
   browser until cleared. The eraser takes away whole marks; the move
   button lets the map be panned meanwhile.
+- **Layers panel first**: it keeps the top right; airport, weather and
+  network cards open to its left while it is open, and opening Tools
+  closes it.
 - **Tools on narrow maps**: beside the PFD (split view) or on a tablet the
   tools show as icons; on a phone they drop down under Tools as a list.
 - **Base map**: without layers it shows places, water and land only; roads

@@ -14,11 +14,21 @@
     lead?: Snippet;
     /** Extra buttons at the end (markup: Done). */
     tail?: Snippet;
+    /** Little room: the colours fold into one swatch that opens them. */
+    compact?: boolean;
   }
-  let { canUndo, canRedo, onundo, onredo, onclear, lead, tail }: Props = $props();
+  let { canUndo, canRedo, onundo, onredo, onclear, lead, tail, compact = false }: Props = $props();
+
+  let colorsOpen = $state(false);
+  let swatch = $state<HTMLDivElement>();
+  function outside(e: PointerEvent) {
+    if (colorsOpen && swatch && !swatch.contains(e.target as Node)) colorsOpen = false;
+  }
 </script>
 
-<div class="palette" role="toolbar" aria-label="Pen">
+<svelte:window onpointerdown={outside} />
+
+<div class="palette" class:compact role="toolbar" aria-label="Pen">
   {#if lead}{@render lead()}<span class="sep"></span>{/if}
   <div class="pair" role="radiogroup" aria-label="Pen or eraser">
     <button role="radio" aria-checked={!pen.erasing} class:on={!pen.erasing} title="Pen" onclick={() => (pen.erasing = false)}>
@@ -29,11 +39,29 @@
     </button>
   </div>
   <span class="sep"></span>
-  <div class="colors" role="radiogroup" aria-label="Colour">
+  {#snippet dots()}
     {#each PEN_COLORS as c (c)}
-      <button role="radio" aria-checked={pen.color === c && !pen.erasing} class="dot" class:on={pen.color === c && !pen.erasing} style:--c={c} aria-label="Colour" onclick={() => ((pen.color = c), (pen.erasing = false))}></button>
+      <button
+        role="radio"
+        aria-checked={pen.color === c && !pen.erasing}
+        class="dot"
+        class:on={pen.color === c && !pen.erasing}
+        style:--c={c}
+        aria-label="Colour"
+        onclick={() => ((pen.color = c), (pen.erasing = false), (colorsOpen = false))}
+      ></button>
     {/each}
-  </div>
+  {/snippet}
+  {#if compact}
+    <div class="swatch" bind:this={swatch}>
+      <button class="dot on" style:--c={pen.color} aria-label="Choose a colour" aria-expanded={colorsOpen} onclick={() => (colorsOpen = !colorsOpen)}></button>
+      {#if colorsOpen}
+        <div class="pop" role="radiogroup" aria-label="Colour">{@render dots()}</div>
+      {/if}
+    </div>
+  {:else}
+    <div class="colors" role="radiogroup" aria-label="Colour">{@render dots()}</div>
+  {/if}
   <span class="sep"></span>
   <label class="size" title="Line width">
     <span class="prev" aria-hidden="true"><i style:width="{pen.size}px" style:height="{pen.size}px" style:background={pen.erasing ? "var(--ink-dim)" : pen.color}></i></span>
@@ -53,6 +81,7 @@
 
 <style>
   .palette {
+    position: relative;
     display: flex;
     align-items: center;
     gap: 6px;
@@ -63,8 +92,6 @@
     box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
     backdrop-filter: blur(6px);
     max-width: 100%;
-    overflow-x: auto;
-    scrollbar-width: none;
   }
   .sep {
     width: 1px;
@@ -159,6 +186,28 @@
   }
   .px {
     width: 34px;
+  }
+  .swatch {
+    position: relative;
+  }
+  .pop {
+    position: absolute;
+    bottom: calc(100% + 14px);
+    left: -12px;
+    display: flex;
+    gap: 3px;
+    padding: 6px;
+    background: rgba(28, 30, 33, 0.98);
+    border: 1px solid var(--rule);
+    border-radius: 12px;
+    box-shadow: 0 10px 26px rgba(0, 0, 0, 0.5);
+    z-index: 10;
+  }
+  .compact .size input {
+    width: 64px;
+  }
+  .compact .px {
+    display: none;
   }
   .txt {
     padding: 0 10px;

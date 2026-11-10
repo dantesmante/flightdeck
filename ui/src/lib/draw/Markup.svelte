@@ -73,6 +73,7 @@
   let redo = $state.raw<Mark[]>([]);
   let canvas = $state<HTMLCanvasElement>();
   let live: [number, number][] = [];
+  let dockEl = $state<HTMLDivElement>();
   let drawingNow = false;
 
   function fit() {
@@ -175,8 +176,8 @@
 </script>
 
 <canvas bind:this={canvas} class="markup" class:moving class:erase={pen.erasing} onpointerdown={down} onpointermove={move} onpointerup={up} onpointercancel={up}></canvas>
-<div class="mdock" style:left="calc({insetLeft}px + (100% - {insetLeft}px) / 2)" style:bottom="{16 + insetBottom}px">
-  <DrawPalette canUndo={marks.length > 0} canRedo={redo.length > 0} onundo={undo} onredo={again} onclear={() => ((redo = []), onchange([]))}>
+<div class="mdock" bind:this={dockEl} style:left="calc({insetLeft}px + (100% - {insetLeft}px) / 2)" style:bottom="{16 + insetBottom}px">
+  <DrawPalette compact={(canvas?.clientWidth ?? 1200) - insetLeft < 860} canUndo={marks.length > 0} canRedo={redo.length > 0} onundo={undo} onredo={again} onclear={() => ((redo = []), onchange([]))}>
     {#snippet lead()}
       <button class:on={moving} aria-pressed={moving} title={moving ? "Back to drawing" : "Move the map"} onclick={() => (moving = !moving)}>
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18M3 12h18" /><path d="M9 6l3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3" /></svg>

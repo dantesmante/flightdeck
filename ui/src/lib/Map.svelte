@@ -28,7 +28,7 @@
   import { markupState } from "./draw/store.svelte";
   import { profileState } from "./profile/store.svelte";
   import { taxiState } from "./taxi/store.svelte";
-  import { addAirspaceLayers, airspaceAt, airspaceCard, airspaceOverlay, scaleAirspace, showAirspace } from "./airspaceLayer";
+  import { addAirspaceLayers, airspaceAt, airspaceCard, airspaceOverlay, fillForAltitude, scaleAirspace, showAirspace } from "./airspaceLayer";
   import { NAV_AIDS_ENABLED, NAV_MIN_ZOOM, WPT_MIN_ZOOM, navAt, navCard, setNavData, showNavLayers } from "./navLayer";
   import { decodeTemps, setTempCanvas, showTemp, tempImage, tempAt, TEMP_BAR, gridImage, setGridCanvas, showGrid, cloudColor, visColor, visMiles, CLOUD_BAR, VIS_BANDS } from "./tempLayer";
   import { coversFl, decodeIcing, icingSeverity, icingShapes, setIcingAdvisories, setIcingShapes, showIcing } from "./icingLayer";
@@ -787,6 +787,16 @@
       clearTimeout(timer);
       m.off("moveend", soon);
     };
+  });
+  // 2D: an area is filled only while the aircraft (or the replayed one) is
+  // within its floor and ceiling; otherwise just its outline.
+  const aspAlt = $derived.by(() => {
+    const a = replayOn && replayNow ? replayNow.alt : aircraft && !history ? acAltFt : null;
+    return a == null ? null : Math.round(a / 100) * 100;
+  });
+  $effect(() => {
+    const a = aspAlt;
+    if (loaded && map) fillForAltitude(map, a);
   });
   // In 3D the blocks stand at the same height scale as the flight.
   $effect(() => {
@@ -2754,6 +2764,8 @@
   /** The route under the pointer, for the hover tip. */
   let hoverTip = $state<{ x: number; y: number; label: string; sub: string; hint: string; cat?: number | null; more?: string } | null>(null);
   let mapW = $state(0);
+  /** The layers panel is open: cards sit left of it. */
+  let layersPanel = $state(false);
   $effect(() => {
     const list = parked;
     const on = layers.has("parked");
@@ -2990,8 +3002,10 @@
   markupOpen={markupState.open}
   onmarkup={bare ? undefined : () => (markupState.open = !markupState.open)}
   width={mapW}
+  onpanel={(o) => (layersPanel = o)}
 />
 {/if}
+<div class="cards" style:--card-r={layersPanel && mapW > 800 ? "416px" : null}>
 {#if wxPick && !openAirport && !netPick}
   <WxCard item={wxPick} onclose={() => (wxPick = null)} />
 {/if}
@@ -3020,6 +3034,7 @@
       : undefined}
   />
 {/if}
+</div>
 {#if history && history.length > 1 && !bare}
   <div class="replay-dock" style:left="calc({insetLeft}px + (100% - {insetLeft}px) / 2)" style:bottom="{16 + insetBottom}px">
     {#if replayOn && replayTimes && replayNow}
@@ -3135,6 +3150,9 @@
     50% {
       opacity: 0;
     }
+  }
+  .cards {
+    display: contents;
   }
   .replay-dock {
     position: absolute;
