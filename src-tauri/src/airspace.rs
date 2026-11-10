@@ -256,7 +256,9 @@ const SIMPLIFY_SUA: f64 = 0.0004;
 
 // ---- openAIP, outside the US -------------------------------------------------
 
-const OPENAIP: &str = "https://storage.googleapis.com/29f98e10-a489-4c82-ae5e-489dbcd4912f";
+/// openAIP's nightly keyless exports (moved here from a Google bucket that
+/// became "requester pays" in July 2026 and answers anonymous reads with 400).
+const OPENAIP: &str = "https://s3.openaip.net/openaip-system-exports";
 
 /// One country's airspace, ready to answer for a box.
 struct Country {
