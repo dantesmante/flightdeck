@@ -1015,6 +1015,8 @@ export const api = {
   navaidsRefresh: () => call<void>("navaids_refresh"),
   /** US Class B, C and D airspace, GeoJSON text (FAA, 28-day cycle). */
   usAirspace: () => call<string>("us_airspace"),
+  suaAirspace: () => call<string>("sua_airspace"),
+  worldAirspace: (w: number, s: number, e: number, n: number) => call<{ geojson: string; more: boolean }>("world_airspace", { w, s, e, n }),
   /** US obstacles (towers, antennas, turbines), GeoJSON text (FAA DOF). */
   usObstacles: () => call<string>("us_obstacles"),
   /** A PFD is open: keep its feed coming for a few more seconds. */

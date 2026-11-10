@@ -8,6 +8,7 @@ mod photos;
 mod efb;
 mod networks;
 mod airspace;
+mod countries;
 mod obstacles;
 mod pln;
 mod backup;
@@ -351,7 +352,29 @@ async fn us_airspace(state: tauri::State<'_, AppState>) -> CmdResult<String> {
     tauri::async_runtime::spawn_blocking(move || airspace::us(&dir)).await.map_err(err)?
 }
 
-/// Forecast wind at one level ("sfc", "850" ... "200"), for the wind layer.
+/// US special use airspace (prohibited, restricted, MOAs, warning, alert)
+/// as GeoJSON text (FAA, every 28 days).
+#[tauri::command]
+async fn sua_airspace(state: tauri::State<'_, AppState>) -> CmdResult<String> {
+    let dir = state.data_dir.clone();
+    tauri::async_runtime::spawn_blocking(move || airspace::sua(&dir)).await.map_err(err)?
+}
+
+/// Airspace outside the US in a box (openAIP, a few new countries per call).
+#[derive(serde::Serialize)]
+struct WorldAirspace {
+    geojson: String,
+    /// More countries in the box are still to be read: ask again.
+    more: bool,
+}
+
+#[tauri::command]
+async fn world_airspace(state: tauri::State<'_, AppState>, w: f64, s: f64, e: f64, n: f64) -> CmdResult<WorldAirspace> {
+    let dir = state.data_dir.clone();
+    let (geojson, more) = tauri::async_runtime::spawn_blocking(move || airspace::world(&dir, w, s, e, n, 2)).await.map_err(err)?;
+    Ok(WorldAirspace { geojson, more })
+}
+
 /// Nav aids (from the sim's own database) in a box, for the map layer:
 /// VORs and NDBs, and waypoints when `waypoints`. Asking means the layer is
 /// on, so FlightDeck asks the sim for them while it is connected.
@@ -1560,6 +1583,8 @@ pub(crate) async fn dispatch(app: &tauri::AppHandle, cmd: &str, a: serde_json::V
             to_value(())
         }),
         "us_airspace" => ok(to_value(us_airspace(st()).await?)),
+        "sua_airspace" => ok(to_value(sua_airspace(st()).await?)),
+        "world_airspace" => ok(to_value(world_airspace(st(), arg(&a, "w")?, arg(&a, "s")?, arg(&a, "e")?, arg(&a, "n")?).await?)),
         "pfd_watch" => ok(to_value(pfd_watch(st())?)),
         "us_obstacles" => ok(to_value(us_obstacles(st()).await?)),
         "pln_text" => ok(to_value(pln_text(st(), arg(&a, "route")?)?)),
@@ -1746,6 +1771,8 @@ pub fn run() {
             navaids,
             navaids_refresh,
             us_airspace,
+            sua_airspace,
+            world_airspace,
             pfd_watch,
             us_obstacles,
             pln_text,

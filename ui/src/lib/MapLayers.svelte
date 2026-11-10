@@ -4,6 +4,7 @@
   import type { Snippet } from "svelte";
   import { WIND_LEVELS } from "./wind/wind";
   import { ICING_ADV, ICING_BANDS, icingSwatch } from "./icingLayer";
+  import { NAV_AIDS_ENABLED } from "./navLayer";
 
   interface Props {
     three: boolean;
@@ -31,9 +32,13 @@
     onmeasure?: () => void;
     /** The US airspace layer's data: loading, ready or not reachable. */
     airspaceState?: "idle" | "loading" | "ok" | "error";
+    /** Outside the US (openAIP): "Loading…" or a problem, else empty. */
+    airspaceNote?: string;
     /** The PFD window: open, and the button to open or close it. */
     pfdOpen?: boolean;
     onpfd?: () => void;
+    padOpen?: boolean;
+    onpad?: () => void;
     obstaclesState?: "idle" | "loading" | "ok" | "error";
     /** A sim is connected: terrain and obstacles can be coloured against it. */
     hasAircraft?: boolean;
@@ -59,7 +64,7 @@
     onrings?: (count: number, set: string) => void;
     onroadsopacity?: (o: number) => void;
   }
-  let { three, on, onthree, ontoggle, radarTime, radarError, parkedLayer = false, airportDetail = 1, ondetail, level = "auto", levelNow = "", onlevel, cardOpen = false, measuring = false, onmeasure, airspaceState = "idle", pfdOpen = false, onpfd, obstaclesState = "idle", hasAircraft = false, roadsOpacity = 1, onroadsopacity, ringCount = 2, ringSet = "auto", onrings, profileOpen = false, onprofile, taxiOpen = false, ontaxi, navNote = "", tempNote = "", icingNote = "", icingInfo = "", icingAdvNote = "", cloudNote = "", visNote = "" }: Props = $props();
+  let { three, on, onthree, ontoggle, radarTime, radarError, parkedLayer = false, airportDetail = 1, ondetail, level = "auto", levelNow = "", onlevel, cardOpen = false, measuring = false, onmeasure, airspaceState = "idle", airspaceNote = "", pfdOpen = false, onpfd, padOpen = false, onpad, obstaclesState = "idle", hasAircraft = false, roadsOpacity = 1, onroadsopacity, ringCount = 2, ringSet = "auto", onrings, profileOpen = false, onprofile, taxiOpen = false, ontaxi, navNote = "", tempNote = "", icingNote = "", icingInfo = "", icingAdvNote = "", cloudNote = "", visNote = "" }: Props = $props();
   /** The Tools drawer (Measure, Taxi, Profile, PFD): stays out until closed. */
   const TOOLS_KEY = "fd.toolsOpen";
   let toolsOpen = $state(
@@ -80,8 +85,8 @@
     }
   }
   const levelLabel = $derived(level === "auto" ? levelNow : WIND_LEVELS.find((l) => l.id === level)?.label);
-  const anyTool = $derived(measuring || taxiOpen || profileOpen || pfdOpen);
-  const hasTools = $derived(!!(onmeasure || ontaxi || onprofile || onpfd));
+  const anyTool = $derived(measuring || taxiOpen || profileOpen || pfdOpen || padOpen);
+  const hasTools = $derived(!!(onmeasure || ontaxi || onprofile || onpfd || onpad));
   const DETAIL = ["Major airports only", "Major and regional airports", "All airports and airstrips"];
 
   /** The Layers panel's tabs: airports and flights, weather, the map itself. */
@@ -340,9 +345,9 @@
   <span class="note">{on.has("wind") ? (levelLabel ?? "Auto") : "Moving flow"}</span>
 {/snippet}
 
-{#snippet airspaceNote()}
+{#snippet aspNote()}
   <span class="note">
-    {#if on.has("airspace") && airspaceState === "loading"}Loading from the FAA…{:else if on.has("airspace") && airspaceState === "error"}FAA not reachable{:else}US only · B, C, D{/if}
+    {#if on.has("airspace") && airspaceState === "loading"}Loading from the FAA…{:else if on.has("airspace") && airspaceNote}{airspaceNote}{:else if on.has("airspace") && airspaceState === "error"}FAA partly not reachable{:else}Classes, SUA · worldwide{/if}
   </span>
 {/snippet}
 
@@ -417,8 +422,14 @@
       <span>PFD</span>
     </button>
   {/if}
+  {#if onpad}
+    <button class="layers-btn" class:open={padOpen} aria-pressed={padOpen} title="Scratch pad: notes, clearances, briefings" onclick={onpad}>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="3" width="14" height="18" rx="2" /><path d="M9 3v2h6V3" /><path d="M8.5 11c1.5-2 2.5-2 3 0s1.5 2 3.5-.5M8.5 16h7" /></svg>
+      <span>Pad</span>
+    </button>
+  {/if}
   </div>
-  <button class="layers-btn tools" class:open={toolsOpen} aria-expanded={toolsOpen} title={toolsOpen ? "Put the tools away" : "Measure, Taxi, Profile, PFD"} onclick={toggleTools}>
+  <button class="layers-btn tools" class:open={toolsOpen} aria-expanded={toolsOpen} title={toolsOpen ? "Put the tools away" : "Measure, Taxi, Profile, PFD, Scratch pad"} onclick={toggleTools}>
     {#if toolsOpen}
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l6 6-6 6" /><path d="M9 6l6 6-6 6" opacity="0.45" /></svg>
     {:else}
@@ -553,8 +564,8 @@
       {@render card("airports", "Your airports", on.has("airports"), () => ontoggle("airports"), "Where you've flown")}
       {@render card("routes", "Past routes", on.has("routes"), () => ontoggle("routes"), "Your flights")}
       {@render card("aeroway", "Runways", !on.has("aeroway-off"), () => ontoggle("aeroway-off"), "And taxiways")}
-      {@render card("airspace", "Airspace", on.has("airspace"), () => ontoggle("airspace"), airspaceNote)}
-      {@render card("navaids", "Nav aids", on.has("navaids"), () => ontoggle("navaids"), navaidsNote)}
+      {@render card("airspace", "Airspace", on.has("airspace"), () => ontoggle("airspace"), aspNote)}
+      {#if NAV_AIDS_ENABLED}{@render card("navaids", "Nav aids", on.has("navaids"), () => ontoggle("navaids"), navaidsNote)}{/if}
       {#if parkedLayer}
         {@render card("parked", "Parked aircraft", on.has("parked"), () => ontoggle("parked"), "Where you left them")}
       {/if}
@@ -579,8 +590,8 @@
       {@render netCard("vatsim", "VATSIM")}
       {@render netCard("ivao", "IVAO")}
     </div>
-    <details class="credit"><summary>Data sources</summary><p>Airports OurAirports · Runways and taxiways OpenStreetMap · Airspace FAA (US only, every 28 days) · Live traffic VATSIM and IVAO (every 30 s while on) ·
-      ATC areas VAT-Spy Data Project (CC BY-SA 4.0) · Nav aids from MSFS's own navigation data while it runs (kept on this PC, never shared; radio aids from zoom 5, waypoints from zoom 8)</p></details>
+    <details class="credit"><summary>Data sources</summary><p>Airports OurAirports · Runways and taxiways OpenStreetMap · Live traffic VATSIM and IVAO (every 30 s while on) ·
+      ATC areas VAT-Spy Data Project (CC BY-SA 4.0) · Airspace FAA (US: classes and special use, every 28 days) and openAIP (outside the US, CC BY-NC 4.0, countries in view from zoom 5)</p></details>
     {/if}
   </div>
 {/if}

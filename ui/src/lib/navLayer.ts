@@ -7,6 +7,13 @@ import type maplibregl from "maplibre-gl";
 import type { GeoJSONSource } from "maplibre-gl";
 import type { NavAid } from "./api";
 
+/**
+ * The Nav aids layer is switched off for now (user, 10 Nov 2026: revisit
+ * later). Everything stays in place; set this to true to bring back the
+ * card, the map layer and the requests to the sim.
+ */
+export const NAV_AIDS_ENABLED = false;
+
 export const NAV_IDS = ["fd-nav-wpt", "fd-nav-radio", "fd-nav-wpt-label", "fd-nav-radio-label"];
 export const NAV_MIN_ZOOM = 5;
 export const WPT_MIN_ZOOM = 8;

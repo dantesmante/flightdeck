@@ -6,6 +6,8 @@
   import FlightsPanel from "./lib/FlightsPanel.svelte";
   import PhotosPanel from "./lib/PhotosPanel.svelte";
   import PfdWindow from "./lib/pfd/PfdWindow.svelte";
+  import ScratchPad from "./lib/pad/ScratchPad.svelte";
+  import { padState } from "./lib/pad/store.svelte";
   import FlightProfile from "./lib/profile/FlightProfile.svelte";
   import { profileState } from "./lib/profile/store.svelte";
   import type { ProfileRoute } from "./lib/profile/build";
@@ -358,6 +360,7 @@
   {/if}
   <UpdateBanner />
   {#if pfdState.open && view === "live" && !pfdState.split}<PfdWindow />{/if}
+  {#if padState.open}<ScratchPad />{/if}
   {#if briefing.plan && briefing.ofp}
     <Briefing plan={briefing.plan} ofp={briefing.ofp} onclose={closeBriefing} />
   {/if}

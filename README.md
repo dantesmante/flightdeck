@@ -160,12 +160,31 @@ MIT licensed.
   (they fill in Start a flight on the Map tab) and **Zoom to fit**. The
   airport clicked is marked by an amber ring that glows softly in and out
   until you zoom in on it (zoom 12.5).
-- **Airspace (US only)** in Airports & Flights: Class B (solid blue), C
-  (magenta) and D (dashed blue) around US airports, with ceiling/floor in
-  hundreds of feet along the edges as charts print them ("100/30", "[25]"
-  for a Class D ceiling). From the FAA's NASR data (public domain), fetched
-  once per 28-day cycle and kept in the data folder; other countries have no
-  free airspace data.
+- **Airspace** (Layers, Aviation), worldwide:
+  - US: Class B (solid blue), C (magenta) and D (dashed blue) from the
+    FAA's NASR data, and special use airspace (prohibited and restricted
+    solid red, warning dashed red, alert dashed amber, MOAs dashed purple)
+    from the FAA's ADDS open data; public domain.
+  - Elsewhere: openAIP's per-country data (CC BY-NC 4.0; FlightDeck is
+    free, as the licence requires), read for the countries in view from
+    zoom 5: controlled areas by class (A–G, control zones), prohibited,
+    restricted, danger, warning, alert and military areas. Flight
+    information regions, sectors and airways are left out.
+  - Labels along the edge in a small box, as the user likes them:
+    "G: GND-2000AGL", "R-2508: GND-UNL", "A: FL025-FL245".
+  - In 3D each area stands as a see-through block from its floor to its
+    ceiling (up to FL450), at the same height scale as the flight's 3D
+    path. GPU cost is small: only the areas in view, only in 3D.
+  - Every file is fetched once per 28-day cycle and kept in the data
+    folder (airspace\).
+- **3D aircraft at altitude**: in 3D the aircraft (live or in a replay) is
+  drawn at the height of its 3D path, with a thin line down to its spot on
+  the ground.
+- **Replay** (Flights, a past flight): "Replay flight" plays the flight back
+  on the map: play/pause, speed 1X (a minute of flight in 5 seconds), 2X,
+  5X, 10X, 20X, 30X, and a progress bar whose little plane can be dragged
+  to any moment; altitude, speed and the time show alongside, and the map
+  keeps the plane in view.
 - **Draw route** (Start a flight): choose the origin (type it or click an
   airport), click the map to add waypoints (an airport clicked is passed
   over), and finish on the destination airport. The route becomes the
@@ -312,9 +331,14 @@ MIT licensed.
   the map; the rest follow the cruise); the profile climbs and descends to
   them, and the .PLN carries them.
 - **Tools** (left of Layers): opens a drawer that slides out with
-  **Measure**, **Taxi**, **Profile** and **PFD**; it stays out until you
+  **Measure**, **Taxi**, **Profile**, **PFD** and **Pad**; it stays out until you
   press Tools again (remembered on each device). With the drawer closed, a
   dot on Tools shows a tool is on.
+- **Scratch pad** (Tools → Pad): write with a finger, pen or mouse, or
+  type. The template button picks the page: Draw, Type, Grid, CRAFT
+  (clearance), Takeoff and Landing briefings; each keeps its own page.
+  Pen colours and sizes, eraser, Clear, undo and redo (Ctrl+Z / Ctrl+Shift+Z),
+  full window. Kept in each device's browser.
 - **Measure** (in Tools): click points on the map to
   measure a route, leg by leg, in nautical miles with the course of each
   leg, and the total in miles and kilometres too. Great-circle distances.
@@ -395,7 +419,8 @@ MIT licensed.
   hazard, validity, levels and the raw text. From the NOAA Aviation Weather
   Center (public domain), downloaded only while a layer is on, every 10
   minutes.
-- **Nav aids** (Layers, Aviation): VORs (blue hexagon; in a box with
+- **Nav aids** (switched off for now, to revisit; the code stays in
+  place behind NAV_AIDS_ENABLED in navLayer.ts): VORs (blue hexagon; in a box with
   DME), DME-only stations, NDBs (purple dotted rose) and waypoints
   (triangles), with ident and frequency, from MSFS's own navigation data.
   While the layer is on and MSFS is connected, FlightDeck asks the sim for

@@ -1,11 +1,19 @@
-//! US airspace on the map: the Class B, C and D areas around airports, from
-//! the FAA's NASR 28-day subscription ("class_airspace_shape_files.zip",
-//! US government data, public domain, no key). The FAA publishes no free
-//! airspace for other countries, so the layer is US only.
+//! Airspace on the map.
 //!
-//! The file (an ESRI shapefile) is fetched once per 28-day cycle, the B, C
-//! and D shapes are kept, simplified to about 20 m, and saved as GeoJSON in
-//! FlightDeck's data folder; the map reads that copy until the next cycle.
+//! - US: the Class B, C and D areas around airports, from the FAA's NASR
+//!   28-day subscription ("class_airspace_shape_files.zip"), and special use
+//!   airspace (prohibited, restricted, MOAs, warning and alert areas) from
+//!   the FAA's ADDS open data. US government data, public domain, no key.
+//! - Elsewhere: openAIP's per-country exports (CC BY-NC 4.0, attribution
+//!   "openAIP"; FlightDeck is free, which the licence requires), read only
+//!   for the countries in view.
+//!
+//! Every file is fetched once per 28-day cycle, simplified, and saved as
+//! GeoJSON in FlightDeck's data folder; the map reads that copy until the
+//! next cycle. Every feature has the same properties: c (kind: "B", "C",
+//! "D", "E", "G"…, or "P", "R", "DNG", "W", "AL", "MOA", "TRA"…), name,
+//! label (as the user asked for: "G: GND-2000AGL"), lo and hi (feet, for
+//! the 3D view; hi 60000 when unlimited).
 
 use std::io::{Cursor, Read};
 use std::path::{Path, PathBuf};
@@ -40,47 +48,373 @@ fn folder(data_dir: &Path) -> PathBuf {
     data_dir.join("airspace")
 }
 
-/// One load at a time: a second ask waits for the first download.
-static BUSY: Mutex<()> = Mutex::new(());
-
-/// The US Class B, C and D areas as GeoJSON, from this cycle's copy, else
-/// fetched now, else the last copy kept. Each feature has: c ("B", "C" or
-/// "D"), name, label (as charts print it: ceiling over floor in hundreds
-/// of feet, "[25]" for a Class D ceiling).
-pub fn us(data_dir: &Path) -> Result<String, String> {
-    let _one = BUSY.lock().unwrap_or_else(|e| e.into_inner());
+/// A cycle's copy of one file (`{prefix}-{cycle}.json`), else made now with
+/// `make`, else the last copy kept however old (offline). Older copies with
+/// the same prefix are removed.
+fn cached(data_dir: &Path, prefix: &str, make: impl Fn(&str) -> Result<String, String>) -> Result<String, String> {
     let dir = folder(data_dir);
     let now = now_ms();
     let cycle = cycle_at(now);
-    let file = dir.join(format!("us-{cycle}.json"));
-    if let Ok(s) = std::fs::read_to_string(&file) {
+    if let Ok(s) = std::fs::read_to_string(dir.join(format!("{prefix}-{cycle}.json"))) {
         return Ok(s);
     }
-    // This cycle, or (just after the change, should the FAA be late) the last.
     let mut last_err = String::new();
+    // This cycle, or (just after the change, should the source be late) the last.
     for c in [cycle.clone(), cycle_at(now - CYCLE_MS)] {
-        match fetch(&c) {
-            Ok(zip) => match from_zip(&zip, &c) {
-                Ok(json) => {
-                    let _ = std::fs::create_dir_all(&dir);
-                    let out = dir.join(format!("us-{c}.json"));
-                    if std::fs::write(&out, &json).is_ok() {
-                        forget_others(&dir, &out);
-                    }
-                    log::info!("airspace: US cycle {c}, {} KB", json.len() / 1024);
-                    return Ok(json);
+        match make(&c) {
+            Ok(json) => {
+                let _ = std::fs::create_dir_all(&dir);
+                let out = dir.join(format!("{prefix}-{c}.json"));
+                if std::fs::write(&out, &json).is_ok() {
+                    forget_others(&dir, prefix, &out);
                 }
-                Err(e) => last_err = e,
-            },
+                log::info!("airspace: {prefix} cycle {c}, {} KB", json.len() / 1024);
+                return Ok(json);
+            }
             Err(e) => last_err = e,
         }
     }
-    // Offline: the last copy kept, however old.
-    if let Some(old) = newest(&dir) {
+    if let Some(old) = newest(&dir, prefix) {
         log::warn!("airspace: {last_err}; showing {}", old.display());
         return std::fs::read_to_string(old).map_err(|e| e.to_string());
     }
     Err(last_err)
+}
+
+/// One load at a time: a second ask waits for the first download.
+static BUSY: Mutex<()> = Mutex::new(());
+
+/// The US Class B, C and D areas as GeoJSON.
+pub fn us(data_dir: &Path) -> Result<String, String> {
+    let _one = BUSY.lock().unwrap_or_else(|e| e.into_inner());
+    cached(data_dir, "class", |c| from_zip(&fetch(c)?, c))
+}
+
+/// US special use airspace as GeoJSON: prohibited, restricted, MOAs,
+/// warning, alert and national security areas.
+pub fn sua(data_dir: &Path) -> Result<String, String> {
+    static ONE: Mutex<()> = Mutex::new(());
+    let _one = ONE.lock().unwrap_or_else(|e| e.into_inner());
+    cached(data_dir, "sua", |c| {
+        let mut features = Vec::new();
+        let mut offset = 0;
+        // The service hands out a page at a time.
+        loop {
+            let url = format!("{SUA_URL}&resultOffset={offset}&resultRecordCount=1000");
+            let v: Value = serde_json::from_str(&get_text(&url, "the FAA (ADDS)")?).map_err(|e| format!("Unexpected answer from the FAA: {e}"))?;
+            let page = v["features"].as_array().cloned().unwrap_or_default();
+            let n = page.len();
+            features.extend(page.iter().filter_map(sua_feature));
+            let more = v["exceededTransferLimit"].as_bool().unwrap_or(false) || v["properties"]["exceededTransferLimit"].as_bool().unwrap_or(false);
+            if n == 0 || !more || offset > 20_000 {
+                break;
+            }
+            offset += n;
+        }
+        if features.is_empty() {
+            return Err("The FAA's special use airspace came back empty".into());
+        }
+        Ok(json!({ "type": "FeatureCollection", "cycle": c, "features": features }).to_string())
+    })
+}
+
+/// The FAA's special use airspace, as GeoJSON, simplified by the service
+/// (about 50 m) and rounded.
+const SUA_URL: &str = "https://services6.arcgis.com/ssFJjBXIUyZDrSYZ/arcgis/rest/services/Special_Use_Airspace/FeatureServer/0/query?where=1%3D1&outFields=NAME,TYPE_CODE,UPPER_VAL,UPPER_UOM,UPPER_CODE,LOWER_VAL,LOWER_UOM,LOWER_CODE&returnGeometry=true&maxAllowableOffset=0.0005&geometryPrecision=5&outSR=4326&f=geojson";
+
+fn get_text(url: &str, who: &str) -> Result<String, String> {
+    let mut res = crate::update::agent().get(url).call().map_err(|e| format!("Could not reach {who}: {e}"))?;
+    res.body_mut().with_config().limit(100 * 1024 * 1024).read_to_string().map_err(|e| format!("Unexpected answer from {who}: {e}"))
+}
+
+fn val_str(v: &Value) -> Option<String> {
+    match v {
+        Value::String(s) => Some(s.trim().to_string()).filter(|s| !s.is_empty()),
+        Value::Number(n) => Some(n.to_string()),
+        _ => None,
+    }
+}
+
+fn sua_feature(f: &Value) -> Option<Value> {
+    let p = &f["properties"];
+    let kind = match val_str(&p["TYPE_CODE"])?.to_ascii_uppercase().as_str() {
+        "P" => "P",
+        "R" => "R",
+        "MOA" => "MOA",
+        "W" => "W",
+        "A" => "AL",
+        "NSA" => "NSA",
+        _ => return None,
+    };
+    let name = val_str(&p["NAME"]).unwrap_or_default();
+    let lo = faa_limit(val_str(&p["LOWER_VAL"]), val_str(&p["LOWER_UOM"]), val_str(&p["LOWER_CODE"]));
+    let hi = faa_limit(val_str(&p["UPPER_VAL"]), val_str(&p["UPPER_UOM"]), val_str(&p["UPPER_CODE"]));
+    let geometry = clean_geometry(&f["geometry"], SIMPLIFY_SUA)?;
+    Some(feature(kind, &name, &sua_tag(kind, &name), lo, hi, geometry))
+}
+
+/// What a label starts with: the class letter, or the area's own short name
+/// ("R-2508", "W-122"), else its kind.
+fn sua_tag(kind: &str, name: &str) -> String {
+    let short = name.split_whitespace().next().unwrap_or("");
+    if !short.is_empty() && short.len() <= 10 && short.chars().any(|c| c.is_ascii_digit()) {
+        short.to_string()
+    } else if !name.is_empty() && name.len() <= 18 {
+        name.to_string()
+    } else {
+        kind.to_string()
+    }
+}
+
+/// A limit: its text as the label prints it, and feet for the 3D view.
+#[derive(Clone, Debug, PartialEq)]
+struct Limit {
+    text: String,
+    ft: f64,
+}
+
+/// "GND", "2000AGL", "10000MSL", "FL180", "UNL".
+fn faa_limit(val: Option<String>, uom: Option<String>, code: Option<String>) -> Option<Limit> {
+    let code = code.unwrap_or_default().to_ascii_uppercase();
+    let raw = val.unwrap_or_default();
+    if raw.eq_ignore_ascii_case("UNLTD") || raw.eq_ignore_ascii_case("UNL") || code == "UNLTD" {
+        return Some(Limit { text: "UNL".into(), ft: 60_000.0 });
+    }
+    let v: f64 = raw.parse().ok()?;
+    if v <= -9000.0 {
+        return None; // not published (up to the airspace above)
+    }
+    if uom.as_deref().is_some_and(|u| u.eq_ignore_ascii_case("FL")) || code == "STD" {
+        let fl = if v >= 1000.0 { v / 100.0 } else { v };
+        return Some(Limit { text: format!("FL{:03}", fl.round() as i64), ft: fl * 100.0 });
+    }
+    if (code == "SFC" || code == "GND") && v <= 0.0 {
+        return Some(Limit { text: "GND".into(), ft: 0.0 });
+    }
+    let ft = v.round();
+    let datum = if code == "AGL" || code == "SFC" || code == "GND" { "AGL" } else { "MSL" };
+    Some(Limit { text: format!("{}{datum}", ft as i64), ft })
+}
+
+fn label(tag: &str, lo: &Option<Limit>, hi: &Option<Limit>) -> String {
+    match (lo, hi) {
+        (Some(l), Some(h)) => format!("{tag}: {}-{}", l.text, h.text),
+        (None, Some(h)) => format!("{tag}: -{}", h.text),
+        (Some(l), None) => format!("{tag}: {}-", l.text),
+        (None, None) => tag.to_string(),
+    }
+}
+
+fn feature(kind: &str, name: &str, tag: &str, lo: Option<Limit>, hi: Option<Limit>, geometry: Value) -> Value {
+    let label = label(tag, &lo, &hi);
+    let lo_ft = lo.as_ref().map(|l| l.ft).unwrap_or(0.0);
+    let hi_ft = hi.as_ref().map(|l| l.ft).unwrap_or(lo_ft + 1000.0).max(lo_ft + 300.0).min(60_000.0);
+    json!({ "type": "Feature", "properties": { "c": kind, "name": name, "label": label, "lo": lo_ft.round(), "hi": hi_ft.round() }, "geometry": geometry })
+}
+
+/// A Polygon or MultiPolygon, simplified and rounded; None if nothing is left.
+fn clean_geometry(g: &Value, tol: f64) -> Option<Value> {
+    let ring = |r: &Value| -> Option<Vec<[f64; 2]>> {
+        let pts: Vec<(f64, f64)> = r.as_array()?.iter().filter_map(|p| Some((p.get(0)?.as_f64()?, p.get(1)?.as_f64()?))).collect();
+        let out: Vec<[f64; 2]> = simplify(&pts, tol).into_iter().map(|(x, y)| [round5(x), round5(y)]).collect();
+        (out.len() >= 4).then_some(out)
+    };
+    let poly = |p: &Value| -> Option<Vec<Vec<[f64; 2]>>> {
+        let rings: Vec<Vec<[f64; 2]>> = p.as_array()?.iter().filter_map(ring).collect();
+        (!rings.is_empty()).then_some(rings)
+    };
+    match g["type"].as_str()? {
+        "Polygon" => Some(json!({ "type": "Polygon", "coordinates": poly(&g["coordinates"])? })),
+        "MultiPolygon" => {
+            let ps: Vec<_> = g["coordinates"].as_array()?.iter().filter_map(poly).collect();
+            (!ps.is_empty()).then(|| json!({ "type": "MultiPolygon", "coordinates": ps }))
+        }
+        _ => None,
+    }
+}
+
+const SIMPLIFY_SUA: f64 = 0.0004;
+
+// ---- openAIP, outside the US -------------------------------------------------
+
+const OPENAIP: &str = "https://storage.googleapis.com/29f98e10-a489-4c82-ae5e-489dbcd4912f";
+
+/// One country's airspace, ready to answer for a box.
+struct Country {
+    features: Vec<([f64; 4], Value)>,
+}
+
+type Loaded = std::collections::HashMap<String, std::sync::Arc<Country>>;
+static WORLD: Mutex<Option<Loaded>> = Mutex::new(None);
+
+/// The airspace outside the US in a box (countries are read as they come
+/// into view, at most `max_new` new ones per call so a call stays quick).
+/// Returns the GeoJSON and whether more countries in the box are still to
+/// be read.
+pub fn world(data_dir: &Path, w: f64, s: f64, e: f64, n: f64, max_new: usize) -> (String, bool) {
+    let codes = countries_in(w, s, e, n);
+    let mut fresh = 0;
+    let mut more = false;
+    let mut list: Vec<std::sync::Arc<Country>> = Vec::new();
+    for cc in codes {
+        let have = WORLD.lock().unwrap().get_or_insert_with(Default::default).get(&cc).cloned();
+        let c = match have {
+            Some(c) => c,
+            None if fresh < max_new => {
+                fresh += 1;
+                let c = std::sync::Arc::new(load_country(data_dir, &cc));
+                WORLD.lock().unwrap().get_or_insert_with(Default::default).insert(cc.clone(), c.clone());
+                c
+            }
+            None => {
+                more = true;
+                continue;
+            }
+        };
+        list.push(c);
+    }
+    let mut out = Vec::new();
+    for c in &list {
+        for (b, f) in &c.features {
+            if b[2] >= w && b[0] <= e && b[3] >= s && b[1] <= n {
+                out.push(f);
+                if out.len() >= 6000 {
+                    break;
+                }
+            }
+        }
+    }
+    (json!({ "type": "FeatureCollection", "features": out }).to_string(), more)
+}
+
+/// Country codes whose box meets the view (the view may cross the date line).
+fn countries_in(w: f64, s: f64, e: f64, n: f64) -> Vec<String> {
+    let spans: Vec<(f64, f64)> = if w <= e { vec![(w, e)] } else { vec![(w, 180.0), (-180.0, e)] };
+    let mut out: Vec<String> = Vec::new();
+    for (cc, b) in crate::countries::COUNTRY_BOXES {
+        let (bw, bs, be, bn) = (b[0] as f64, b[1] as f64, b[2] as f64, b[3] as f64);
+        if bn < s || bs > n {
+            continue;
+        }
+        if spans.iter().any(|(a, z)| be >= *a && bw <= *z) && !out.iter().any(|x| x == cc) {
+            out.push((*cc).to_string());
+        }
+    }
+    out
+}
+
+fn load_country(data_dir: &Path, cc: &str) -> Country {
+    let json = cached(data_dir, &format!("oaip-{cc}"), |_| {
+        let url = format!("{OPENAIP}/{cc}_asp.geojson");
+        let text = match get_text(&url, "openAIP") {
+            Ok(t) => t,
+            // No file for this country: remember that (an empty list) for the cycle.
+            Err(e) if e.contains("404") => return Ok(r#"{"type":"FeatureCollection","features":[]}"#.into()),
+            Err(e) => return Err(e),
+        };
+        let v: Value = serde_json::from_str(&text).map_err(|e| format!("Unexpected answer from openAIP: {e}"))?;
+        let features: Vec<Value> = v["features"].as_array().map(|a| a.iter().filter_map(openaip_feature).collect()).unwrap_or_default();
+        Ok(json!({ "type": "FeatureCollection", "features": features }).to_string())
+    });
+    let features = match json {
+        Ok(j) => serde_json::from_str::<Value>(&j)
+            .ok()
+            .and_then(|v| v["features"].as_array().cloned())
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|f| Some((bbox(&f["geometry"])?, f)))
+            .collect(),
+        Err(e) => {
+            log::warn!("airspace: openAIP {cc}: {e}");
+            Vec::new()
+        }
+    };
+    Country { features }
+}
+
+fn bbox(g: &Value) -> Option<[f64; 4]> {
+    let mut b = [f64::MAX, f64::MAX, f64::MIN, f64::MIN];
+    fn walk(v: &Value, b: &mut [f64; 4]) {
+        if let Some(a) = v.as_array() {
+            if let (Some(x), Some(y)) = (a.first().and_then(Value::as_f64), a.get(1).and_then(Value::as_f64)) {
+                b[0] = b[0].min(x);
+                b[1] = b[1].min(y);
+                b[2] = b[2].max(x);
+                b[3] = b[3].max(y);
+            } else {
+                a.iter().for_each(|x| walk(x, b));
+            }
+        }
+    }
+    walk(&g["coordinates"], &mut b);
+    (b[0] <= b[2]).then_some(b)
+}
+
+/// openAIP's limit: value, unit (0 m, 1 ft, 6 FL) and reference datum
+/// (0 ground, 1 MSL, 2 standard).
+fn openaip_limit(l: &Value) -> Option<Limit> {
+    let v = l["value"].as_f64()?;
+    let unit = l["unit"].as_i64().unwrap_or(1);
+    let datum = l["referenceDatum"].as_i64().unwrap_or(1);
+    let ft = match unit {
+        0 => v * 3.28084,
+        6 => v * 100.0,
+        _ => v,
+    };
+    if unit == 6 || datum == 2 {
+        let fl = (ft / 100.0).round() as i64;
+        return Some(Limit { text: format!("FL{fl:03}"), ft });
+    }
+    if datum == 0 {
+        if ft <= 0.0 {
+            return Some(Limit { text: "GND".into(), ft: 0.0 });
+        }
+        return Some(Limit { text: format!("{}AGL", ft.round() as i64), ft });
+    }
+    if ft >= 99_000.0 {
+        return Some(Limit { text: "UNL".into(), ft: 60_000.0 });
+    }
+    Some(Limit { text: format!("{}MSL", ft.round() as i64), ft })
+}
+
+/// The airspace worth showing a pilot (not flight information regions,
+/// sectors, airways or gliding areas).
+fn openaip_feature(f: &Value) -> Option<Value> {
+    let p = &f["properties"];
+    let t = p["type"].as_i64().unwrap_or(-1);
+    let class = match p["icaoClass"].as_i64().unwrap_or(8) {
+        0 => Some("A"),
+        1 => Some("B"),
+        2 => Some("C"),
+        3 => Some("D"),
+        4 => Some("E"),
+        5 => Some("F"),
+        6 => Some("G"),
+        _ => None,
+    };
+    let kind = match t {
+        3 => "P",
+        1 => "R",
+        2 => "DNG",
+        18 => "W",
+        17 => "AL",
+        8 => "TRA",
+        9 => "TSA",
+        25 | 14 => "MIL",
+        // Controlled areas: by their class, else as a control zone.
+        4 | 7 | 13 | 26 | 36 | 0 | 6 | 5 => match (class, t) {
+            (Some(c), _) => c,
+            (None, 4 | 13 | 36) => "CTR",
+            _ => return None,
+        },
+        _ => return None,
+    };
+    let name = p["name"].as_str().unwrap_or("").trim().to_string();
+    let tag = if "ABCDEFG".contains(kind) && kind.len() == 1 { kind.to_string() } else { sua_tag(kind, &name) };
+    let lo = openaip_limit(&p["lowerLimit"]);
+    let hi = openaip_limit(&p["upperLimit"]);
+    let geometry = clean_geometry(&f["geometry"], SIMPLIFY_SUA)?;
+    Some(feature(kind, &name, &tag, lo, hi, geometry))
 }
 
 fn fetch(cycle: &str) -> Result<Vec<u8>, String> {
@@ -92,21 +426,24 @@ fn fetch(cycle: &str) -> Result<Vec<u8>, String> {
         .map_err(|e| format!("Unexpected answer from the FAA: {e}"))
 }
 
-fn newest(dir: &Path) -> Option<PathBuf> {
-    let mut all: Vec<PathBuf> = std::fs::read_dir(dir)
-        .ok()?
-        .flatten()
-        .map(|e| e.path())
-        .filter(|p| p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with("us-") && n.ends_with(".json")))
-        .collect();
+/// `{prefix}-YYYY-MM-DD.json`
+fn is_copy(p: &Path, prefix: &str) -> bool {
+    p.file_name().and_then(|n| n.to_str()).is_some_and(|n| {
+        n.strip_prefix(prefix).and_then(|r| r.strip_prefix('-')).and_then(|r| r.strip_suffix(".json")).is_some_and(|d| d.len() == 10 && d.as_bytes()[4] == b'-')
+    })
+}
+
+fn newest(dir: &Path, prefix: &str) -> Option<PathBuf> {
+    let mut all: Vec<PathBuf> = std::fs::read_dir(dir).ok()?.flatten().map(|e| e.path()).filter(|p| is_copy(p, prefix)).collect();
     all.sort();
     all.pop()
 }
 
-fn forget_others(dir: &Path, keep: &Path) {
+fn forget_others(dir: &Path, prefix: &str, keep: &Path) {
     for e in std::fs::read_dir(dir).into_iter().flatten().flatten() {
         let p = e.path();
-        if p != keep && p.extension().is_some_and(|x| x == "json") {
+        // Also the old US copies ("us-…", before the labels changed).
+        if p != keep && (is_copy(&p, prefix) || is_copy(&p, "us")) {
             let _ = std::fs::remove_file(p);
         }
     }
@@ -155,21 +492,6 @@ fn text(r: &dbase::Record, field: &str) -> Option<String> {
     (!s.is_empty() && s != "<Null>").then_some(s)
 }
 
-/// An altitude as charts print it, in hundreds of feet: "SFC", "30", "100".
-fn alt(val: Option<String>, uom: Option<String>, code: Option<String>) -> Option<String> {
-    let code = code.unwrap_or_default().to_ascii_uppercase();
-    let v: f64 = val.as_deref().and_then(|v| v.parse().ok()).unwrap_or(0.0);
-    if v <= -9000.0 {
-        return None; // not published (up to the airspace above)
-    }
-    if code == "SFC" && v <= 0.0 {
-        return Some("SFC".into());
-    }
-    let ft = if uom.as_deref() == Some("FL") { v * 100.0 } else { v };
-    let h = (ft / 100.0).round() as i64;
-    Some(if code == "AGL" || (code == "SFC" && v > 0.0) { format!("{h} AGL") } else { h.to_string() })
-}
-
 fn parse(shp: Vec<u8>, dbf: Vec<u8>) -> Result<Vec<Value>, String> {
     let shapes = shapefile::ShapeReader::new(Cursor::new(shp)).map_err(|e| format!("FAA shapefile: {e}"))?;
     let table = dbase::Reader::new(Cursor::new(dbf)).map_err(|e| format!("FAA attribute table: {e}"))?;
@@ -189,14 +511,8 @@ fn parse(shp: Vec<u8>, dbf: Vec<u8>) -> Result<Vec<Value>, String> {
             shapefile::Shape::PolygonZ(p) => p.rings().iter().map(|r| (is_outer(r), r.points().iter().map(|q| (q.x, q.y)).collect())).collect(),
             _ => continue,
         };
-        let hi = alt(text(&rec, "UPPER_VAL"), text(&rec, "UPPER_UOM"), text(&rec, "UPPER_CODE"));
-        let lo = alt(text(&rec, "LOWER_VAL"), text(&rec, "LOWER_UOM"), text(&rec, "LOWER_CODE"));
-        let label = match (class, hi, lo) {
-            ("D", Some(h), _) => format!("[{h}]"),
-            (_, Some(h), Some(l)) => format!("{h}/{l}"),
-            (_, Some(h), None) => h,
-            _ => String::new(),
-        };
+        let hi = faa_limit(text(&rec, "UPPER_VAL"), text(&rec, "UPPER_UOM"), text(&rec, "UPPER_CODE"));
+        let lo = faa_limit(text(&rec, "LOWER_VAL"), text(&rec, "LOWER_UOM"), text(&rec, "LOWER_CODE"));
         let name = text(&rec, "NAME").unwrap_or_default();
         // Each outer ring with the holes after it, as GeoJSON wants them:
         // outer rings counterclockwise, holes clockwise (shapefiles have
@@ -224,7 +540,7 @@ fn parse(shp: Vec<u8>, dbf: Vec<u8>) -> Result<Vec<Value>, String> {
         } else {
             json!({ "type": "MultiPolygon", "coordinates": polys })
         };
-        out.push(json!({ "type": "Feature", "properties": { "c": class, "name": name, "label": label }, "geometry": geometry }));
+        out.push(feature(class, &name, class, lo, hi, geometry));
     }
     Ok(out)
 }
@@ -305,12 +621,50 @@ mod tests {
     }
 
     #[test]
-    fn altitudes_read_as_on_charts() {
+    fn limits_read_as_the_user_likes_them() {
         let s = |v: &str| Some(v.to_string());
-        assert_eq!(alt(s("10000"), s("FT"), s("MSL")).as_deref(), Some("100"));
-        assert_eq!(alt(s("0"), s("FT"), s("SFC")).as_deref(), Some("SFC"));
-        assert_eq!(alt(s("-9998"), None, None), None);
-        assert_eq!(alt(s("180"), s("FL"), s("STD")).as_deref(), Some("180"));
+        let t = |l: Option<Limit>| l.map(|l| l.text);
+        assert_eq!(t(faa_limit(s("10000"), s("FT"), s("MSL"))).as_deref(), Some("10000MSL"));
+        assert_eq!(t(faa_limit(s("0"), s("FT"), s("SFC"))).as_deref(), Some("GND"));
+        assert_eq!(t(faa_limit(s("2000"), s("FT"), s("AGL"))).as_deref(), Some("2000AGL"));
+        assert_eq!(faa_limit(s("-9998"), None, None), None);
+        assert_eq!(t(faa_limit(s("180"), s("FL"), s("STD"))).as_deref(), Some("FL180"));
+        assert_eq!(t(faa_limit(s("UNLTD"), None, None)).as_deref(), Some("UNL"));
+        let o = |v: f64, u: i64, d: i64| t(openaip_limit(&json!({ "value": v, "unit": u, "referenceDatum": d })));
+        assert_eq!(o(0.0, 1, 0).as_deref(), Some("GND"));
+        assert_eq!(o(2000.0, 1, 0).as_deref(), Some("2000AGL"));
+        assert_eq!(o(95.0, 6, 2).as_deref(), Some("FL095"));
+        assert_eq!(o(4500.0, 1, 1).as_deref(), Some("4500MSL"));
+        assert_eq!(label("G", &openaip_limit(&json!({ "value": 0, "unit": 1, "referenceDatum": 0 })), &openaip_limit(&json!({ "value": 2000, "unit": 1, "referenceDatum": 0 }))), "G: GND-2000AGL");
+    }
+
+    #[test]
+    fn faa_special_use_and_openaip_features() {
+        let sq = json!({ "type": "Polygon", "coordinates": [[[-117.0, 35.0], [-116.0, 35.0], [-116.0, 36.0], [-117.0, 36.0], [-117.0, 35.0]]] });
+        let r = sua_feature(&json!({ "properties": { "NAME": "R-2508 COMPLEX", "TYPE_CODE": "R", "LOWER_VAL": "0", "LOWER_CODE": "SFC", "UPPER_VAL": "UNLTD" }, "geometry": sq })).unwrap();
+        assert_eq!(r["properties"]["c"], "R");
+        assert_eq!(r["properties"]["label"], "R-2508: GND-UNL");
+        assert_eq!(r["properties"]["hi"], 60000.0);
+        let m = sua_feature(&json!({ "properties": { "NAME": "SHOSHONE MOA", "TYPE_CODE": "MOA", "LOWER_VAL": "100", "LOWER_UOM": "FT", "LOWER_CODE": "AGL", "UPPER_VAL": "180", "UPPER_UOM": "FL" }, "geometry": sq })).unwrap();
+        assert_eq!(m["properties"]["label"], "SHOSHONE MOA: 100AGL-FL180");
+        assert!(sua_feature(&json!({ "properties": { "TYPE_CODE": "ZZZ" }, "geometry": sq })).is_none());
+        let g = openaip_feature(&json!({ "properties": { "name": "LONDON TMA", "type": 7, "icaoClass": 0, "lowerLimit": { "value": 25, "unit": 6, "referenceDatum": 2 }, "upperLimit": { "value": 245, "unit": 6, "referenceDatum": 2 } }, "geometry": sq })).unwrap();
+        assert_eq!(g["properties"]["label"], "A: FL025-FL245");
+        let fir = openaip_feature(&json!({ "properties": { "name": "X FIR", "type": 10, "icaoClass": 8 }, "geometry": sq }));
+        assert!(fir.is_none(), "flight information regions left out");
+        let d = openaip_feature(&json!({ "properties": { "name": "ED-R 116", "type": 1, "icaoClass": 8, "lowerLimit": { "value": 0, "unit": 1, "referenceDatum": 0 }, "upperLimit": { "value": 100, "unit": 6, "referenceDatum": 2 } }, "geometry": sq })).unwrap();
+        assert_eq!(d["properties"]["label"], "ED-R 116: GND-FL100");
+    }
+
+    #[test]
+    fn countries_in_view_leave_the_us_out() {
+        let c = countries_in(-125.0, 30.0, -70.0, 49.0);
+        assert!(c.iter().any(|x| x == "ca") && c.iter().any(|x| x == "mx"), "{c:?}");
+        assert!(!c.iter().any(|x| x == "us"));
+        let eu = countries_in(5.0, 47.0, 15.0, 55.0);
+        assert!(eu.iter().any(|x| x == "de") && eu.iter().any(|x| x == "fr"));
+        // Across the date line.
+        assert!(countries_in(175.0, -45.0, -175.0, -35.0).iter().any(|x| x == "nz"));
     }
 
     /// A shapefile like the FAA's, written here: a Class B with a hole, a
@@ -376,8 +730,9 @@ mod tests {
         let fs = json["features"].as_array().unwrap();
         assert_eq!(fs.len(), 2, "Class E left out");
         assert_eq!(fs[0]["properties"]["c"], "B");
-        assert_eq!(fs[0]["properties"]["label"], "100/30");
-        assert_eq!(fs[1]["properties"]["label"], "[25]");
+        assert_eq!(fs[0]["properties"]["label"], "B: 3000MSL-10000MSL");
+        assert_eq!(fs[1]["properties"]["label"], "D: GND-2500MSL");
+        assert_eq!(fs[0]["properties"]["lo"], 3000.0);
         // The shelf keeps its hole, the outer ring counterclockwise and the
         // hole clockwise, and fewer points than the source.
         let rings = fs[0]["geometry"]["coordinates"].as_array().unwrap();
