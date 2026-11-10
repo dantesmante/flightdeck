@@ -468,7 +468,7 @@
 
 {#if open}
   {@const menu = TABS.find((m) => m.id === open)!}
-  <div class="panel" class:beside={cardOpen} role="dialog" aria-label="Layers: {menu.title}">
+  <div class="panel" role="dialog" aria-label="Layers: {menu.title}">
     <header>
       <h3>Layers</h3>
       <button class="x" aria-label="Close" onclick={() => (open = null)}>
@@ -832,11 +832,6 @@
     box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
     backdrop-filter: blur(8px);
   }
-  /* An airport (or network, weather) card is open on the right: the menu
-     opens beside it instead of over it. */
-  .panel.beside {
-    right: max(16px, min(368px, calc(100% - 400px)));
-  }
   header {
     display: flex;
     align-items: center;
@@ -1155,9 +1150,6 @@
       left: 10px;
       width: auto;
       max-height: calc(100% - 140px);
-    }
-    .panel.beside {
-      right: 10px;
     }
     .tabs button {
       padding: 5px 7px;
