@@ -802,10 +802,14 @@ export function showRoads(map: maplibregl.Map, on: boolean) {
     for (const id of ROAD_IDS) if (map.getLayer(id)) map.moveLayer(id, before);
   }
   for (const id of ROAD_IDS) if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", on ? "visible" : "none");
+  // The base map's own roads, railways and their names stay hidden: the
+  // map without layers shows places, water and land only, and roads come
+  // from the Roads layer alone.
   for (const l of map.getStyle().layers ?? []) {
-    if (l.type === "symbol" && !l.id.startsWith("fd-") && /highway-name|road_shield|highway-shield/.test(l.id)) {
-      if (!/shield/.test(l.id)) map.setLayoutProperty(l.id, "visibility", on ? "none" : "visible");
-    }
+    if (l.id.startsWith("fd-")) continue;
+    const src = (l as { "source-layer"?: string })["source-layer"];
+    if (src === "transportation" || src === "transportation_name" || /highway|road_shield|railway|tunnel|bridge/.test(l.id))
+      map.setLayoutProperty(l.id, "visibility", "none");
   }
 }
 

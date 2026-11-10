@@ -39,6 +39,10 @@
     onpfd?: () => void;
     padOpen?: boolean;
     onpad?: () => void;
+    markupOpen?: boolean;
+    onmarkup?: () => void;
+    /** The map's width: narrow maps show the tools as icons, or in a list. */
+    width?: number;
     obstaclesState?: "idle" | "loading" | "ok" | "error";
     /** A sim is connected: terrain and obstacles can be coloured against it. */
     hasAircraft?: boolean;
@@ -64,7 +68,7 @@
     onrings?: (count: number, set: string) => void;
     onroadsopacity?: (o: number) => void;
   }
-  let { three, on, onthree, ontoggle, radarTime, radarError, parkedLayer = false, airportDetail = 1, ondetail, level = "auto", levelNow = "", onlevel, cardOpen = false, measuring = false, onmeasure, airspaceState = "idle", airspaceNote = "", pfdOpen = false, onpfd, padOpen = false, onpad, obstaclesState = "idle", hasAircraft = false, roadsOpacity = 1, onroadsopacity, ringCount = 2, ringSet = "auto", onrings, profileOpen = false, onprofile, taxiOpen = false, ontaxi, navNote = "", tempNote = "", icingNote = "", icingInfo = "", icingAdvNote = "", cloudNote = "", visNote = "" }: Props = $props();
+  let { three, on, onthree, ontoggle, radarTime, radarError, parkedLayer = false, airportDetail = 1, ondetail, level = "auto", levelNow = "", onlevel, cardOpen = false, measuring = false, onmeasure, airspaceState = "idle", airspaceNote = "", pfdOpen = false, onpfd, padOpen = false, onpad, markupOpen = false, onmarkup, width = 0, obstaclesState = "idle", hasAircraft = false, roadsOpacity = 1, onroadsopacity, ringCount = 2, ringSet = "auto", onrings, profileOpen = false, onprofile, taxiOpen = false, ontaxi, navNote = "", tempNote = "", icingNote = "", icingInfo = "", icingAdvNote = "", cloudNote = "", visNote = "" }: Props = $props();
   /** The Tools drawer (Measure, Taxi, Profile, PFD): stays out until closed. */
   const TOOLS_KEY = "fd.toolsOpen";
   let toolsOpen = $state(
@@ -85,8 +89,11 @@
     }
   }
   const levelLabel = $derived(level === "auto" ? levelNow : WIND_LEVELS.find((l) => l.id === level)?.label);
-  const anyTool = $derived(measuring || taxiOpen || profileOpen || pfdOpen || padOpen);
-  const hasTools = $derived(!!(onmeasure || ontaxi || onprofile || onpfd || onpad));
+  const anyTool = $derived(measuring || taxiOpen || profileOpen || pfdOpen || padOpen || markupOpen);
+  const hasTools = $derived(!!(onmeasure || ontaxi || onprofile || onpfd || onpad || onmarkup));
+  /** Narrow map (split with the PFD, a tablet): icons only. Phone-narrow: the tools drop down as a list. */
+  const compact = $derived(width > 0 && width < 1100);
+  const stack = $derived(width > 0 && width < 680);
   const DETAIL = ["Major airports only", "Major and regional airports", "All airports and airstrips"];
 
   /** The Layers panel's tabs: airports and flights, weather, the map itself. */
@@ -347,7 +354,7 @@
 
 {#snippet aspNote()}
   <span class="note">
-    {#if on.has("airspace") && airspaceState === "loading"}Loading from the FAA…{:else if on.has("airspace") && airspaceNote}{airspaceNote}{:else if on.has("airspace") && airspaceState === "error"}FAA partly not reachable{:else}Classes, SUA · worldwide{/if}
+    {#if on.has("airspace") && airspaceState === "loading"}Loading from the FAA…{:else if on.has("airspace") && airspaceNote}{airspaceNote}{:else if on.has("airspace") && airspaceState === "error"}FAA partly not reachable{:else}Worldwide · from zoom 5{/if}
   </span>
 {/snippet}
 
@@ -391,17 +398,30 @@
   </span>
 {/snippet}
 
-<div class="rail">
+<div class="rail" class:compact class:stack>
   <div class="seg" role="radiogroup" aria-label="Map view">
     <button role="radio" aria-checked={!three} class:on={!three} onclick={() => onthree(false)}>2D</button>
     <button role="radio" aria-checked={three} class:on={three} onclick={() => onthree(true)}>3D</button>
   </div>
   {#if hasTools}
+  <div class="toolwrap">
   <div class="drawer" class:out={toolsOpen} aria-hidden={!toolsOpen} inert={!toolsOpen}>
   {#if onmeasure}
     <button class="layers-btn" class:open={measuring} aria-pressed={measuring} title="Measure distances" onclick={() => ((open = null), onmeasure())}>
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 16.5L16.5 3 21 7.5 7.5 21z" /><path d="M7 12.5l1.8 1.8M10 9.5l2.6 2.6M13 6.5l1.8 1.8" /></svg>
       <span>Measure</span>
+    </button>
+  {/if}
+  {#if onmarkup}
+    <button class="layers-btn" class:open={markupOpen} aria-pressed={markupOpen} title="Mark up the map: draw on it" onclick={() => ((open = null), onmarkup())}>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20l1.2-4.2L15.5 5.5a2.1 2.1 0 0 1 3 3L8.2 18.8z" /><path d="M13.5 7.5l3 3" /><path d="M14 20h6" /></svg>
+      <span>Markup</span>
+    </button>
+  {/if}
+  {#if onpad}
+    <button class="layers-btn" class:open={padOpen} aria-pressed={padOpen} title="Scratch pad: notes, clearances, briefings" onclick={onpad}>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="3" width="14" height="18" rx="2" /><path d="M9 3v2h6V3" /><path d="M8.5 11c1.5-2 2.5-2 3 0s1.5 2 3.5-.5M8.5 16h7" /></svg>
+      <span>Pad</span>
     </button>
   {/if}
   {#if ontaxi}
@@ -422,14 +442,8 @@
       <span>PFD</span>
     </button>
   {/if}
-  {#if onpad}
-    <button class="layers-btn" class:open={padOpen} aria-pressed={padOpen} title="Scratch pad: notes, clearances, briefings" onclick={onpad}>
-      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="3" width="14" height="18" rx="2" /><path d="M9 3v2h6V3" /><path d="M8.5 11c1.5-2 2.5-2 3 0s1.5 2 3.5-.5M8.5 16h7" /></svg>
-      <span>Pad</span>
-    </button>
-  {/if}
   </div>
-  <button class="layers-btn tools" class:open={toolsOpen} aria-expanded={toolsOpen} title={toolsOpen ? "Put the tools away" : "Measure, Taxi, Profile, PFD, Scratch pad"} onclick={toggleTools}>
+  <button class="layers-btn tools" class:open={toolsOpen} aria-expanded={toolsOpen} title={toolsOpen ? "Put the tools away" : "Measure, Markup, Pad, Taxi, Profile, PFD"} onclick={toggleTools}>
     {#if toolsOpen}
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l6 6-6 6" /><path d="M9 6l6 6-6 6" opacity="0.45" /></svg>
     {:else}
@@ -438,6 +452,7 @@
     <span>Tools</span>
     {#if anyTool && !toolsOpen}<i class="tdot" aria-label="(a tool is on)"></i>{/if}
   </button>
+  </div>
   {/if}
   <button class="layers-btn" class:open={!!open} aria-expanded={!!open} onclick={togglePanel}>
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l9 5-9 5-9-5 9-5zM3 13l9 5 9-5" /></svg>
@@ -469,7 +484,7 @@
       {@render card("night", "Day / night", on.has("night"), () => ontoggle("night"), "Where it is night")}
       {@render card("satellite", "Satellite", on.has("satellite"), () => ontoggle("satellite"), "Imagery")}
       {@render card("terrain", "Topographic", on.has("terrain"), () => ontoggle("terrain"), "Hills and mountains")}
-      {@render card("borders", "Strong borders", on.has("borders"), () => ontoggle("borders"), "Countries, states")}
+      {@render card("borders", "Borders", on.has("borders"), () => ontoggle("borders"), "Countries, states")}
       {@render card("roads", "Roads", on.has("roads"), () => ontoggle("roads"), "Roads and highways")}
       {@render card("taws", "Terrain", on.has("taws"), () => ontoggle("taws"), tawsNote)}
       {@render card("obstacles", "Obstacles", on.has("obstacles"), () => ontoggle("obstacles"), obstNote)}
@@ -706,6 +721,49 @@
   }
   .layers-btn.tools {
     position: relative;
+  }
+  .toolwrap {
+    position: relative;
+    display: flex;
+    gap: 8px;
+  }
+  /* A narrow map (beside the PFD, a tablet): icons only, so they fit. */
+  .rail.compact .layers-btn span {
+    display: none;
+  }
+  .rail.compact .layers-btn {
+    padding: 0 11px;
+  }
+  /* Narrower still (phones): the tools drop down under Tools as a list. */
+  .rail.stack {
+    z-index: 7;
+  }
+  .rail.stack .drawer {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    flex-direction: column;
+    gap: 5px;
+    max-width: none;
+    max-height: 0;
+    transform: translateY(-6px);
+    transition:
+      max-height 0.25s ease,
+      opacity 0.2s ease,
+      transform 0.25s ease;
+  }
+  .rail.stack .drawer.out {
+    max-height: 400px;
+    transform: none;
+  }
+  .rail.stack .drawer .layers-btn {
+    min-height: 40px;
+    min-width: 150px;
+    justify-content: flex-start;
+    padding: 0 12px;
+  }
+  .rail.stack .drawer .layers-btn span {
+    display: inline;
   }
   .tdot {
     position: absolute;

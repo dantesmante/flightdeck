@@ -87,7 +87,7 @@ static BUSY: Mutex<()> = Mutex::new(());
 /// The US Class B, C and D areas as GeoJSON.
 pub fn us(data_dir: &Path) -> Result<String, String> {
     let _one = BUSY.lock().unwrap_or_else(|e| e.into_inner());
-    cached(data_dir, "class", |c| from_zip(&fetch(c)?, c))
+    cached(data_dir, "class2", |c| from_zip(&fetch(c)?, c))
 }
 
 /// US special use airspace as GeoJSON: prohibited, restricted, MOAs,
@@ -95,7 +95,7 @@ pub fn us(data_dir: &Path) -> Result<String, String> {
 pub fn sua(data_dir: &Path) -> Result<String, String> {
     static ONE: Mutex<()> = Mutex::new(());
     let _one = ONE.lock().unwrap_or_else(|e| e.into_inner());
-    cached(data_dir, "sua", |c| {
+    cached(data_dir, "sua2", |c| {
         let mut features = Vec::new();
         let mut offset = 0;
         // The service hands out a page at a time.
@@ -209,7 +209,9 @@ fn feature(kind: &str, name: &str, tag: &str, lo: Option<Limit>, hi: Option<Limi
     let label = label(tag, &lo, &hi);
     let lo_ft = lo.as_ref().map(|l| l.ft).unwrap_or(0.0);
     let hi_ft = hi.as_ref().map(|l| l.ft).unwrap_or(lo_ft + 1000.0).max(lo_ft + 300.0).min(60_000.0);
-    json!({ "type": "Feature", "properties": { "c": kind, "name": name, "label": label, "lo": lo_ft.round(), "hi": hi_ft.round() }, "geometry": geometry })
+    let lo_t = lo.as_ref().map(|l| l.text.clone()).unwrap_or_default();
+    let hi_t = hi.as_ref().map(|l| l.text.clone()).unwrap_or_default();
+    json!({ "type": "Feature", "properties": { "c": kind, "name": name, "label": label, "lo": lo_ft.round(), "hi": hi_ft.round(), "lo_t": lo_t, "hi_t": hi_t }, "geometry": geometry })
 }
 
 /// A Polygon or MultiPolygon, simplified and rounded; None if nothing is left.
@@ -304,7 +306,8 @@ fn countries_in(w: f64, s: f64, e: f64, n: f64) -> Vec<String> {
 }
 
 fn load_country(data_dir: &Path, cc: &str) -> Country {
-    let json = cached(data_dir, &format!("oaip-{cc}"), |_| {
+    // "oaip2": copies kept before the reader understood every export are not trusted.
+    let json = cached(data_dir, &format!("oaip3-{cc}"), |_| {
         let url = format!("{OPENAIP}/{cc}_asp.geojson");
         let text = match get_text(&url, "openAIP") {
             Ok(t) => t,
@@ -313,7 +316,15 @@ fn load_country(data_dir: &Path, cc: &str) -> Country {
             Err(e) => return Err(e),
         };
         let v: Value = serde_json::from_str(&text).map_err(|e| format!("Unexpected answer from openAIP: {e}"))?;
-        let features: Vec<Value> = v["features"].as_array().map(|a| a.iter().filter_map(openaip_feature).collect()).unwrap_or_default();
+        let all = v["features"].as_array().cloned().unwrap_or_default();
+        let features: Vec<Value> = all.iter().filter_map(openaip_feature).collect();
+        log::info!("airspace: openAIP {cc}: {} areas, {} kept", all.len(), features.len());
+        if features.is_empty() && !all.is_empty() {
+            // Nothing understood: don't keep an empty copy for the cycle, and
+            // show what the file looks like so it can be fixed.
+            let p = &all[0]["properties"];
+            return Err(format!("openAIP {cc}: none of {} areas understood (first: {})", all.len(), p.to_string().chars().take(400).collect::<String>()));
+        }
         Ok(json!({ "type": "FeatureCollection", "features": features }).to_string())
     });
     let features = match json {
@@ -350,12 +361,27 @@ fn bbox(g: &Value) -> Option<[f64; 4]> {
     (b[0] <= b[2]).then_some(b)
 }
 
+/// A number, or a number written as text.
+fn num(v: &Value) -> Option<f64> {
+    v.as_f64().or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))
+}
+
 /// openAIP's limit: value, unit (0 m, 1 ft, 6 FL) and reference datum
-/// (0 ground, 1 MSL, 2 standard).
+/// (0 ground, 1 MSL, 2 standard). Codes may also come as words ("FT",
+/// "FL", "GND", "MSL", "STD") or the limit as text ("FL95", "2000ft AGL").
 fn openaip_limit(l: &Value) -> Option<Limit> {
-    let v = l["value"].as_f64()?;
-    let unit = l["unit"].as_i64().unwrap_or(1);
-    let datum = l["referenceDatum"].as_i64().unwrap_or(1);
+    if let Some(t) = l.as_str() {
+        return text_limit(t);
+    }
+    let v = num(&l["value"])?;
+    let code = |k: &str, words: &[(&str, i64)]| -> Option<i64> {
+        num(&l[k]).map(|x| x as i64).or_else(|| {
+            let w = l[k].as_str()?.trim().to_ascii_uppercase();
+            words.iter().find(|(n, _)| *n == w).map(|(_, c)| *c)
+        })
+    };
+    let unit = code("unit", &[("M", 0), ("METER", 0), ("METERS", 0), ("FT", 1), ("FEET", 1), ("FL", 6)]).unwrap_or(1);
+    let datum = code("referenceDatum", &[("GND", 0), ("SFC", 0), ("AGL", 0), ("MSL", 1), ("STD", 2)]).unwrap_or(1);
     let ft = match unit {
         0 => v * 3.28084,
         6 => v * 100.0,
@@ -377,20 +403,74 @@ fn openaip_limit(l: &Value) -> Option<Limit> {
     Some(Limit { text: format!("{}MSL", ft.round() as i64), ft })
 }
 
+/// "GND", "SFC", "UNL", "FL95", "2000ft AGL", "4500 MSL".
+fn text_limit(t: &str) -> Option<Limit> {
+    let u = t.trim().to_ascii_uppercase();
+    if u.is_empty() {
+        return None;
+    }
+    if u == "GND" || u == "SFC" || u == "0" {
+        return Some(Limit { text: "GND".into(), ft: 0.0 });
+    }
+    if u.starts_with("UNL") {
+        return Some(Limit { text: "UNL".into(), ft: 60_000.0 });
+    }
+    let digits: String = u.chars().filter(|c| c.is_ascii_digit() || *c == '.').collect();
+    let v: f64 = digits.parse().ok()?;
+    if u.starts_with("FL") {
+        return Some(Limit { text: format!("FL{:03}", v.round() as i64), ft: v * 100.0 });
+    }
+    let ft = if u.contains('M') && !u.contains("MSL") || u.ends_with(" M") { v * 3.28084 } else { v };
+    let datum = if u.contains("AGL") || u.contains("GND") || u.contains("SFC") { "AGL" } else { "MSL" };
+    Some(Limit { text: format!("{}{datum}", ft.round() as i64), ft })
+}
+
 /// The airspace worth showing a pilot (not flight information regions,
 /// sectors, airways or gliding areas).
 fn openaip_feature(f: &Value) -> Option<Value> {
     let p = &f["properties"];
-    let t = p["type"].as_i64().unwrap_or(-1);
-    let class = match p["icaoClass"].as_i64().unwrap_or(8) {
-        0 => Some("A"),
-        1 => Some("B"),
-        2 => Some("C"),
-        3 => Some("D"),
-        4 => Some("E"),
-        5 => Some("F"),
-        6 => Some("G"),
-        _ => None,
+    // Codes as numbers, or as words in some exports.
+    let t = num(&p["type"]).map(|x| x as i64).unwrap_or_else(|| {
+        match p["type"].as_str().unwrap_or("").trim().to_ascii_uppercase().as_str() {
+            "RESTRICTED" | "R" => 1,
+            "DANGER" | "Q" | "D" => 2,
+            "PROHIBITED" | "P" => 3,
+            "CTR" => 4,
+            "TMA" => 7,
+            "TRA" => 8,
+            "TSA" => 9,
+            "ATZ" => 13,
+            "MATZ" => 14,
+            "ALERT" => 17,
+            "WARNING" => 18,
+            "MTA" => 25,
+            "CTA" => 26,
+            "MCTR" => 36,
+            "OTHER" | "" => 0,
+            _ => -1,
+        }
+    });
+    let class = match num(&p["icaoClass"]).map(|x| x as i64) {
+        Some(0) => Some("A"),
+        Some(1) => Some("B"),
+        Some(2) => Some("C"),
+        Some(3) => Some("D"),
+        Some(4) => Some("E"),
+        Some(5) => Some("F"),
+        Some(6) => Some("G"),
+        Some(_) => None,
+        None => match p["icaoClass"].as_str().or(p["class"].as_str()).unwrap_or("").trim().to_ascii_uppercase().as_str() {
+            c @ ("A" | "B" | "C" | "D" | "E" | "F" | "G") => Some(match c {
+                "A" => "A",
+                "B" => "B",
+                "C" => "C",
+                "D" => "D",
+                "E" => "E",
+                "F" => "F",
+                _ => "G",
+            }),
+            _ => None,
+        },
     };
     let kind = match t {
         3 => "P",
@@ -411,8 +491,8 @@ fn openaip_feature(f: &Value) -> Option<Value> {
     };
     let name = p["name"].as_str().unwrap_or("").trim().to_string();
     let tag = if "ABCDEFG".contains(kind) && kind.len() == 1 { kind.to_string() } else { sua_tag(kind, &name) };
-    let lo = openaip_limit(&p["lowerLimit"]);
-    let hi = openaip_limit(&p["upperLimit"]);
+    let lo = openaip_limit(&p["lowerLimit"]).or_else(|| openaip_limit(&p["lower_limit"])).or_else(|| openaip_limit(&p["bottom"]));
+    let hi = openaip_limit(&p["upperLimit"]).or_else(|| openaip_limit(&p["upper_limit"])).or_else(|| openaip_limit(&p["top"]));
     let geometry = clean_geometry(&f["geometry"], SIMPLIFY_SUA)?;
     Some(feature(kind, &name, &tag, lo, hi, geometry))
 }
@@ -443,7 +523,10 @@ fn forget_others(dir: &Path, prefix: &str, keep: &Path) {
     for e in std::fs::read_dir(dir).into_iter().flatten().flatten() {
         let p = e.path();
         // Also the old US copies ("us-…", before the labels changed).
-        if p != keep && (is_copy(&p, prefix) || is_copy(&p, "us")) {
+        // Also the copies of older versions ("us-…", "class-…", "oaip-xx-…").
+        let base = prefix.replace("oaip3-", "oaip-").replace("class2", "class").replace("sua2", "sua");
+        let older = is_copy(&p, "us") || is_copy(&p, &base) || is_copy(&p, &prefix.replace("oaip3-", "oaip2-"));
+        if p != keep && (is_copy(&p, prefix) || older) {
             let _ = std::fs::remove_file(p);
         }
     }
@@ -635,6 +718,9 @@ mod tests {
         assert_eq!(o(2000.0, 1, 0).as_deref(), Some("2000AGL"));
         assert_eq!(o(95.0, 6, 2).as_deref(), Some("FL095"));
         assert_eq!(o(4500.0, 1, 1).as_deref(), Some("4500MSL"));
+        assert_eq!(t(openaip_limit(&json!({ "value": "95", "unit": "FL", "referenceDatum": "STD" }))).as_deref(), Some("FL095"));
+        assert_eq!(t(openaip_limit(&json!("2000ft AGL"))).as_deref(), Some("2000AGL"));
+        assert_eq!(t(openaip_limit(&json!("FL95"))).as_deref(), Some("FL095"));
         assert_eq!(label("G", &openaip_limit(&json!({ "value": 0, "unit": 1, "referenceDatum": 0 })), &openaip_limit(&json!({ "value": 2000, "unit": 1, "referenceDatum": 0 }))), "G: GND-2000AGL");
     }
 
@@ -652,6 +738,8 @@ mod tests {
         assert_eq!(g["properties"]["label"], "A: FL025-FL245");
         let fir = openaip_feature(&json!({ "properties": { "name": "X FIR", "type": 10, "icaoClass": 8 }, "geometry": sq }));
         assert!(fir.is_none(), "flight information regions left out");
+        let w = openaip_feature(&json!({ "properties": { "name": "LONDON CTR", "type": "CTR", "icaoClass": "D", "lowerLimit": { "value": 0, "unit": "FT", "referenceDatum": "GND" }, "upperLimit": { "value": 2500, "unit": "FT", "referenceDatum": "MSL" } }, "geometry": sq })).unwrap();
+        assert_eq!(w["properties"]["label"], "D: GND-2500MSL");
         let d = openaip_feature(&json!({ "properties": { "name": "ED-R 116", "type": 1, "icaoClass": 8, "lowerLimit": { "value": 0, "unit": 1, "referenceDatum": 0 }, "upperLimit": { "value": 100, "unit": 6, "referenceDatum": 2 } }, "geometry": sq })).unwrap();
         assert_eq!(d["properties"]["label"], "ED-R 116: GND-FL100");
     }

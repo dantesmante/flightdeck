@@ -283,6 +283,10 @@ struct Engine {
     /// world, unpaused and out of the menus. A flight only starts once this
     /// has held for a few seconds.
     in_world: InWorld,
+    /// MSFS: the aircraft is really in the world (spawned, or a flight under
+    /// way). Until then the sim's menus report a made-up position (2024's
+    /// sits over the Indian Ocean), which the map does not show.
+    in_world_seen: bool,
 }
 
 /// How long the aircraft must sit in the world before a flight can start.
@@ -365,6 +369,7 @@ pub fn spawn(
                 last_camera: None,
                 last_paused: None,
                 in_world: InWorld::default(),
+                in_world_seen: false,
             };
             loop {
                 match rx.try_recv() {
@@ -617,8 +622,17 @@ impl Engine {
         // flight, say): the aircraft there is not this flight's, so it counts
         // as a pause, and a new spawn far away ends the flight as a teleport.
         let mut s = s;
-        if in_menu && self.tracker.as_ref().is_some_and(|t| !t.is_finished()) {
+        let flying = self.tracker.as_ref().is_some_and(|t| !t.is_finished());
+        if in_menu && flying {
             s.paused = true;
+        }
+        // Where the map may show the aircraft (MSFS): not in the menus, nor
+        // the menus' unpowered aircraft hanging still in the air.
+        let hanging = !s.on_ground && s.gs_kt < 1.0 && s.alt_agl_ft > 50.0 && !s.powered.unwrap_or(false) && s.engines_running == 0;
+        if !msfs || flying {
+            self.in_world_seen = true;
+        } else if in_menu || hanging {
+            self.in_world_seen = false;
         }
         if self.tracker.as_ref().is_none_or(Tracker::is_finished) {
             // No flight yet. In the MSFS menus the sim still sends a position
@@ -629,6 +643,9 @@ impl Engine {
             // MSFS: only once the aircraft is spawned on the ground in the world.
             let in_world = !msfs || self.in_world.update(&s, in_menu);
             let signal = !s.paused && !in_menu && (s.engines_running > 0 || s.powered.unwrap_or(!msfs));
+            if in_world || (signal && !hanging) {
+                self.in_world_seen = true;
+            }
             if !signal {
                 self.need_reset = false;
             }
@@ -812,6 +829,7 @@ impl Engine {
             crate::navaids::save_soon(&self.nav, self.journal_dir.clone());
         }
         self.in_world = InWorld::default();
+        self.in_world_seen = false;
         self.demo = false;
         self.sim = None;
         self.sim_version = None;
@@ -857,7 +875,7 @@ impl Engine {
             last_landing: live.as_ref().and_then(|l| l.last_landing.clone()),
             live,
             dep: self.dep.clone(),
-            telemetry: self.last_sample,
+            telemetry: self.last_sample.filter(|_| self.in_world_seen),
             demo: self.demo,
             session: self.session,
             track_tail: std::mem::take(&mut self.tail),

@@ -435,15 +435,15 @@ export async function mockCall<T>(cmd: string, _args?: Record<string, unknown>):
       });
       return pts;
     };
-    const f = (c: string, label: string, rings: number[][][]) => ({ type: "Feature", properties: { c, name: "", label }, geometry: { type: "Polygon", coordinates: rings } });
+    const f = (c: string, lo_t: string, hi_t: string, lo: number, hi: number, rings: number[][][]) => ({ type: "Feature", properties: { c, name: "", label: `${c}: ${lo_t}-${hi_t}`, lo, hi, lo_t, hi_t }, geometry: { type: "Polygon", coordinates: rings } });
     return JSON.stringify({
       type: "FeatureCollection",
       features: [
-        f("B", "100/SFC", [ring(-122.309, 47.449, 0.1)]),
-        f("B", "100/30", [ring(-122.309, 47.449, 0.2), ring(-122.309, 47.449, 0.1, true)]),
-        f("C", "40/SFC", [ring(-122.598, 45.589, 0.08)]),
-        f("C", "40/20", [ring(-122.598, 45.589, 0.17), ring(-122.598, 45.589, 0.08, true)]),
-        f("D", "[29]", [ring(-122.95, 45.54, 0.07)]),
+        f("B", "GND", "10000MSL", 0, 10000, [ring(-122.309, 47.449, 0.1)]),
+        f("B", "3000MSL", "10000MSL", 3000, 10000, [ring(-122.309, 47.449, 0.2), ring(-122.309, 47.449, 0.1, true)]),
+        f("C", "GND", "4000MSL", 0, 4000, [ring(-122.598, 45.589, 0.08)]),
+        f("C", "2000MSL", "4000MSL", 2000, 4000, [ring(-122.598, 45.589, 0.17), ring(-122.598, 45.589, 0.08, true)]),
+        f("D", "GND", "2900MSL", 0, 2900, [ring(-122.95, 45.54, 0.07)]),
       ],
     }) as T;
   }
@@ -455,17 +455,29 @@ export async function mockCall<T>(cmd: string, _args?: Record<string, unknown>):
       winds: AIRPORTS.map((a, i) => [a.icao, a.lon, a.lat, i % 7 === 3 ? -1 : (i * 47) % 360, [0, 4, 9, 14, 19, 27, 36][i % 7], i % 3 === 0 ? 25 : 0]),
     } as T;
   }
-  if (cmd === "us_airspace" || cmd === "sua_airspace" || cmd === "world_airspace") {
+  if (cmd === "sua_airspace" || cmd === "world_airspace") {
     // A few made-up areas around Seattle (US) and Vancouver (outside).
     const circ = (lon: number, lat: number, r: number) => {
       const ring: [number, number][] = [];
       for (let i = 0; i <= 64; i++) ring.push([lon + (r / Math.cos((lat * Math.PI) / 180)) * Math.cos((i / 64) * Math.PI * 2), lat + r * Math.sin((i / 64) * Math.PI * 2)]);
       return { type: "Polygon", coordinates: [ring] };
     };
-    const f = (c: string, label: string, lo: number, hi: number, g: object) => ({ type: "Feature", properties: { c, name: label, label, lo, hi }, geometry: g });
+    const wobbly = (lon: number, lat: number, r: number) => {
+      const ring: [number, number][] = [];
+      for (let i = 0; i <= 160; i++) {
+        const a = (i / 160) * Math.PI * 2;
+        const rr = r * (1 + 0.05 * Math.sin(a * 23) + 0.03 * Math.sin(a * 41));
+        ring.push([lon + (rr / Math.cos((lat * Math.PI) / 180)) * Math.cos(a), lat + rr * Math.sin(a)]);
+      }
+      return { type: "Polygon", coordinates: [ring] };
+    };
+    const f = (c: string, label: string, lo: number, hi: number, g: object) => {
+      const [name, lim] = label.split(": ");
+      const [lo_t, hi_t] = (lim ?? "").split("-");
+      return { type: "Feature", properties: { c, name, label, lo, hi, lo_t, hi_t }, geometry: g };
+    };
     const fc = (features: object[]) => JSON.stringify({ type: "FeatureCollection", features });
-    if (cmd === "us_airspace") return fc([f("B", "B: 3000MSL-10000MSL", 3000, 10000, circ(-122.31, 47.45, 0.25)), f("D", "D: GND-2500MSL", 0, 2500, circ(-122.3, 47.53, 0.06))]) as T;
-    if (cmd === "sua_airspace") return fc([f("R", "R-6703: GND-FL230", 0, 23000, circ(-122.55, 46.9, 0.12)), f("MOA", "OLYMPIC MOA: 6000MSL-FL180", 6000, 18000, circ(-123.6, 47.7, 0.3))]) as T;
+    if (cmd === "sua_airspace") return fc([f("R", "R-6703: GND-FL230", 0, 23000, circ(-122.55, 46.9, 0.12)), f("MOA", "OLYMPIC MOA: 6000MSL-FL180", 6000, 18000, wobbly(-122.05, 47.2, 0.13))]) as T;
     return { geojson: fc([f("C", "C: GND-2500AGL", 0, 2500, circ(-123.18, 49.19, 0.12)), f("G", "G: GND-2000AGL", 0, 2000, circ(-122.6, 49.4, 0.2))]), more: false } as T;
   }
   if (cmd === "sky_grid") {

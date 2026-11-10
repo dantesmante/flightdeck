@@ -23,9 +23,12 @@
   import { drawing, pick } from "./flyStore.svelte";
   import { pfdState } from "./pfd/store.svelte";
   import { padState } from "./pad/store.svelte";
+  import ScratchPad from "./pad/ScratchPad.svelte";
+  import Markup, { loadMarks, saveMarks, showMarks, type Mark } from "./draw/Markup.svelte";
+  import { markupState } from "./draw/store.svelte";
   import { profileState } from "./profile/store.svelte";
   import { taxiState } from "./taxi/store.svelte";
-  import { addAirspaceLayers, scaleAirspace, showAirspace } from "./airspaceLayer";
+  import { addAirspaceLayers, airspaceAt, airspaceCard, airspaceOverlay, scaleAirspace, showAirspace } from "./airspaceLayer";
   import { NAV_AIDS_ENABLED, NAV_MIN_ZOOM, WPT_MIN_ZOOM, navAt, navCard, setNavData, showNavLayers } from "./navLayer";
   import { decodeTemps, setTempCanvas, showTemp, tempImage, tempAt, TEMP_BAR, gridImage, setGridCanvas, showGrid, cloudColor, visColor, visMiles, CLOUD_BAR, VIS_BANDS } from "./tempLayer";
   import { coversFl, decodeIcing, icingSeverity, icingShapes, setIcingAdvisories, setIcingShapes, showIcing } from "./icingLayer";
@@ -693,6 +696,28 @@
   let aspUs: GeoJSON.Feature[] | null = null;
   let aspState = $state<"idle" | "loading" | "ok" | "error">("idle");
   let aspWorldNote = $state("");
+  let aspWorld: GeoJSON.Feature[] = [];
+  // Labels (inside each area's own edge) and 3D rims, made for the view.
+  let aspOverTimer: ReturnType<typeof setTimeout> | undefined;
+  function aspOverlaySoon() {
+    clearTimeout(aspOverTimer);
+    aspOverTimer = setTimeout(() => {
+      if (!map || !map.getSource("asp-over")) return;
+      const on = layers.has("airspace") && !bare;
+      const fc = on ? airspaceOverlay(map, [...(aspUs ?? []), ...aspWorld], three) : { type: "FeatureCollection" as const, features: [] };
+      (map.getSource("asp-over") as GeoJSONSource).setData(fc);
+    }, 150);
+  }
+  $effect(() => {
+    const on = layers.has("airspace") && !bare;
+    void three;
+    if (!loaded || !map) return;
+    const m = map;
+    untrack(aspOverlaySoon);
+    if (!on) return;
+    m.on("moveend", aspOverlaySoon);
+    return () => m.off("moveend", aspOverlaySoon);
+  });
   $effect(() => {
     const on = layers.has("airspace") && !bare;
     const tilted = three;
@@ -711,6 +736,7 @@
       aspUs = feats;
       aspState = cls.status === "fulfilled" && sua.status === "fulfilled" ? "ok" : "error";
       (m.getSource("us-airspace") as GeoJSONSource | undefined)?.setData({ type: "FeatureCollection", features: feats });
+      aspOverlaySoon();
     });
   });
   // The rest of the world: the countries in view, after the map stops.
@@ -721,30 +747,35 @@
     let timer: ReturnType<typeof setTimeout> | undefined;
     let stop = false;
     let busy = false;
-    const load = () => {
-      if (stop || busy) return;
-      if (m.getZoom() < 5) {
-        aspWorldNote = "";
-        return;
-      }
-      const b = m.getBounds();
-      busy = true;
-      aspWorldNote = aspWorldNote || "Loading…";
-      api.worldAirspace(b.getWest(), b.getSouth(), b.getEast(), b.getNorth()).then(
-        (r) => {
-          busy = false;
-          if (stop) return;
-          (m.getSource("world-airspace") as GeoJSONSource | undefined)?.setData(JSON.parse(r.geojson) as GeoJSON.FeatureCollection);
-          aspWorldNote = r.more ? "Loading…" : "";
-          // More countries in view still to read: carry on.
-          if (r.more) timer = setTimeout(load, 300);
-        },
-        () => {
-          busy = false;
-          aspWorldNote = "openAIP not reachable";
-        },
-      );
-    };
+    const load = () =>
+      untrack(() => {
+        if (stop || busy) return;
+        if (m.getZoom() < 5) {
+          aspWorldNote = "";
+          return;
+        }
+        const b = m.getBounds();
+        busy = true;
+        if (!aspWorld.length) aspWorldNote = "Loading outside the US…";
+        api.worldAirspace(b.getWest(), b.getSouth(), b.getEast(), b.getNorth()).then(
+          (r) => {
+            busy = false;
+            if (stop) return;
+            const fc = JSON.parse(r.geojson) as GeoJSON.FeatureCollection;
+            aspWorld = fc.features;
+            (m.getSource("world-airspace") as GeoJSONSource | undefined)?.setData(fc);
+            aspWorldNote = r.more ? "Loading outside the US…" : "";
+            aspOverlaySoon();
+            // More countries in view still to read: carry on.
+            if (r.more) timer = setTimeout(load, 300);
+          },
+          (e) => {
+            busy = false;
+            aspWorldNote = "openAIP not reachable";
+            console.warn("openAIP", e);
+          },
+        );
+      });
     const soon = () => {
       clearTimeout(timer);
       timer = setTimeout(load, 400);
@@ -760,7 +791,10 @@
   // In 3D the blocks stand at the same height scale as the flight.
   $effect(() => {
     const k = stretch;
-    if (loaded && map) scaleAirspace(map, k);
+    if (loaded && map) {
+      scaleAirspace(map, k);
+      untrack(aspOverlaySoon);
+    }
   });
 
   // Weather from the Aviation Weather Center: only while its layers are on,
@@ -2203,6 +2237,15 @@
       if (!hit) {
         // A VOR, NDB or waypoint: its card on the map.
         const nav = navAt(map!, e.point);
+        const asp = nav ? [] : airspaceAt(map!, e.point);
+        if (asp.length) {
+          const pop = new maplibregl.Popup({ className: "nav-tip", offset: 10, closeButton: false, closeOnClick: false, maxWidth: "280px" })
+            .setLngLat(e.lngLat)
+            .setDOMContent(airspaceCard(asp, () => pop.remove()))
+            .addTo(map!);
+          navPop = pop;
+          return;
+        }
         if (nav) {
           const pop = new maplibregl.Popup({ className: "nav-tip", offset: 14, closeButton: false, closeOnClick: false, maxWidth: "260px" })
             .setLngLat((nav.geometry as GeoJSON.Point).coordinates as [number, number])
@@ -2263,6 +2306,11 @@
       if (windFocus && map!.getZoom() < 8) windFocus = null;
     });
     map.on("mousemove", windUnder);
+    // A replay: the pilot pans, zooms or turns the map, so it stops following.
+    for (const ev of ["dragstart", "zoomstart", "rotatestart", "pitchstart"] as const)
+      map.on(ev, (e: { originalEvent?: Event }) => {
+        if (e.originalEvent && replayOn) replayFollow = false;
+      });
     // 3D: the aircraft (live or replayed) at the height of its path.
     map.on("render", () => {
       liftLive?.update();
@@ -2560,6 +2608,13 @@
   let wasTracking = false;
   let liftLive: Raised | null = null;
 
+  // Markup: marks drawn on the map (kept in this browser), shown always.
+  let marks = $state.raw<Mark[]>(loadMarks());
+  $effect(() => {
+    const m = marks;
+    if (loaded && map && !bare) showMarks(map, m);
+  });
+
   /** Height (m) of the 3D wall at an altitude, as the wall is drawn. */
   function wallHeight(altFt: number, pts: Pt[]): number {
     const lo = pts.length ? altRange(pts).lo : 0;
@@ -2576,6 +2631,13 @@
   let replayMarker: maplibregl.Marker | null = null;
   let liftReplay: Raised | null = null;
   let replayRaf = 0;
+  /** The map keeps the replayed plane in view until the pilot moves it. */
+  let replayFollow = $state(true);
+  function replayFollowAgain() {
+    replayFollow = true;
+    const p = replayAt(replayT);
+    if (map && p) map.easeTo({ center: [p.lon, p.lat], duration: 600, offset: [insetLeft / 2, -(insetBottom + 90) / 2] });
+  }
   /** Times for each point: the recorded ones, or a second apart if missing. */
   const replayTimes = $derived.by(() => {
     const h = history;
@@ -2628,6 +2690,7 @@
     const ts = replayTimes;
     if (!ts) return;
     replayOn = true;
+    replayFollow = true;
     replayT = ts[0];
     replayKeepInView();
     replayPlay(true);
@@ -2667,7 +2730,7 @@
   /** Re-centres on the replayed plane when it nears the edge; true if it did. */
   function replayKeepInView(): boolean {
     const p = replayAt(replayT);
-    if (!map || !p) return false;
+    if (!map || !p || !replayFollow) return false;
     const q = map.project([p.lon, p.lat]);
     const c = map.getCanvas();
     const mx = c.clientWidth * 0.15;
@@ -2861,6 +2924,22 @@
 {#if aircraft && !follow && !history}
   <button class="follow" style:left="{16 + insetLeft}px" onclick={() => (follow = true)}>Follow aircraft</button>
 {/if}
+{#if replayOn && !replayFollow && history}
+  <button class="follow" style:left="{16 + insetLeft}px" onclick={replayFollowAgain}>Follow aircraft</button>
+{/if}
+{#if markupState.open && loaded && !bare}
+  <Markup
+    getMap={() => map!}
+    {marks}
+    onchange={(m) => {
+      marks = m;
+      saveMarks(m);
+    }}
+    {insetLeft}
+    {insetBottom}
+  />
+{/if}
+{#if padState.open && !bare}<ScratchPad {insetLeft} />{/if}
 {#if (taxiState.open || taxiState.keep) && loaded && !bare}
   <TaxiAssist getMap={() => map!} lat={aircraft?.lat ?? null} lon={aircraft?.lon ?? null} hdg={aircraft?.hdg ?? null} {insetLeft} shown={taxiState.open} onclose={() => (taxiState.open = false)} />
 {/if}
@@ -2908,6 +2987,9 @@
   onpfd={planner ? () => (pfdState.open = !pfdState.open) : undefined}
   padOpen={padState.open}
   onpad={bare ? undefined : () => (padState.open = !padState.open)}
+  markupOpen={markupState.open}
+  onmarkup={bare ? undefined : () => (markupState.open = !markupState.open)}
+  width={mapW}
 />
 {/if}
 {#if wxPick && !openAirport && !netPick}
@@ -3201,6 +3283,21 @@
     white-space: nowrap;
     text-align: right;
     font-weight: 600;
+  }
+  .map :global(.asp-item) {
+    padding: 6px 9px 6px 11px;
+    margin-top: 5px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.04);
+    border-left: 3px solid var(--c);
+  }
+  .map :global(.asp-name) {
+    font-weight: 600;
+  }
+  .map :global(.asp-sub) {
+    font-size: 11px;
+    color: var(--ink-dim);
+    margin-top: 1px;
   }
   .map :global(.nc-src) {
     margin: 6px 0 0;
