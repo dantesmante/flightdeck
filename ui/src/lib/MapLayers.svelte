@@ -721,9 +721,36 @@
       transform 0.28s ease;
   }
   .drawer.out {
-    max-width: 560px;
+    max-width: 720px;
     opacity: 1;
     transform: none;
+  }
+  /* One drawer: the tools sit together in a single bar, like 2D/3D. */
+  .drawer {
+    gap: 2px;
+    border-radius: 8px;
+    background: rgba(28, 30, 33, 0.92);
+    border: 1px solid transparent;
+    backdrop-filter: blur(6px);
+  }
+  .drawer.out {
+    padding: 3px;
+    border-color: var(--rule);
+  }
+  .drawer .layers-btn {
+    border: none;
+    background: transparent;
+    backdrop-filter: none;
+    border-radius: 6px;
+    padding: 0 10px;
+    white-space: nowrap;
+  }
+  .drawer .layers-btn:hover {
+    background: rgba(255, 255, 255, 0.05);
+  }
+  .drawer .layers-btn.open {
+    background: rgba(240, 178, 58, 0.16);
+    color: var(--amber);
   }
   .layers-btn.tools {
     position: relative;

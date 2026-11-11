@@ -313,7 +313,7 @@ fn airport_at(state: tauri::State<AppState>, lat: f64, lon: f64) -> Option<Airpo
 
 /// Airports for the map at a detail level (1 major, 2 + regional, 3 + small).
 #[tauri::command]
-fn map_airports(state: tauri::State<AppState>, detail: u8) -> Vec<(String, String, u8, f32, f32)> {
+fn map_airports(state: tauri::State<AppState>, detail: u8) -> Vec<airports::MapAirport> {
     airports::map_airports(&state.refdata, detail)
 }
 

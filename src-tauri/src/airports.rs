@@ -18,7 +18,7 @@ fn kinds(detail: u8) -> &'static [AirportKind] {
     match detail {
         0 | 1 => &[AirportKind::Large],
         2 => &[AirportKind::Large, AirportKind::Medium],
-        _ => &[AirportKind::Large, AirportKind::Medium, AirportKind::Small],
+        _ => &[AirportKind::Large, AirportKind::Medium, AirportKind::Small, AirportKind::Seaplane],
     }
 }
 
@@ -30,10 +30,95 @@ fn kind_rank(k: AirportKind) -> u8 {
     }
 }
 
-/// [ident, name, rank (0 major, 1 regional, 2 small), lon, lat] for each airport.
-pub fn map_airports(rd: &RefData, detail: u8) -> Vec<(String, String, u8, f32, f32)> {
+/// One airport on the map: [ident, name, rank (0 major, 1 regional, 2
+/// small), lon, lat, chart symbol, towered, runway pattern].
+pub type MapAirport = (String, String, u8, f32, f32, u8, bool, String);
+
+/// Chart symbols, after the VFR sectional legend:
+/// 0 other than hard-surfaced (a ring), 1 hard-surfaced runways 1,500 to
+/// 8,069 ft (a filled circle with the runways in it), 2 longer or several
+/// hard runways (the runway layout itself), 3 military other than
+/// hard-surfaced (a double ring), 4 seaplane base (an anchor).
+pub const SYM_SOFT: u8 = 0;
+pub const SYM_HARD: u8 = 1;
+pub const SYM_LAYOUT: u8 = 2;
+pub const SYM_MIL: u8 = 3;
+pub const SYM_SEA: u8 = 4;
+
+fn hard(surface: &str) -> bool {
+    let s = surface.to_ascii_lowercase();
+    ["asp", "con", "pem", "bit", "tar", "pav", "seal", "mac", "cement", "hard", "bitum", "tarmac"].iter().any(|w| s.contains(w))
+}
+
+fn military(name: &str) -> bool {
+    let n = format!(" {} ", name.to_ascii_uppercase());
+    [" AFB ", " AIR FORCE ", " AIR BASE ", " NAS ", " NAVAL AIR ", " AAF ", " ARMY AIR", " MCAS ", " RAF ", " MILITARY ", " AIR NATIONAL GUARD", " ANGB ", " JRB "]
+        .iter()
+        .any(|w| n.contains(w))
+}
+
+/// A runway's true heading from its name ("16L/34R" → 160) when no
+/// position is known.
+fn heading_of(name: &str) -> Option<f64> {
+    let n: String = name.split('/').next()?.chars().take_while(|c| c.is_ascii_digit()).collect();
+    let v: f64 = n.parse().ok()?;
+    (1.0..=36.0).contains(&v).then_some(v * 10.0)
+}
+
+/// The airports for the map at a detail level (1 major, 2 + regional,
+/// 3 + small), with what their chart symbols need. The runway pattern is
+/// "heading,length,x,y;…" (degrees; hundreds of feet; x east and y north
+/// of the layout's middle).
+pub fn map_airports(rd: &RefData, detail: u8) -> Vec<MapAirport> {
+    let (lines, tower) = rd.chart_info();
+    let info = rd.all_runway_info();
     rd.airports_of(kinds(detail))
-        .map(|a| (a.ident.clone(), a.name.clone(), kind_rank(a.kind), a.lon as f32, a.lat as f32))
+        .map(|a| {
+            let towered = tower.get(a.ident.as_str()).copied().unwrap_or(false);
+            let runs = info.get(&a.ident).map(Vec::as_slice).unwrap_or(&[]);
+            let hard_runs: Vec<_> = runs.iter().filter(|r| hard(&r.surface)).collect();
+            let longest = hard_runs.iter().map(|r| r.length_ft).max().unwrap_or(0);
+            let sym = if a.kind == AirportKind::Seaplane {
+                SYM_SEA
+            } else if longest > 8069 || (hard_runs.len() >= 2 && longest >= 5000) {
+                SYM_LAYOUT
+            } else if longest >= 1500 {
+                SYM_HARD
+            } else if military(&a.name) {
+                SYM_MIL
+            } else {
+                SYM_SOFT
+            };
+            let mut pattern = String::new();
+            if sym == SYM_HARD || sym == SYM_LAYOUT {
+                let geo = lines.get(a.ident.as_str());
+                let mut parts: Vec<(f64, f64, f64, f64)> = Vec::new();
+                for r in &hard_runs {
+                    if let Some(g) = geo.and_then(|g| g.iter().find(|g| g.0 == r.name)) {
+                        parts.push((g.1, g.2.max(r.length_ft as f64), g.3, g.4));
+                    } else if let Some(h) = heading_of(&r.name) {
+                        parts.push((h, r.length_ft as f64, f64::NAN, f64::NAN));
+                    }
+                }
+                // Middle of the layout: the mean of the runways' middles.
+                let placed: Vec<_> = parts.iter().filter(|p| p.2.is_finite()).collect();
+                let (mla, mlo) = if placed.is_empty() {
+                    (a.lat, a.lon)
+                } else {
+                    (placed.iter().map(|p| p.2).sum::<f64>() / placed.len() as f64, placed.iter().map(|p| p.3).sum::<f64>() / placed.len() as f64)
+                };
+                let k = mla.to_radians().cos();
+                pattern = parts
+                    .iter()
+                    .map(|&(h, l, la, lo)| {
+                        let (x, y) = if la.is_finite() { ((lo - mlo) * 364_000.0 * k / 100.0, (la - mla) * 364_000.0 / 100.0) } else { (0.0, 0.0) };
+                        format!("{},{},{},{}", h.round() as i64, (l / 100.0).round() as i64, x.round() as i64, y.round() as i64)
+                    })
+                    .collect::<Vec<_>>()
+                    .join(";");
+            }
+            (a.ident.clone(), a.name.clone(), kind_rank(a.kind), a.lon as f32, a.lat as f32, sym, towered, pattern)
+        })
         .collect()
 }
 
@@ -292,6 +377,24 @@ mod tests {
         assert_eq!(w.ceiling_ft, Some(4500.0));
         assert_eq!(w.category.as_deref(), Some("VFR"));
         assert_eq!(w.observed_ms, Some(1_793_740_380_000));
+    }
+
+    #[test]
+    fn chart_symbols_after_the_vfr_legend() {
+        let rd = RefData::load();
+        let all = map_airports(&rd, 3);
+        let get = |id: &str| all.iter().find(|a| a.0 == id).cloned().unwrap();
+        let sea = get("KSEA");
+        assert!(sea.6, "Seattle has a tower");
+        assert_eq!(sea.5, SYM_LAYOUT);
+        assert!(sea.7.split(';').count() >= 3, "{}", sea.7);
+        let h: Vec<i64> = sea.7.split(';').map(|r| r.split(',').next().unwrap().parse().unwrap()).collect();
+        assert!(h.iter().all(|&h| (150..=200).contains(&h) || (330..=360).contains(&h) || h < 20), "{h:?}");
+        assert!(all.iter().any(|a| a.5 == SYM_SOFT && !a.6), "grass strips");
+        assert!(all.iter().any(|a| a.5 == SYM_SEA));
+        assert!(all.iter().any(|a| a.5 == SYM_HARD && a.7.contains(',')));
+        assert!(military("Nellis Air Force Base") && military("Whidbey Island NAS") && !military("Nashville Intl"));
+        assert_eq!(heading_of("09/27"), Some(90.0));
     }
 
     #[test]

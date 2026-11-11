@@ -82,6 +82,10 @@ fn load_details() -> Details {
     d
 }
 
+/// A runway on the ground: name ("16L/34R"), true heading, length (ft),
+/// middle latitude and longitude.
+pub type RunwayLine = (String, f64, f64, f64, f64);
+
 /// One runway, both ends.
 #[derive(Debug, Clone)]
 struct Runway {
@@ -257,6 +261,38 @@ impl RefData {
             runway_grid,
             details: std::sync::OnceLock::new(),
         }
+    }
+
+    /// For the chart symbols: each airport's runways as drawn on the ground
+    /// ("16L/34R" → true heading, length in feet, middle lat/lon), and
+    /// whether the airport has a control tower (a TWR frequency).
+    pub fn chart_info(&self) -> (HashMap<&str, Vec<RunwayLine>>, HashMap<&str, bool>) {
+        let mut lines: HashMap<&str, Vec<RunwayLine>> = HashMap::new();
+        for r in &self.runways {
+            let [(a, la1, lo1), (b, la2, lo2)] = &r.ends;
+            let k = (la1.to_radians()).cos();
+            let dy = (la2 - la1) * 364_000.0;
+            let dx = (lo2 - lo1) * 364_000.0 * k;
+            let len = (dx * dx + dy * dy).sqrt();
+            let hdg = (dx.atan2(dy).to_degrees() + 360.0) % 360.0;
+            let name = match (a.as_str(), b.as_str()) {
+                ("", x) | (x, "") => x.to_string(),
+                (x, y) => format!("{x}/{y}"),
+            };
+            lines.entry(r.airport.as_str()).or_default().push((name, hdg, len, (la1 + la2) / 2.0, (lo1 + lo2) / 2.0));
+        }
+        let d = self.details.get_or_init(load_details);
+        let tower = d
+            .frequencies
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.iter().any(|f| f.kind.eq_ignore_ascii_case("TWR") || f.description.to_ascii_uppercase().contains("TOWER"))))
+            .collect();
+        (lines, tower)
+    }
+
+    /// Runway details of every airport (for the chart symbols).
+    pub fn all_runway_info(&self) -> &HashMap<String, Vec<RunwayInfo>> {
+        &self.details.get_or_init(load_details).runways
     }
 
     /// Every airport of these kinds.

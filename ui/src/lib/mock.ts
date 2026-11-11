@@ -631,7 +631,21 @@ export async function mockCall<T>(cmd: string, _args?: Record<string, unknown>):
   }
   if (cmd === "map_airports") {
     const d = Number(_args?.detail ?? 1);
-    return AIRPORTS.filter((_, i) => d >= 3 || i % (d === 2 ? 2 : 4) === 0).map((a, i) => [a.icao, a.name, Math.min(2, i % 3), a.lon, a.lat]) as T;
+    // A mix of chart symbols: big layouts, single runways, grass, seaplane, military.
+    const patterns: [number, boolean, string][] = [
+      [2, true, "160,119,-4,0;160,94,0,0;160,85,4,0"],
+      [2, true, "100,110,0,-6;100,80,0,6;30,70,3,0"],
+      [1, true, "130,62,0,0"],
+      [1, false, "90,45,0,0;10,38,0,4"],
+      [0, false, ""],
+      [3, false, ""],
+      [4, false, ""],
+      [1, false, "170,35,0,0"],
+    ];
+    const real = AIRPORTS.filter((_, i) => d >= 3 || i % (d === 2 ? 2 : 4) === 0).map((a, i) => [a.icao, a.name, Math.min(2, i % 3), a.lon, a.lat, ...patterns[i % patterns.length]]);
+    // A ring of made-up fields around Seattle, one of each symbol.
+    const near = patterns.map((p, i) => [`X${i}`, `Test field ${i}`, Math.min(2, i % 3), -122.3 + 0.35 * Math.cos(i * 0.8), 47.45 + 0.22 * Math.sin(i * 0.8), ...p]);
+    return [...real, ...near] as T;
   }
   if (cmd === "set_landing_runway") {
     if (status.plan) status.plan = { ...status.plan, destination: { ...status.plan.destination, runway: String(_args?.runway ?? "") } };

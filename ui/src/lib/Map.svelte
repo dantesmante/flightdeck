@@ -28,6 +28,7 @@
   import { markupState } from "./draw/store.svelte";
   import { profileState } from "./profile/store.svelte";
   import { taxiState } from "./taxi/store.svelte";
+  import { NO_TOWER_MAGENTA, TOWER_BLUE, airportSymbol, type SymbolInfo } from "./airportSymbols";
   import { addAirspaceLayers, airspaceAt, airspaceCard, airspaceOverlay, fillForAltitude, scaleAirspace, showAirspace } from "./airspaceLayer";
   import { NAV_AIDS_ENABLED, NAV_MIN_ZOOM, WPT_MIN_ZOOM, navAt, navCard, setNavData, showNavLayers } from "./navLayer";
   import { decodeTemps, setTempCanvas, showTemp, tempImage, tempAt, TEMP_BAR, gridImage, setGridCanvas, showGrid, cloudColor, visColor, visMiles, CLOUD_BAR, VIS_BANDS } from "./tempLayer";
@@ -1534,7 +1535,7 @@
     return null;
   }
   /** Dots and their codes: either opens the airport. */
-  const AIRPORT_LAYERS = ["wa-major", "wa-regional", "wa-small", "wa-labels-0", "wa-labels-1", "wa-labels-2", "routes-airports", "wx-cat"];
+  const AIRPORT_LAYERS = ["wa-icons", "wa-major", "wa-regional", "wa-small", "wa-labels-0", "wa-labels-1", "wa-labels-2", "routes-airports", "wx-cat"];
   /** The airport (code) at a point on the map, if any. */
   function airportAt(pt: maplibregl.PointLike): string | null {
     return airportHit(pt)?.ident ?? null;
@@ -1556,13 +1557,18 @@
   /** World airports detail: 1 major, 2 + regional, 3 + small airports and strips. */
   const airportDetail = $derived(Math.min(3, Math.max(1, Number(prefs.s.map_airport_detail ?? "1") || 1)));
   const worldCache = new globalThis.Map<number, GeoJSON.FeatureCollection>();
+  /** What each airport's chart symbol needs, drawn the first time it shows. */
+  const symbolInfo = new globalThis.Map<string, SymbolInfo>();
   async function worldAirports(detail: number): Promise<GeoJSON.FeatureCollection> {
     const hit = worldCache.get(detail);
     if (hit) return hit;
     const list: MapAirport[] = (await api.mapAirports(detail)) ?? [];
     const fc: GeoJSON.FeatureCollection = {
       type: "FeatureCollection",
-      features: list.map(([id, name, r, lon, lat]) => ({ type: "Feature", properties: { id, name, r }, geometry: { type: "Point", coordinates: [lon, lat] } })),
+      features: list.map(([id, name, r, lon, lat, sym, towered, pattern]) => {
+        symbolInfo.set(id, { s: sym ?? 0, t: !!towered, p: pattern ?? "" });
+        return { type: "Feature", properties: { id, name, r, t: !!towered }, geometry: { type: "Point", coordinates: [lon, lat] } };
+      }),
     };
     worldCache.set(detail, fc);
     return fc;
@@ -1571,7 +1577,7 @@
     const on = layers.has("world");
     const detail = airportDetail;
     if (!loaded || !map || !map.getSource("world-airports")) return;
-    for (const id of ["wa-major", "wa-regional", "wa-small", "wa-labels-0", "wa-labels-1", "wa-labels-2"]) {
+    for (const id of ["wa-major", "wa-regional", "wa-small", "wa-icons", "wa-labels-0", "wa-labels-1", "wa-labels-2"]) {
       if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", on ? "visible" : "none");
     }
     if (!on) return;
@@ -1719,29 +1725,54 @@
     // The world's airports (the Airports layer, by detail level), under
     // your routes. Smaller airports appear as you zoom in.
     map.addSource("world-airports", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
-    const WORLD: [string, number, string, number[]][] = [
-      // [layer, rank, color, [radius at zoom 3, at zoom 10]]
-      ["wa-small", 2, "#a98be0", [1.6, 3.2]],
-      ["wa-regional", 1, "#5cc08a", [2, 4]],
-      ["wa-major", 0, "#4f9cf0", [3.1, 6]],
+    // As VFR charts draw them: blue with a control tower, magenta without.
+    // Zoomed out, dots (major first, smaller airports as you zoom in);
+    // from zoom 8, each airport's chart symbol.
+    const towerColor = ["case", ["get", "t"], TOWER_BLUE, NO_TOWER_MAGENTA] as unknown as maplibregl.ExpressionSpecification;
+    const WORLD: [string, number, number[]][] = [
+      // [layer, rank, [radius at zoom 3, at zoom 8]]
+      ["wa-small", 2, [1.6, 3]],
+      ["wa-regional", 1, [2, 3.6]],
+      ["wa-major", 0, [3, 4.6]],
     ];
     const MINZOOM = [0, 4.5, 7];
-    for (const [id, rank, color, [r0, r1]] of WORLD) {
+    for (const [id, rank, [r0, r1]] of WORLD) {
       map.addLayer({
         id,
         type: "circle",
         source: "world-airports",
         minzoom: MINZOOM[rank],
+        maxzoom: SYMBOL_ZOOM,
         filter: ["==", ["get", "r"], rank],
         layout: { visibility: "none" },
         paint: {
-          "circle-radius": ["interpolate", ["linear"], ["zoom"], 3, r0, 10, r1],
-          "circle-color": color,
+          "circle-radius": ["interpolate", ["linear"], ["zoom"], 3, r0, 8, r1],
+          "circle-color": towerColor,
           "circle-stroke-color": "#111214",
           "circle-stroke-width": 1,
         },
       });
     }
+    map.addLayer({
+      id: "wa-icons",
+      type: "symbol",
+      source: "world-airports",
+      minzoom: SYMBOL_ZOOM,
+      layout: {
+        visibility: "none",
+        "icon-image": ["concat", "apt-", ["get", "id"]],
+        "icon-size": ["interpolate", ["linear"], ["zoom"], SYMBOL_ZOOM, 1, 12, 1.3],
+        "icon-allow-overlap": true,
+        "icon-rotation-alignment": "map",
+        "symbol-sort-key": ["get", "r"],
+      },
+    });
+    // Each airport's symbol is drawn the first time the map asks for it.
+    map.on("styleimagemissing", (e: { id: string }) => {
+      if (!e.id.startsWith("apt-") || !map || map.hasImage(e.id)) return;
+      const info = symbolInfo.get(e.id.slice(4));
+      if (info) map.addImage(e.id, airportSymbol(info), { pixelRatio: 2 });
+    });
     // Codes beside the dots, once zoomed in (needs the online style's fonts).
     if (map.getStyle().glyphs) {
       for (const [rank, minzoom] of [[0, 5], [1, 7], [2, 9]]) {
@@ -1756,11 +1787,11 @@
             "text-field": ["get", "id"],
             "text-font": ["Noto Sans Regular"],
             "text-size": 11,
-            "text-offset": [0.8, 0],
+            "text-offset": ["interpolate", ["linear"], ["zoom"], 7.9, ["literal", [0.8, 0]], 8, ["literal", [1.4, 0]], 12, ["literal", [1.9, 0]]],
             "text-anchor": "left",
             "text-optional": true,
           },
-          paint: { "text-color": ["#8fc0f7", "#8fd6ad", "#c6b2ec"][rank], "text-halo-color": "#111214", "text-halo-width": 1.2 },
+          paint: { "text-color": ["case", ["get", "t"], "#8fbaf3", "#e092c9"], "text-halo-color": "#111214", "text-halo-width": 1.2 },
         });
       }
     }
@@ -2617,6 +2648,8 @@
   });
   let wasTracking = false;
   let liftLive: Raised | null = null;
+  /** From here on, airports show their chart symbols instead of dots. */
+  const SYMBOL_ZOOM = 8;
 
   // Markup: marks drawn on the map (kept in this browser), shown always.
   let marks = $state.raw<Mark[]>(loadMarks());

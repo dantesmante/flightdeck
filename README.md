@@ -347,7 +347,7 @@ MIT licensed.
   the map; the rest follow the cruise); the profile climbs and descends to
   them, and the .PLN carries them.
 - **Tools** (left of Layers): opens a drawer that slides out with
-  **Measure**, **Markup**, **Pad**, **Taxi**, **Profile** and **PFD**; it stays out until you
+  **Measure**, **Markup**, **Pad**, **Taxi**, **Profile** and **PFD**, together in one bar; it stays out until you
   press Tools again (remembered on each device). With the drawer closed, a
   dot on Tools shows a tool is on.
 - **Scratch pad** (Tools → Pad): a sheet over the map (under the map's own
@@ -393,8 +393,16 @@ MIT licensed.
   each aircraft, off by default), and live **rain radar** (RainViewer,
   refreshed every 10 minutes). **World airports** puts the world's
   airports on the map with a **Detail** slider: 1 major airports only, 2
-  adds regional airports, 3 adds small airports and airstrips (smaller
-  ones appear as you zoom in). Click any airport, or one of your own, for
+  adds regional airports, 3 adds small airports, airstrips and seaplane
+  bases (smaller ones appear as you zoom in). They are drawn as on VFR
+  sectional charts: blue where there is a control tower, magenta
+  everywhere else. Zoomed out they are dots; from zoom 8 each shows its
+  chart symbol: a ring (runways other than hard-surfaced), a filled
+  circle with its runways in white (hard runways 1,500–8,069 ft), the
+  runway layout itself (longer, or several hard runways), a double ring
+  (military, other than hard-surfaced) or an anchor (seaplane base). The
+  runways in a symbol point the way the real ones do. Tower from
+  OurAirports' frequencies (a TWR frequency). Click any airport, or one of your own, for
   its card: code, name and place, elevation, runways (length, width,
   surface, lights), frequencies, your flights there, and the latest
   **METAR** with flight category, wind, visibility, ceiling, temperature

@@ -715,7 +715,8 @@ export interface RemoteInfo {
 }
 
 /** One airport dot: [ident, name, rank (0 major, 1 regional, 2 small), lon, lat]. */
-export type MapAirport = [string, string, number, number, number];
+/** [ident, name, rank (0 major, 1 regional, 2 small), lon, lat, chart symbol, towered, runway pattern]. */
+export type MapAirport = [string, string, number, number, number, number?, boolean?, string?];
 
 export interface RunwayInfo {
   name: string;
