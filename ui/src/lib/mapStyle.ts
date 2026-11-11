@@ -167,6 +167,20 @@ function demSource(): InstanceType<typeof mlcontour.DemSource> {
 
 /** Relief shading and contour lines (feet), above the land and satellite
  * pictures and below borders, labels and flights. */
+/** Elevation colours for the Topographic layer, as relief charts print
+ * them: green low ground through tan to brown high mountains (feet). */
+export const ELEVATION_STOPS: [number, string][] = [
+  [0, "#5f8f3e"],
+  [500, "#6f9a46"],
+  [1500, "#97ac5a"],
+  [3000, "#c9bd78"],
+  [5000, "#c39a5e"],
+  [8000, "#a46e42"],
+  [12000, "#7a4a2c"],
+];
+export const ELEVATION_BAR = `linear-gradient(90deg, ${ELEVATION_STOPS.map(([ft, c]) => `${c} ${((ft / 12000) * 100).toFixed(1)}%`).join(", ")})`;
+const elevationRamp = ["interpolate", ["linear"], ["elevation"], ...ELEVATION_STOPS.flatMap(([ft, c]) => [ft * 0.3048, c])] as unknown as maplibregl.ExpressionSpecification;
+
 export function showTerrain(map: maplibregl.Map, on: boolean, satellite: boolean) {
   const ids = ["terrain-hillshade", "terrain-contours", "terrain-contour-labels"];
   if (on && !map.getLayer("terrain-hillshade")) {
@@ -200,6 +214,10 @@ export function showTerrain(map: maplibregl.Map, on: boolean, satellite: boolean
     const before = map.getLayer("fd-regions")
       ? "fd-regions"
       : layers.find((l) => l.id.startsWith("boundary") || l.type === "symbol")?.id;
+    // The elevation colours sit under the water, parks and roads, so lakes
+    // and the sea keep their own colour.
+    const water = layers.find((l) => l.id === "water" || ("source-layer" in l && l["source-layer"] === "water"))?.id ?? before;
+    map.addLayer({ id: "terrain-tint", type: "color-relief", source: "fd-dem", paint: { "color-relief-color": elevationRamp, "color-relief-opacity": 0.82 } }, water);
     map.addLayer({ id: "terrain-hillshade", type: "hillshade", source: "fd-dem", paint: {} }, before);
     map.addLayer(
       {
@@ -235,26 +253,33 @@ export function showTerrain(map: maplibregl.Map, on: boolean, satellite: boolean
   }
   for (const id of ids) if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", on ? "visible" : "none");
   onSatellite.set(map, satellite);
+  topoOn.set(map, on);
   stackTerrain(map);
 }
 const onSatellite = new WeakMap<maplibregl.Map, boolean>();
+const topoOn = new WeakMap<maplibregl.Map, boolean>();
 
 /** The Topographic layer always sits over the Terrain (TAWS) colours, so
  * both can be on at once, with its shading and lines tuned to what lies
  * under them: the night chart, satellite pictures or the TAWS colours. */
 function stackTerrain(map: maplibregl.Map) {
   if (map.getLayer("fd-taws") && map.getLayer("terrain-hillshade")) map.moveLayer("fd-taws", "terrain-hillshade");
-  if (!map.getLayer("terrain-hillshade") || map.getLayoutProperty("terrain-hillshade", "visibility") === "none") return;
   const satellite = onSatellite.get(map) ?? false;
   const taws = !!map.getLayer("fd-taws") && map.getLayoutProperty("fd-taws", "visibility") !== "none";
-  // Darker, quieter shading on the night chart; lighter over the pictures
-  // and over the TAWS colours (whose black must stay black).
-  const light = satellite || taws;
+  // Elevation colours only on the chart itself: not over satellite
+  // pictures, and not with the Terrain colours on (the lines and shading
+  // then lie over those instead).
+  const tinted = (topoOn.get(map) ?? false) && !satellite && !taws;
+  if (map.getLayer("terrain-tint")) map.setLayoutProperty("terrain-tint", "visibility", tinted ? "visible" : "none");
+  if (!map.getLayer("terrain-hillshade") || map.getLayoutProperty("terrain-hillshade", "visibility") === "none") return;
+  // Darker, quieter shading on the night chart; lighter over the pictures,
+  // the elevation colours and the TAWS colours (whose black must stay black).
+  const light = satellite || taws || tinted;
   setPaint(map, "terrain-hillshade", "hillshade-exaggeration", taws ? 0.25 : satellite ? 0.3 : 0.45);
   setPaint(map, "terrain-hillshade", "hillshade-shadow-color", light ? "rgba(0, 0, 0, 0.45)" : "#000000");
   setPaint(map, "terrain-hillshade", "hillshade-highlight-color", light ? "rgba(255, 255, 255, 0.25)" : "rgba(210, 214, 220, 0.18)");
   setPaint(map, "terrain-hillshade", "hillshade-accent-color", light ? "rgba(0, 0, 0, 0.2)" : "#000000");
-  setPaint(map, "terrain-contours", "line-color", taws ? "rgba(255, 255, 255, 0.55)" : satellite ? "rgba(255, 245, 225, 0.45)" : "rgba(196, 184, 150, 0.32)");
+  setPaint(map, "terrain-contours", "line-color", tinted ? "rgba(40, 30, 18, 0.42)" : taws ? "rgba(255, 255, 255, 0.55)" : satellite ? "rgba(255, 245, 225, 0.45)" : "rgba(196, 184, 150, 0.32)");
   setPaint(map, "terrain-contour-labels", "text-color", light ? "#fff5e1" : "#b8ad8d");
   setPaint(map, "terrain-contour-labels", "text-halo-color", light ? "rgba(0, 0, 0, 0.7)" : "#141516");
 }

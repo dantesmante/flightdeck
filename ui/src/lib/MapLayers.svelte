@@ -100,7 +100,7 @@
   /** Narrow map (split with the PFD, a tablet): icons only. Phone-narrow: the tools drop down as a list. */
   const compact = $derived(width > 0 && width < 1100);
   const stack = $derived(width > 0 && width < 680);
-  const DETAIL = ["Major airports only", "Major and regional airports", "All airports and airstrips"];
+  const DETAIL = ["Runways 4,500 ft or more", "Runways 2,800 ft or more", "Runways 1,000 ft or more, seaplane bases"];
 
   /** The Layers panel's tabs: airports and flights, weather, the map itself. */
   type Menu = "traffic" | "weather" | "map";

@@ -9,7 +9,7 @@
   import WxCard, { CATEGORY, WX_GROUP } from "./WxCard.svelte";
   import type { WxAdvisories, WxAdvisoryProps } from "./api";
   import type { Net, NetworkData } from "./api";
-  import { showRoads, setRoadsOpacity, showTaws, showObstacles, showRings, autoRingStep, C as BASE, STYLE, addAirportLayout, addRegionLines, approachLines, offlineStyle, runwayEnds, setBorders, showAirportLayout, showSatellite, showTerrain, tintMap } from "./mapStyle";
+  import { showRoads, setRoadsOpacity, showTaws, showObstacles, showRings, autoRingStep, C as BASE, STYLE, addAirportLayout, addRegionLines, approachLines, offlineStyle, runwayEnds, setBorders, showAirportLayout, showSatellite, showTerrain, tintMap, ELEVATION_BAR } from "./mapStyle";
   import MapLayers from "./MapLayers.svelte";
   import { shots as shotStore, type PlacedShot } from "./shots.svelte";
   import { WindParticles } from "./wind/particles";
@@ -311,6 +311,7 @@
     if (p != null) wasPowered = p;
   });
   onDestroy(() => {
+    attribWatch?.disconnect();
     clearTimeout(smartTimer);
     if (typeof window !== "undefined") {
       for (const ev of looks) window.removeEventListener(ev, smartLook);
@@ -1587,6 +1588,7 @@
     }
     return null;
   }
+  let attribWatch: MutationObserver | null = null;
   /** World airports detail: 1 major, 2 + regional, 3 + small airports and strips. */
   const airportDetail = $derived(Math.min(3, Math.max(1, Number(prefs.s.map_airport_detail ?? "1") || 1)));
   const worldCache = new globalThis.Map<number, GeoJSON.FeatureCollection>();
@@ -2299,7 +2301,19 @@
       loaded = true;
       if (!cats.size) loadCats();
       // The credits start folded to their (i) button: open, they run across the map.
-      el.querySelector(".maplibregl-ctrl-attrib")?.classList.remove("maplibregl-compact-show");
+      // MapLibre opens them again whenever a layer brings new credits (the
+      // Topographic layer, say), over the map keys: keep them folded unless
+      // opened with the (i) button.
+      const attrib = el.querySelector(".maplibregl-ctrl-attrib");
+      if (attrib && !attribWatch) {
+        let mine = false;
+        attrib.querySelector(".maplibregl-ctrl-attrib-button")?.addEventListener("click", () => (mine = attrib.classList.contains("maplibregl-compact-show")));
+        attribWatch = new MutationObserver(() => {
+          if (!mine && attrib.classList.contains("maplibregl-compact-show")) attrib.classList.remove("maplibregl-compact-show");
+        });
+        attribWatch.observe(attrib, { attributes: true, attributeFilter: ["class"] });
+      }
+      attrib?.classList.remove("maplibregl-compact-show");
     });
     map.on("error", (e) => {
       if (!loaded && String(e.error?.message ?? "").match(/fetch|network|load|style/i)) useOfflineStyle();
@@ -3275,6 +3289,13 @@
     <span class="sub here">
       {#if sky.vis.s === "error"}NOAA not reachable{:else if !skyField.vis}Loading…{:else if skyHere.vis}{touchOnly ? "Centre" : "Here"}: <b>{skyHere.vis}</b>{:else}{touchOnly ? "Move the map" : "Point at the map"}{/if}
     </span>
+  </div>
+{/if}
+{#if layers.has("terrain") && !layers.has("satellite") && !offline && !(layers.has("taws") && altStep != null && posStep != null)}
+  <div class="wind-key temp-key" aria-label="Elevation colours">
+    <span class="t">Elevation</span>
+    <span class="bar" style:background={ELEVATION_BAR}></span>
+    <span class="ends"><span>0–500</span><span>6,000</span><span>12,000+ ft</span></span>
   </div>
 {/if}
 {#if shown.length > 1}

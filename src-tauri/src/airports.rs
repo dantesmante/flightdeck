@@ -22,14 +22,6 @@ fn kinds(detail: u8) -> &'static [AirportKind] {
     }
 }
 
-fn kind_rank(k: AirportKind) -> u8 {
-    match k {
-        AirportKind::Large => 0,
-        AirportKind::Medium => 1,
-        _ => 2,
-    }
-}
-
 /// One airport on the map: [ident, name, rank (0 major, 1 regional, 2
 /// small), lon, lat, chart symbol, towered, runway pattern].
 pub type MapAirport = (String, String, u8, f32, f32, u8, bool, String);
@@ -69,55 +61,71 @@ fn heading_of(name: &str) -> Option<f64> {
 /// 3 + small), with what their chart symbols need. The runway pattern is
 /// "heading,length,x,y;…" (degrees; hundreds of feet; x east and y north
 /// of the layout's middle).
+/// The map's category for an airport, by its longest runway (any surface):
+/// 0 major (4,500 ft or more), 1 regional (2,800 to 4,499 ft), 2 small
+/// (1,000 to 2,799 ft, and every seaplane base whatever its size). None: left off the map
+/// (shorter, or no runway known).
+fn map_rank(kind: AirportKind, longest_ft: i64) -> Option<u8> {
+    if kind == AirportKind::Seaplane {
+        return Some(2);
+    }
+    match longest_ft {
+        l if l >= 4500 => Some(0),
+        l if l >= 2800 => Some(1),
+        l if l >= 1000 => Some(2),
+        _ => None,
+    }
+}
+
 pub fn map_airports(rd: &RefData, detail: u8) -> Vec<MapAirport> {
     let (lines, tower) = rd.chart_info();
     let info = rd.all_runway_info();
-    rd.airports_of(kinds(detail))
-        .map(|a| {
-            let towered = tower.get(a.ident.as_str()).copied().unwrap_or(false);
+    let most = detail.clamp(1, 3) - 1;
+    rd.airports_of(kinds(3))
+        .filter_map(|a| {
             let runs = info.get(&a.ident).map(Vec::as_slice).unwrap_or(&[]);
-            let hard_runs: Vec<_> = runs.iter().filter(|r| hard(&r.surface)).collect();
-            let longest = hard_runs.iter().map(|r| r.length_ft).max().unwrap_or(0);
+            let longest = runs.iter().map(|r| r.length_ft).max().unwrap_or(0);
+            let rank = map_rank(a.kind, longest).filter(|&r| r <= most)?;
+            let towered = tower.get(a.ident.as_str()).copied().unwrap_or(false);
+            let hard_runs = runs.iter().filter(|r| hard(&r.surface)).count();
             let sym = if a.kind == AirportKind::Seaplane {
                 SYM_SEA
-            } else if longest > 8069 || (hard_runs.len() >= 2 && longest >= 5000) {
+            } else if longest > 8069 || (hard_runs >= 2 && longest >= 5000) {
                 SYM_LAYOUT
-            } else if longest >= 1500 {
+            } else if hard_runs > 0 {
                 SYM_HARD
             } else if military(&a.name) {
                 SYM_MIL
             } else {
                 SYM_SOFT
             };
-            let mut pattern = String::new();
-            if sym == SYM_HARD || sym == SYM_LAYOUT {
-                let geo = lines.get(a.ident.as_str());
-                let mut parts: Vec<(f64, f64, f64, f64)> = Vec::new();
-                for r in &hard_runs {
-                    if let Some(g) = geo.and_then(|g| g.iter().find(|g| g.0 == r.name)) {
-                        parts.push((g.1, g.2.max(r.length_ft as f64), g.3, g.4));
-                    } else if let Some(h) = heading_of(&r.name) {
-                        parts.push((h, r.length_ft as f64, f64::NAN, f64::NAN));
-                    }
+            // Every runway of 1,000 ft or more, as simple white lines.
+            let geo = lines.get(a.ident.as_str());
+            let mut parts: Vec<(f64, f64, f64, f64)> = Vec::new();
+            for r in runs.iter().filter(|r| r.length_ft >= 1000) {
+                if let Some(g) = geo.and_then(|g| g.iter().find(|g| g.0 == r.name)) {
+                    parts.push((g.1, g.2.max(r.length_ft as f64), g.3, g.4));
+                } else if let Some(h) = heading_of(&r.name) {
+                    parts.push((h, r.length_ft as f64, f64::NAN, f64::NAN));
                 }
-                // Middle of the layout: the mean of the runways' middles.
-                let placed: Vec<_> = parts.iter().filter(|p| p.2.is_finite()).collect();
-                let (mla, mlo) = if placed.is_empty() {
-                    (a.lat, a.lon)
-                } else {
-                    (placed.iter().map(|p| p.2).sum::<f64>() / placed.len() as f64, placed.iter().map(|p| p.3).sum::<f64>() / placed.len() as f64)
-                };
-                let k = mla.to_radians().cos();
-                pattern = parts
-                    .iter()
-                    .map(|&(h, l, la, lo)| {
-                        let (x, y) = if la.is_finite() { ((lo - mlo) * 364_000.0 * k / 100.0, (la - mla) * 364_000.0 / 100.0) } else { (0.0, 0.0) };
-                        format!("{},{},{},{}", h.round() as i64, (l / 100.0).round() as i64, x.round() as i64, y.round() as i64)
-                    })
-                    .collect::<Vec<_>>()
-                    .join(";");
             }
-            (a.ident.clone(), a.name.clone(), kind_rank(a.kind), a.lon as f32, a.lat as f32, sym, towered, pattern)
+            // Middle of the layout: the mean of the runways' middles.
+            let placed: Vec<_> = parts.iter().filter(|p| p.2.is_finite()).collect();
+            let (mla, mlo) = if placed.is_empty() {
+                (a.lat, a.lon)
+            } else {
+                (placed.iter().map(|p| p.2).sum::<f64>() / placed.len() as f64, placed.iter().map(|p| p.3).sum::<f64>() / placed.len() as f64)
+            };
+            let k = mla.to_radians().cos();
+            let pattern = parts
+                .iter()
+                .map(|&(h, l, la, lo)| {
+                    let (x, y) = if la.is_finite() { ((lo - mlo) * 364_000.0 * k / 100.0, (la - mla) * 364_000.0 / 100.0) } else { (0.0, 0.0) };
+                    format!("{},{},{},{}", h.round() as i64, (l / 100.0).round() as i64, x.round() as i64, y.round() as i64)
+                })
+                .collect::<Vec<_>>()
+                .join(";");
+            Some((a.ident.clone(), a.name.clone(), rank, a.lon as f32, a.lat as f32, sym, towered, pattern))
         })
         .collect()
 }
@@ -377,6 +385,19 @@ mod tests {
         assert_eq!(w.ceiling_ft, Some(4500.0));
         assert_eq!(w.category.as_deref(), Some("VFR"));
         assert_eq!(w.observed_ms, Some(1_793_740_380_000));
+    }
+
+    #[test]
+    fn map_categories_by_longest_runway() {
+        assert_eq!(map_rank(AirportKind::Small, 4500), Some(0));
+        assert_eq!(map_rank(AirportKind::Large, 4499), Some(1));
+        assert_eq!(map_rank(AirportKind::Medium, 2800), Some(1));
+        assert_eq!(map_rank(AirportKind::Large, 2799), Some(2));
+        assert_eq!(map_rank(AirportKind::Small, 1000), Some(2));
+        assert_eq!(map_rank(AirportKind::Small, 999), None);
+        assert_eq!(map_rank(AirportKind::Small, 0), None);
+        assert_eq!(map_rank(AirportKind::Seaplane, 0), Some(2));
+        assert_eq!(map_rank(AirportKind::Seaplane, 5000), Some(2));
     }
 
     #[test]

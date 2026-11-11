@@ -249,7 +249,8 @@ MIT licensed.
   around the aircraft (from zoom 6 in), following it as it flies, so only
   those elevation tiles are fetched; recoloured every 50 ft. Needs the sim
   connected. From the free Terrain Tiles. With **Topographic** on too, its
-  relief shading and contour lines (in white) lie over the colours.
+  own elevation colours step aside: its relief shading and contour lines
+  (in white) lie over the Terrain colours.
 - **Obstacles** (Layers → Map, US only): towers, antennas, wind turbines
   and stacks of 200 ft or more from the FAA's Digital Obstacle File
   (public domain, fetched at most every 28 days), with the chart symbol
@@ -390,15 +391,20 @@ MIT licensed.
   page, and the map shows
   your past routes and airports there whatever the map's own setting.
 - **Map layers**: 3D flight, a live day/night line, **satellite**
-  imagery (Esri World Imagery), **topographic** relief shading with
-  contour lines in feet (from open elevation data, AWS Terrain Tiles;
+  imagery (Esri World Imagery), **topographic**: the ground coloured by
+  elevation as relief charts do (green 0–500 ft through tan to brown at
+  12,000 ft and above, with an Elevation key; lakes and sea keep their own
+  colour; not over satellite pictures), relief shading and contour lines
+  in feet (from open elevation data, AWS Terrain Tiles;
   contours from zoom 9, worked out in the background only for what is on
   screen), stronger borders, past routes, airports, **parked aircraft** (where you last left
   each aircraft, off by default), and live **rain radar** (RainViewer,
   refreshed every 10 minutes). **World airports** puts the world's
-  airports on the map with a **Detail** slider: 1 major airports only, 2
-  adds regional airports, 3 adds small airports, airstrips and seaplane
-  bases (smaller ones appear as you zoom in). They are drawn as on VFR
+  airports on the map with a **Detail** slider, by each airport's longest
+  runway: 1 Major (4,500 ft or more), 2 adds Regional (2,800–4,499 ft),
+  3 All adds 1,000–2,799 ft and every seaplane base whatever its size
+  (smaller ones appear as you zoom in). Airports with no runway of
+  1,000 ft, or no runway information, are left off the map. They are drawn as on VFR
   sectional charts: blue where there is a control tower, magenta
   everywhere else. Zoomed out they are dots; from zoom 8 every airport
   sits inside its circle: a filled circle with its runways as simple
