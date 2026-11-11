@@ -100,7 +100,6 @@
   /** Narrow map (split with the PFD, a tablet): icons only. Phone-narrow: the tools drop down as a list. */
   const compact = $derived(width > 0 && width < 1100);
   const stack = $derived(width > 0 && width < 680);
-  const DETAIL = ["Runways 4,500 ft or more", "Runways 2,800 ft or more", "Runways 1,000 ft or more, seaplane bases"];
 
   /** The Layers panel's tabs: airports and flights, weather, the map itself. */
   type Menu = "traffic" | "weather" | "map";
@@ -606,7 +605,7 @@
     {/if}
     {#if on.has("world")}
       <div class="detail">
-        <label for="ap-detail">Airport detail <span>{DETAIL[airportDetail - 1]}</span></label>
+        <label for="ap-detail">Airport detail</label>
         <input
           id="ap-detail"
           type="range"
@@ -616,7 +615,7 @@
           value={airportDetail}
           oninput={(e) => ondetail?.(Number((e.currentTarget as HTMLInputElement).value))}
         />
-        <div class="ticks"><span>Major</span><span>Regional</span><span>All</span></div>
+        <div class="ticks"><span>Big</span><span>Small</span><span>All</span></div>
       </div>
     {/if}
     <h4>Online networks</h4>

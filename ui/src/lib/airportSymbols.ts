@@ -33,6 +33,20 @@ export function runs(p: string): Run[] {
     .map(([h, l, x, y]) => ({ h, l: Math.max(l, 10), x, y }));
 }
 
+/** Whether the runways can be told apart in the circle: no more than two
+ * running the same way, and each parallel pair far enough apart. */
+function fits(list: Run[]): boolean {
+  const ways: number[] = [];
+  for (const r of list) {
+    const same = list.filter((o) => {
+      const d = Math.abs(o.h - r.h) % 180;
+      return Math.min(d, 180 - d) <= 10;
+    }).length;
+    ways.push(same);
+  }
+  return Math.max(...ways) <= 2;
+}
+
 /** The symbol image's name: colour (b/m), kind (d dot, r private, s seaplane), f with fuel. */
 export function symbolName(towered: boolean, kind: "d" | "r" | "s", fuel: boolean): string {
   return `apt-${towered ? "b" : "m"}${kind}${fuel ? "f" : ""}`;
@@ -41,8 +55,14 @@ export function symbolName(towered: boolean, kind: "d" | "r" | "s", fuel: boolea
 /** Runways of one airport as map points: one bar each, turned to its
  * heading and set off from the middle the way the runway lies. */
 export function runwayFeatures(p: string, at: [number, number]): GeoJSON.Feature[] {
-  const list = runs(p);
+  let list = runs(p);
   if (!list.length) return [];
+  // More runways than the little circle can show clearly (O'Hare, say):
+  // just the longest, through the middle.
+  if (list.length > 4 || !fits(list)) {
+    const top = list.reduce((a, b) => (b.l > a.l ? b : a));
+    list = [{ ...top, x: 0, y: 0 }];
+  }
   // Scale so the whole layout fits inside the circle.
   let ext = 1;
   for (const r of list) {

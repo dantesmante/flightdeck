@@ -1208,11 +1208,14 @@
   }
   // Editing a drawn route: drag a point to move it, drag the line (or its
   // middle handle) to put a new point in, click a point to take it out.
+  /** Where the right button went down (a right-drag turns the map). */
+  let rightDown: [number, number] | null = null;
   let routeDrag: { i: number; insertLeg: number | null; from: maplibregl.Point; moved: boolean } | null = null;
   let skipClick = false;
   function dragStart(e: maplibregl.MapMouseEvent | maplibregl.MapTouchEvent) {
     if (!drawRoute || !map) return;
     if ("points" in e && e.points.length !== 1) return;
+    if ("button" in e.originalEvent && e.originalEvent.button !== 0) return;
     const p = pointAt(e.point);
     if (p != null && p > 0) routeDrag = { i: p - 1, insertLeg: null, from: e.point, moved: false };
     else if (p == null) {
@@ -2377,6 +2380,14 @@
     }
     // Right-click on an airport: send it to the planner, or fit it in view.
     map.on("contextmenu", (e) => {
+      // Drawing a route: a right-click adds a point, just as a click does.
+      if (drawOn) {
+        e.preventDefault();
+        // Not after a right-drag that turned the map.
+        const turned = rightDown && Math.hypot(e.originalEvent.clientX - rightDown[0], e.originalEvent.clientY - rightDown[1]) > 4;
+        if (!skipClick && !turned) drawClick(e.point, [e.lngLat.lng, e.lngLat.lat]);
+        return;
+      }
       if (tracing) {
         // While measuring or drawing, a right-click takes back the last point.
         undoPoint();
@@ -2393,6 +2404,9 @@
       });
       const name = f.map((x) => (x.properties as { name?: string }).name).find((n) => !!n) ?? "";
       ctx = { x: e.point.x, y: e.point.y, ident: hit.ident, name, at: hit.at };
+    });
+    map.on("mousedown", (e) => {
+      if (e.originalEvent.button === 2) rightDown = [e.originalEvent.clientX, e.originalEvent.clientY];
     });
     map.on("mousedown", dragStart);
     map.on("touchstart", dragStart);

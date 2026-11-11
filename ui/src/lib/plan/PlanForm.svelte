@@ -91,6 +91,9 @@
       } else dest = spot;
       pick.spot = null;
       pick.which = null;
+      // Origin from the map with nowhere to go yet: straight on to drawing
+      // the route, so (right-)clicks on the map add its waypoints.
+      if (which === "origin" && !dest && drawing.stage === "off") startDrawing();
     });
   });
   onDestroy(() => {
@@ -447,7 +450,7 @@
         </div>
       {:else}
         <p class="step">
-          Click the map to add waypoints from <b>{drawing.origin?.icao}</b>. Clicking an airport passes over it; end on your
+          Click or right-click the map to add waypoints from <b>{drawing.origin?.icao}</b>. Clicking an airport passes over it; end on your
           destination airport. Drag a point to move it, click it to take it out, or drag the line to put one in.
         </p>
         <div class="chain num">

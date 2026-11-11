@@ -157,7 +157,10 @@ MIT licensed.
   when its latest METAR is already known, its flight category (VFR, MVFR,
   IFR, LIFR); airports without one show none rather than wait.
   **Right-click** an airport for **Set as origin**, **Set as destination**
-  (they fill in Start a flight on the Map tab) and **Zoom to fit**. The
+  (they fill in Start a flight on the Map tab) and **Zoom to fit**. Set as
+  origin with no destination yet goes straight on to Draw a route: a
+  click or right-click anywhere on the map adds a waypoint, and the
+  route ends on an airport. The
   airport clicked is marked by an amber ring that glows softly in and out
   until you zoom in on it (zoom 12.5).
 - **Airspace** (Layers, Aviation), worldwide:
@@ -393,22 +396,26 @@ MIT licensed.
 - **Map layers**: 3D flight, a live day/night line, **satellite**
   imagery (Esri World Imagery), **topographic**: the ground coloured by
   elevation as relief charts do (green 0–500 ft through tan to brown at
-  12,000 ft and above, with an Elevation key; lakes and sea keep their own
-  colour; not over satellite pictures), relief shading and contour lines
+  12,000 ft and above, with an Elevation key; not over satellite
+  pictures). With the colours on, water is plain solid blue-grey (no
+  seabed shading or lines), towns pale yellow as on VFR charts, woods,
+  parks and ice step aside, and place names turn bright as over
+  satellite pictures. Relief shading and contour lines
   in feet (from open elevation data, AWS Terrain Tiles;
   contours from zoom 9, worked out in the background only for what is on
   screen), stronger borders, past routes, airports, **parked aircraft** (where you last left
   each aircraft, off by default), and live **rain radar** (RainViewer,
   refreshed every 10 minutes). **World airports** puts the world's
-  airports on the map with a **Detail** slider, by each airport's longest
-  runway: 1 Major (4,500 ft or more), 2 adds Regional (2,800–4,499 ft),
-  3 All adds 1,000–2,799 ft and every seaplane base whatever its size
-  (smaller ones appear as you zoom in). Airports with no runway of
-  1,000 ft, or no runway information, are left off the map. They are drawn as on VFR
+  airports on the map with a **Detail** slider: Big (airports with a
+  control tower), Small (adds any airport with a runway longer than
+  3,000 ft) and All (every other airport, and every seaplane base
+  whatever its size; smaller ones appear as you zoom in). Airports with no
+  runway of 1,000 ft, or no runway information, are left off the map. They are drawn as on VFR
   sectional charts: blue where there is a control tower, magenta
   everywhere else. Zoomed out they are dots; from zoom 8 every airport
   sits inside its circle: a filled circle with its runways as simple
-  white lines (pointing the way the real ones do), ticks around it where
+  white lines (pointing the way the real ones do; just the longest where
+  there are too many to tell apart, as at O'Hare), ticks around it where
   fuel is sold, a ring with an R inside for a private airport, a white
   anchor for a seaplane base. Tower from OurAirports' frequencies (a TWR
   frequency); private and fuel from openAIP's airport data (countries in

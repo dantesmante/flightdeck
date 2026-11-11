@@ -122,6 +122,8 @@ export function addRegionLines(map: maplibregl.Map) {
 
 /** Satellite pictures (Esri World Imagery) under the borders, labels and
  * your flights; the chart's own land, water and roads are covered. */
+const onSatellite = new WeakMap<maplibregl.Map, boolean>();
+const topoOn = new WeakMap<maplibregl.Map, boolean>();
 export const SATELLITE_ATTRIBUTION = "Imagery © Esri, Maxar, Earthstar Geographics, and the GIS User Community";
 export function showSatellite(map: maplibregl.Map, on: boolean) {
   if (on && !map.getLayer("satellite")) {
@@ -134,20 +136,71 @@ export function showSatellite(map: maplibregl.Map, on: boolean) {
         attribution: SATELLITE_ATTRIBUTION,
       });
     }
-    const layers = map.getStyle().layers ?? [];
-    // Under the terrain shading, if that is already on the map.
-    const before = ["terrain-hillshade", "fd-regions"].find((id) => map.getLayer(id))
-      ?? layers.find((l) => l.id.startsWith("boundary") || l.type === "symbol")?.id;
-    map.addLayer({ id: "satellite", type: "raster", source: "satellite", paint: { "raster-fade-duration": 0 } }, before);
+    // Under the borders and labels (the terrain shading is then moved
+    // above it).
+    map.addLayer({ id: "satellite", type: "raster", source: "satellite", paint: { "raster-fade-duration": 0 } }, overlayBase(map));
   }
   if (map.getLayer("satellite")) map.setLayoutProperty("satellite", "visibility", on ? "visible" : "none");
-  // Labels stay readable on the pictures.
+  onSatellite.set(map, on);
+  stackTerrain(map);
+}
+
+/** The first layer drawn over the land: borders, then labels. */
+function overlayBase(map: maplibregl.Map): string | undefined {
+  if (map.getLayer("fd-regions")) return "fd-regions";
+  return (map.getStyle().layers ?? []).find((l) => l.id.startsWith("boundary") || l.type === "symbol")?.id;
+}
+
+/** The chart's own labels: bright with a dark edge over satellite
+ * pictures and the elevation colours, else the quiet chart grey. */
+function chartLabels(map: maplibregl.Map, bright: boolean) {
   for (const layer of map.getStyle().layers ?? []) {
     if (layer.type !== "symbol" || layer.id.startsWith("fd-") || "source" in layer === false) continue;
     if ((layer as { source?: string }).source !== "openmaptiles") continue;
-    setPaint(map, layer.id, "text-color", on ? "#eceef1" : C.text);
-    setPaint(map, layer.id, "text-halo-color", on ? "#0b0c0d" : C.halo);
+    setPaint(map, layer.id, "text-color", bright ? "#eceef1" : C.text);
+    setPaint(map, layer.id, "text-halo-color", bright ? "#0b0c0d" : C.halo);
   }
+}
+
+/** Water drawn by the Topographic layer: plain and solid. */
+export const TOPO_WATER = "#2f3f50";
+/** Built-up areas on the elevation colours: pale yellow, as VFR charts. */
+const TOPO_TOWN = "#f6e48c";
+
+const townOpacity = new Map<string, unknown>();
+/** The base chart under the elevation colours: no dark woods, parks or
+ * ice over them, towns pale yellow, water plain blue-grey. */
+function chartForTopo(map: maplibregl.Map, tinted: boolean) {
+  for (const layer of map.getStyle().layers ?? []) {
+    if (layer.type !== "fill" && !(layer.type === "line" && layer.id.includes("waterway"))) continue;
+    const src = "source-layer" in layer ? String(layer["source-layer"] ?? "") : "";
+    const key = `${layer.id} ${src}`.toLowerCase();
+    if (key.includes("water")) {
+      if (layer.type === "line") setPaint(map, layer.id, "line-color", tinted ? TOPO_WATER : C.water);
+      else {
+        setPaint(map, layer.id, "fill-color", tinted ? TOPO_WATER : C.water);
+        setPaint(map, layer.id, "fill-outline-color", tinted ? TOPO_WATER : C.water);
+      }
+    } else if (key.match(/park|wood|grass|landcover|forest|glacier|ice/)) {
+      map.setLayoutProperty(layer.id, "visibility", tinted ? "none" : "visible");
+    } else if (key.match(/landuse|residential/)) {
+      const k = `${layer.id}@opacity`;
+      if (!townOpacity.has(k)) townOpacity.set(k, map.getPaintProperty(layer.id, "fill-opacity"));
+      setPaint(map, layer.id, "fill-color", tinted ? TOPO_TOWN : C.built);
+      setPaint(map, layer.id, "fill-outline-color", tinted ? "rgba(0,0,0,0)" : C.built);
+      setPaint(map, layer.id, "fill-opacity", tinted ? 0.6 : townOpacity.get(k));
+    }
+  }
+}
+
+const TERRAIN_STACK = ["terrain-tint", "fd-taws", "terrain-hillshade", "terrain-contours", "terrain-contour-labels"];
+/** Where the terrain layers sit: under the water (so seas and lakes show
+ * no seabed), or, over satellite pictures, just under the borders. */
+function placeTerrain(map: maplibregl.Map, underWater: boolean) {
+  const layers = map.getStyle().layers ?? [];
+  const water = layers.find((l) => l.type === "fill" && "source-layer" in l && l["source-layer"] === "water")?.id;
+  const to = underWater && water ? water : overlayBase(map);
+  for (const id of TERRAIN_STACK) if (map.getLayer(id)) map.moveLayer(id, to);
 }
 
 /** Elevation for the Topographic layer: Terrain Tiles, open elevation data
@@ -216,8 +269,7 @@ export function showTerrain(map: maplibregl.Map, on: boolean, satellite: boolean
       : layers.find((l) => l.id.startsWith("boundary") || l.type === "symbol")?.id;
     // The elevation colours sit under the water, parks and roads, so lakes
     // and the sea keep their own colour.
-    const water = layers.find((l) => l.id === "water" || ("source-layer" in l && l["source-layer"] === "water"))?.id ?? before;
-    map.addLayer({ id: "terrain-tint", type: "color-relief", source: "fd-dem", paint: { "color-relief-color": elevationRamp, "color-relief-opacity": 0.82 } }, water);
+    map.addLayer({ id: "terrain-tint", type: "color-relief", source: "fd-dem", paint: { "color-relief-color": elevationRamp, "color-relief-opacity": 0.82 } }, before);
     map.addLayer({ id: "terrain-hillshade", type: "hillshade", source: "fd-dem", paint: {} }, before);
     map.addLayer(
       {
@@ -256,21 +308,22 @@ export function showTerrain(map: maplibregl.Map, on: boolean, satellite: boolean
   topoOn.set(map, on);
   stackTerrain(map);
 }
-const onSatellite = new WeakMap<maplibregl.Map, boolean>();
-const topoOn = new WeakMap<maplibregl.Map, boolean>();
 
 /** The Topographic layer always sits over the Terrain (TAWS) colours, so
  * both can be on at once, with its shading and lines tuned to what lies
  * under them: the night chart, satellite pictures or the TAWS colours. */
 function stackTerrain(map: maplibregl.Map) {
-  if (map.getLayer("fd-taws") && map.getLayer("terrain-hillshade")) map.moveLayer("fd-taws", "terrain-hillshade");
   const satellite = onSatellite.get(map) ?? false;
+  const topo = topoOn.get(map) ?? false;
   const taws = !!map.getLayer("fd-taws") && map.getLayoutProperty("fd-taws", "visibility") !== "none";
+  placeTerrain(map, !satellite);
   // Elevation colours only on the chart itself: not over satellite
   // pictures, and not with the Terrain colours on (the lines and shading
   // then lie over those instead).
-  const tinted = (topoOn.get(map) ?? false) && !satellite && !taws;
+  const tinted = topo && !satellite && !taws;
   if (map.getLayer("terrain-tint")) map.setLayoutProperty("terrain-tint", "visibility", tinted ? "visible" : "none");
+  chartForTopo(map, tinted);
+  chartLabels(map, satellite || tinted);
   if (!map.getLayer("terrain-hillshade") || map.getLayoutProperty("terrain-hillshade", "visibility") === "none") return;
   // Darker, quieter shading on the night chart; lighter over the pictures,
   // the elevation colours and the TAWS colours (whose black must stay black).

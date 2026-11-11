@@ -61,20 +61,24 @@ fn heading_of(name: &str) -> Option<f64> {
 /// 3 + small), with what their chart symbols need. The runway pattern is
 /// "heading,length,x,y;…" (degrees; hundreds of feet; x east and y north
 /// of the layout's middle).
-/// The map's category for an airport, by its longest runway (any surface):
-/// 0 major (4,500 ft or more), 1 regional (2,800 to 4,499 ft), 2 small
-/// (1,000 to 2,799 ft, and every seaplane base whatever its size). None: left off the map
-/// (shorter, or no runway known).
-fn map_rank(kind: AirportKind, longest_ft: i64) -> Option<u8> {
+/// The map's category for an airport: 0 big (a control tower), 1 small
+/// (a runway longer than 3,000 ft), 2 the rest. None: left off the map (no
+/// runway of 1,000 ft, or no runway known), except seaplane bases, which
+/// are always in the rest.
+fn map_rank(kind: AirportKind, longest_ft: i64, towered: bool) -> Option<u8> {
     if kind == AirportKind::Seaplane {
-        return Some(2);
+        return Some(if towered { 0 } else { 2 });
     }
-    match longest_ft {
-        l if l >= 4500 => Some(0),
-        l if l >= 2800 => Some(1),
-        l if l >= 1000 => Some(2),
-        _ => None,
+    if longest_ft < 1000 {
+        return None;
     }
+    Some(if towered {
+        0
+    } else if longest_ft > 3000 {
+        1
+    } else {
+        2
+    })
 }
 
 pub fn map_airports(rd: &RefData, detail: u8) -> Vec<MapAirport> {
@@ -85,8 +89,8 @@ pub fn map_airports(rd: &RefData, detail: u8) -> Vec<MapAirport> {
         .filter_map(|a| {
             let runs = info.get(&a.ident).map(Vec::as_slice).unwrap_or(&[]);
             let longest = runs.iter().map(|r| r.length_ft).max().unwrap_or(0);
-            let rank = map_rank(a.kind, longest).filter(|&r| r <= most)?;
             let towered = tower.get(a.ident.as_str()).copied().unwrap_or(false);
+            let rank = map_rank(a.kind, longest, towered).filter(|&r| r <= most)?;
             let hard_runs = runs.iter().filter(|r| hard(&r.surface)).count();
             let sym = if a.kind == AirportKind::Seaplane {
                 SYM_SEA
@@ -388,16 +392,14 @@ mod tests {
     }
 
     #[test]
-    fn map_categories_by_longest_runway() {
-        assert_eq!(map_rank(AirportKind::Small, 4500), Some(0));
-        assert_eq!(map_rank(AirportKind::Large, 4499), Some(1));
-        assert_eq!(map_rank(AirportKind::Medium, 2800), Some(1));
-        assert_eq!(map_rank(AirportKind::Large, 2799), Some(2));
-        assert_eq!(map_rank(AirportKind::Small, 1000), Some(2));
-        assert_eq!(map_rank(AirportKind::Small, 999), None);
-        assert_eq!(map_rank(AirportKind::Small, 0), None);
-        assert_eq!(map_rank(AirportKind::Seaplane, 0), Some(2));
-        assert_eq!(map_rank(AirportKind::Seaplane, 5000), Some(2));
+    fn map_categories_big_small_all() {
+        assert_eq!(map_rank(AirportKind::Small, 1200, true), Some(0));
+        assert_eq!(map_rank(AirportKind::Small, 3001, false), Some(1));
+        assert_eq!(map_rank(AirportKind::Large, 3000, false), Some(2));
+        assert_eq!(map_rank(AirportKind::Small, 1000, false), Some(2));
+        assert_eq!(map_rank(AirportKind::Large, 999, true), None);
+        assert_eq!(map_rank(AirportKind::Small, 0, false), None);
+        assert_eq!(map_rank(AirportKind::Seaplane, 0, false), Some(2));
     }
 
     #[test]
