@@ -7,6 +7,9 @@
   import { NAV_AIDS_ENABLED } from "./navLayer";
 
   interface Props {
+    /** Airspace filters on: "us" US only, "nomr" no MOAs and restricted areas, "noaw" no airways. */
+    aspFilter?: Set<string>;
+    onaspfilter?: (key: string) => void;
     three: boolean;
     on: Set<string>;
     onthree: (v: boolean) => void;
@@ -70,7 +73,7 @@
     onrings?: (count: number, set: string) => void;
     onroadsopacity?: (o: number) => void;
   }
-  let { three, on, onthree, ontoggle, radarTime, radarError, parkedLayer = false, airportDetail = 1, ondetail, level = "auto", levelNow = "", onlevel, cardOpen = false, measuring = false, onmeasure, airspaceState = "idle", airspaceNote = "", pfdOpen = false, onpfd, padOpen = false, onpad, markupOpen = false, onmarkup, width = 0, onpanel, obstaclesState = "idle", hasAircraft = false, roadsOpacity = 1, onroadsopacity, ringCount = 2, ringSet = "auto", onrings, profileOpen = false, onprofile, taxiOpen = false, ontaxi, navNote = "", tempNote = "", icingNote = "", icingInfo = "", icingAdvNote = "", cloudNote = "", visNote = "" }: Props = $props();
+  let { aspFilter = new Set(["noaw"]), onaspfilter, three, on, onthree, ontoggle, radarTime, radarError, parkedLayer = false, airportDetail = 1, ondetail, level = "auto", levelNow = "", onlevel, cardOpen = false, measuring = false, onmeasure, airspaceState = "idle", airspaceNote = "", pfdOpen = false, onpfd, padOpen = false, onpad, markupOpen = false, onmarkup, width = 0, onpanel, obstaclesState = "idle", hasAircraft = false, roadsOpacity = 1, onroadsopacity, ringCount = 2, ringSet = "auto", onrings, profileOpen = false, onprofile, taxiOpen = false, ontaxi, navNote = "", tempNote = "", icingNote = "", icingInfo = "", icingAdvNote = "", cloudNote = "", visNote = "" }: Props = $props();
   /** The Tools drawer (Measure, Taxi, Profile, PFD): stays out until closed. */
   const TOOLS_KEY = "fd.toolsOpen";
   let toolsOpen = $state(
@@ -591,6 +594,16 @@
         {@render card("parked", "Parked aircraft", on.has("parked"), () => ontoggle("parked"), "Where you left them")}
       {/if}
     </div>
+    {#if on.has("airspace")}
+      <div class="detail rings">
+        <span class="lbl">Airspace shown</span>
+        <div class="levels" role="group" aria-label="Airspace filters">
+          {#each [["us", "US only"], ["nomr", "Hide MOA & Restricted"], ["noaw", "Hide airways"]] as [k, label] (k)}
+            <button aria-pressed={aspFilter.has(k)} class:on={aspFilter.has(k)} onclick={() => onaspfilter?.(k)}>{label}</button>
+          {/each}
+        </div>
+      </div>
+    {/if}
     {#if on.has("world")}
       <div class="detail">
         <label for="ap-detail">Airport detail <span>{DETAIL[airportDetail - 1]}</span></label>

@@ -168,8 +168,12 @@ MIT licensed.
   - Elsewhere: openAIP's per-country data (CC BY-NC 4.0; FlightDeck is
     free, as the licence requires), read for the countries in view from
     zoom 5: controlled areas by class (A–G, control zones), prohibited,
-    restricted, danger, warning, alert and military areas. Flight
-    information regions, sectors and airways are left out.
+    restricted, danger, warning, alert and military areas, and airways
+    (such as Canada's low-level airways). Flight information regions and
+    sectors are left out.
+  - Filters under the Airspace card: **US only** (nothing is fetched from
+    openAIP), **Hide MOA & Restricted**, and **Hide airways** (on by
+    default). Kept in settings.
   - Altitudes as VFR charts print them, ceiling over floor in hundreds of
     feet with a line between ("100" over "30", "SFC", "FL180", "20 AGL"),
     in a small box of the area's colour, placed inside the area where it
@@ -396,13 +400,15 @@ MIT licensed.
   adds regional airports, 3 adds small airports, airstrips and seaplane
   bases (smaller ones appear as you zoom in). They are drawn as on VFR
   sectional charts: blue where there is a control tower, magenta
-  everywhere else. Zoomed out they are dots; from zoom 8 each shows its
-  chart symbol: a ring (runways other than hard-surfaced), a filled
-  circle with its runways in white (hard runways 1,500–8,069 ft), the
-  runway layout itself (longer, or several hard runways), a double ring
-  (military, other than hard-surfaced) or an anchor (seaplane base). The
-  runways in a symbol point the way the real ones do. Tower from
-  OurAirports' frequencies (a TWR frequency). Click any airport, or one of your own, for
+  everywhere else. Zoomed out they are dots; from zoom 8 every airport
+  sits inside its circle: a filled circle with its runways as simple
+  white lines (pointing the way the real ones do), ticks around it where
+  fuel is sold, a ring with an R inside for a private airport, a white
+  anchor for a seaplane base. Tower from OurAirports' frequencies (a TWR
+  frequency); private and fuel from openAIP's airport data (countries in
+  view, read once per 28-day cycle, CC BY-NC 4.0). Light on the computer:
+  a dozen small images made once, and only the airports in view are
+  drawn, so zooming in has no stutter. Click any airport, or one of your own, for
   its card: code, name and place, elevation, runways (length, width,
   surface, lights), frequencies, your flights there, and the latest
   **METAR** with flight category, wind, visibility, ceiling, temperature

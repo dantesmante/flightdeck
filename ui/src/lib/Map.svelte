@@ -28,7 +28,7 @@
   import { markupState } from "./draw/store.svelte";
   import { profileState } from "./profile/store.svelte";
   import { taxiState } from "./taxi/store.svelte";
-  import { NO_TOWER_MAGENTA, TOWER_BLUE, airportSymbol, type SymbolInfo } from "./airportSymbols";
+  import { NO_TOWER_MAGENTA, TOWER_BLUE, addAirportImages, runwayFeatures, symbolName } from "./airportSymbols";
   import { addAirspaceLayers, airspaceAt, airspaceCard, airspaceOverlay, fillForAltitude, scaleAirspace, showAirspace } from "./airspaceLayer";
   import { NAV_AIDS_ENABLED, NAV_MIN_ZOOM, WPT_MIN_ZOOM, navAt, navCard, setNavData, showNavLayers } from "./navLayer";
   import { decodeTemps, setTempCanvas, showTemp, tempImage, tempAt, TEMP_BAR, gridImage, setGridCanvas, showGrid, cloudColor, visColor, visMiles, CLOUD_BAR, VIS_BANDS } from "./tempLayer";
@@ -698,6 +698,37 @@
   let aspState = $state<"idle" | "loading" | "ok" | "error">("idle");
   let aspWorldNote = $state("");
   let aspWorld: GeoJSON.Feature[] = [];
+  /** Airspace filters (kept in settings): US only, no MOAs and restricted
+   * areas, no airways (on unless switched off). */
+  const aspFilter = $derived(new Set((prefs.s.map_asp_filter ?? "noaw").split(",").filter(Boolean)));
+  function toggleAspFilter(k: string) {
+    const f = new Set(aspFilter);
+    if (f.has(k)) f.delete(k);
+    else f.add(k);
+    setPref("map_asp_filter", [...f].join(","));
+  }
+  /** The areas the filters let through. */
+  function aspPass(feats: GeoJSON.Feature[]): GeoJSON.Feature[] {
+    const f = untrack(() => aspFilter);
+    const mr = f.has("nomr");
+    const aw = f.has("noaw");
+    if (!mr && !aw) return feats;
+    return feats.filter((x) => {
+      const p = x.properties as { c?: string; aw?: boolean };
+      return !(mr && (p.c === "MOA" || p.c === "R")) && !(aw && p.aw);
+    });
+  }
+  const aspWorldShown = () => (untrack(() => aspFilter).has("us") ? [] : aspWorld);
+  function aspRefresh() {
+    if (!map) return;
+    (map.getSource("us-airspace") as GeoJSONSource | undefined)?.setData({ type: "FeatureCollection", features: aspPass(aspUs ?? []) });
+    (map.getSource("world-airspace") as GeoJSONSource | undefined)?.setData({ type: "FeatureCollection", features: aspPass(aspWorldShown()) });
+    aspOverlaySoon();
+  }
+  $effect(() => {
+    void aspFilter;
+    if (loaded) untrack(aspRefresh);
+  });
   // Labels (inside each area's own edge) and 3D rims, made for the view.
   let aspOverTimer: ReturnType<typeof setTimeout> | undefined;
   function aspOverlaySoon() {
@@ -705,7 +736,7 @@
     aspOverTimer = setTimeout(() => {
       if (!map || !map.getSource("asp-over")) return;
       const on = layers.has("airspace") && !bare;
-      const fc = on ? airspaceOverlay(map, [...(aspUs ?? []), ...aspWorld], three) : { type: "FeatureCollection" as const, features: [] };
+      const fc = on ? airspaceOverlay(map, aspPass([...(aspUs ?? []), ...aspWorldShown()]), three) : { type: "FeatureCollection" as const, features: [] };
       (map.getSource("asp-over") as GeoJSONSource).setData(fc);
     }, 150);
   }
@@ -736,14 +767,16 @@
       }
       aspUs = feats;
       aspState = cls.status === "fulfilled" && sua.status === "fulfilled" ? "ok" : "error";
-      (m.getSource("us-airspace") as GeoJSONSource | undefined)?.setData({ type: "FeatureCollection", features: feats });
-      aspOverlaySoon();
+      aspRefresh();
     });
   });
   // The rest of the world: the countries in view, after the map stops.
   $effect(() => {
-    const on = layers.has("airspace") && !bare;
-    if (!loaded || !map || !on) return;
+    const on = layers.has("airspace") && !bare && !aspFilter.has("us");
+    if (!loaded || !map || !on) {
+      aspWorldNote = "";
+      return;
+    }
     const m = map;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let stop = false;
@@ -764,7 +797,7 @@
             if (stop) return;
             const fc = JSON.parse(r.geojson) as GeoJSON.FeatureCollection;
             aspWorld = fc.features;
-            (m.getSource("world-airspace") as GeoJSONSource | undefined)?.setData(fc);
+            aspRefresh();
             aspWorldNote = r.more ? "Loading outside the US…" : "";
             aspOverlaySoon();
             // More countries in view still to read: carry on.
@@ -1535,7 +1568,7 @@
     return null;
   }
   /** Dots and their codes: either opens the airport. */
-  const AIRPORT_LAYERS = ["wa-icons", "wa-major", "wa-regional", "wa-small", "wa-labels-0", "wa-labels-1", "wa-labels-2", "routes-airports", "wx-cat"];
+  const AIRPORT_LAYERS = ["wa-icons", "wa-rwy", "wa-major", "wa-regional", "wa-small", "wa-labels-0", "wa-labels-1", "wa-labels-2", "routes-airports", "wx-cat"];
   /** The airport (code) at a point on the map, if any. */
   function airportAt(pt: maplibregl.PointLike): string | null {
     return airportHit(pt)?.ident ?? null;
@@ -1557,8 +1590,95 @@
   /** World airports detail: 1 major, 2 + regional, 3 + small airports and strips. */
   const airportDetail = $derived(Math.min(3, Math.max(1, Number(prefs.s.map_airport_detail ?? "1") || 1)));
   const worldCache = new globalThis.Map<number, GeoJSON.FeatureCollection>();
-  /** What each airport's chart symbol needs, drawn the first time it shows. */
+  /** What each airport's chart symbol needs: symbol kind, tower, runways. */
+  type SymbolInfo = { s: number; t: boolean; p: string };
   const symbolInfo = new globalThis.Map<string, SymbolInfo>();
+  /** openAIP's word on airports seen so far: private, fuel (by ICAO code,
+   * and by place for airports whose codes differ). */
+  const extrasByCode = new globalThis.Map<string, [boolean, boolean]>();
+  const extrasByPlace = new globalThis.Map<string, [number, number, boolean, boolean][]>();
+  const placeKey = (lat: number, lon: number) => `${Math.round(lat * 50)},${Math.round(lon * 50)}`;
+  function extrasFor(id: string, lon: number, lat: number): [boolean, boolean] {
+    const hit = extrasByCode.get(id);
+    if (hit) return hit;
+    // Otherwise the nearest openAIP airport within about 1 km.
+    let best: [boolean, boolean] = [false, false];
+    let bestD = 0.01 * 0.01;
+    const [r, c] = [Math.round(lat * 50), Math.round(lon * 50)];
+    for (let dr = -1; dr <= 1; dr++)
+      for (let dc = -1; dc <= 1; dc++)
+        for (const [la, lo, pv, fu] of extrasByPlace.get(`${r + dr},${c + dc}`) ?? []) {
+          const d = (la - lat) ** 2 + ((lo - lon) * Math.cos((lat * Math.PI) / 180)) ** 2;
+          if (d < bestD) (bestD = d), (best = [pv, fu]);
+        }
+    return best;
+  }
+  const extrasAsked = new Set<string>();
+  let extrasBusy = false;
+  /** Asks for openAIP's airports in view (zoomed in), a country or two at a time. */
+  async function loadExtras() {
+    if (!map || extrasBusy || map.getZoom() < SYMBOL_ZOOM - 1) return;
+    const b = map.getBounds();
+    const key = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()].map((v) => Math.round(v)).join(",");
+    if (extrasAsked.has(key)) return;
+    extrasBusy = true;
+    try {
+      const r = await api.airportExtras(b.getWest() - 0.5, b.getSouth() - 0.5, b.getEast() + 0.5, b.getNorth() + 0.5);
+      if (!r) return;
+      for (const [lat, lon, icao, pv, fu] of r.list) {
+        if (icao) extrasByCode.set(icao, [pv, fu]);
+        const k = placeKey(lat, lon);
+        const cell = extrasByPlace.get(k) ?? [];
+        if (!cell.some((x) => x[0] === lat && x[1] === lon)) cell.push([lat, lon, pv, fu]);
+        extrasByPlace.set(k, cell);
+      }
+      if (!r.more) extrasAsked.add(key);
+      nearAirports();
+      if (r.more) setTimeout(loadExtras, 300);
+    } catch {
+      /* openAIP out of reach: the symbols simply show no private or fuel marks */
+    } finally {
+      extrasBusy = false;
+    }
+  }
+  /** Zoomed in: the chart symbols and runways of the airports in view only. */
+  function nearAirports() {
+    if (!map) return;
+    const near = map.getSource("wa-near") as GeoJSONSource | undefined;
+    const rwys = map.getSource("wa-rwys") as GeoJSONSource | undefined;
+    if (!near || !rwys) return;
+    const fc = worldCache.get(untrack(() => airportDetail));
+    const on = untrack(() => layers.has("world"));
+    const icons: GeoJSON.Feature[] = [];
+    const bars: GeoJSON.Feature[] = [];
+    if (fc && on && map.getZoom() >= SYMBOL_ZOOM - 0.5) {
+      const b = map.getBounds();
+      const [w, so, e, n] = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()];
+      const padX = (e - w) * 0.15;
+      const padY = (n - so) * 0.15;
+      for (const f of fc.features) {
+        const [lon, lat] = (f.geometry as GeoJSON.Point).coordinates;
+        if (lat < so - padY || lat > n + padY || lon < w - padX || lon > e + padX) continue;
+        const id = (f.properties as { id: string }).id;
+        const info = symbolInfo.get(id);
+        if (!info) continue;
+        const [pv, fu] = extrasFor(id, lon, lat);
+        const kind = pv ? "r" : info.s === 4 ? "s" : "d";
+        icons.push({ type: "Feature", properties: { id, r: (f.properties as { r: number }).r, i: symbolName(info.t, kind, fu) }, geometry: f.geometry });
+        if (kind === "d") bars.push(...runwayFeatures(info.p, [lon, lat]));
+      }
+    }
+    near.setData({ type: "FeatureCollection", features: icons });
+    rwys.setData({ type: "FeatureCollection", features: bars });
+  }
+  let nearTimer: ReturnType<typeof setTimeout> | undefined;
+  function nearSoon() {
+    clearTimeout(nearTimer);
+    nearTimer = setTimeout(() => {
+      nearAirports();
+      loadExtras();
+    }, 60);
+  }
   async function worldAirports(detail: number): Promise<GeoJSON.FeatureCollection> {
     const hit = worldCache.get(detail);
     if (hit) return hit;
@@ -1577,12 +1697,14 @@
     const on = layers.has("world");
     const detail = airportDetail;
     if (!loaded || !map || !map.getSource("world-airports")) return;
-    for (const id of ["wa-major", "wa-regional", "wa-small", "wa-icons", "wa-labels-0", "wa-labels-1", "wa-labels-2"]) {
+    for (const id of ["wa-major", "wa-regional", "wa-small", "wa-icons", "wa-rwy", "wa-labels-0", "wa-labels-1", "wa-labels-2"]) {
       if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", on ? "visible" : "none");
     }
     if (!on) return;
     worldAirports(detail).then((fc) => {
-      if (detail === untrack(() => airportDetail)) (map?.getSource("world-airports") as GeoJSONSource | undefined)?.setData(fc);
+      if (detail !== untrack(() => airportDetail)) return;
+      (map?.getSource("world-airports") as GeoJSONSource | undefined)?.setData(fc);
+      nearAirports();
     });
   });
   let radarTime = $state<number | null>(null);
@@ -1753,26 +1875,43 @@
         },
       });
     }
+    // Zoomed in: the chart symbols of the airports in view (a dozen images
+    // made once) and their runways, one turned white bar each.
+    addAirportImages(map);
+    map.addSource("wa-near", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+    map.addSource("wa-rwys", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+    const iconSize = ["interpolate", ["linear"], ["zoom"], SYMBOL_ZOOM, 1, 12, 1.3] as unknown as maplibregl.ExpressionSpecification;
     map.addLayer({
       id: "wa-icons",
       type: "symbol",
-      source: "world-airports",
+      source: "wa-near",
       minzoom: SYMBOL_ZOOM,
       layout: {
         visibility: "none",
-        "icon-image": ["concat", "apt-", ["get", "id"]],
-        "icon-size": ["interpolate", ["linear"], ["zoom"], SYMBOL_ZOOM, 1, 12, 1.3],
+        "icon-image": ["get", "i"],
+        "icon-size": iconSize,
         "icon-allow-overlap": true,
-        "icon-rotation-alignment": "map",
+        "icon-ignore-placement": true,
         "symbol-sort-key": ["get", "r"],
       },
     });
-    // Each airport's symbol is drawn the first time the map asks for it.
-    map.on("styleimagemissing", (e: { id: string }) => {
-      if (!e.id.startsWith("apt-") || !map || map.hasImage(e.id)) return;
-      const info = symbolInfo.get(e.id.slice(4));
-      if (info) map.addImage(e.id, airportSymbol(info), { pixelRatio: 2 });
+    map.addLayer({
+      id: "wa-rwy",
+      type: "symbol",
+      source: "wa-rwys",
+      minzoom: SYMBOL_ZOOM,
+      layout: {
+        visibility: "none",
+        "icon-image": ["get", "b"],
+        "icon-size": iconSize,
+        "icon-rotate": ["get", "h"],
+        "icon-offset": ["get", "o"],
+        "icon-rotation-alignment": "map",
+        "icon-allow-overlap": true,
+        "icon-ignore-placement": true,
+      },
     });
+    map.on("moveend", nearSoon);
     // Codes beside the dots, once zoomed in (needs the online style's fonts).
     if (map.getStyle().glyphs) {
       for (const [rank, minzoom] of [[0, 5], [1, 7], [2, 9]]) {
@@ -3005,6 +3144,8 @@
   cardOpen={!!(openAirport || (netPick && !openAirport) || (wxPick && !openAirport && !netPick))}
   {measuring}
   onmeasure={() => setMeasuring(!measuring)}
+  {aspFilter}
+  onaspfilter={toggleAspFilter}
   airspaceState={aspState}
   airspaceNote={aspWorldNote}
   obstaclesState={obstState}

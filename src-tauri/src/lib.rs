@@ -375,6 +375,20 @@ async fn world_airspace(state: tauri::State<'_, AppState>, w: f64, s: f64, e: f6
     Ok(WorldAirspace { geojson, more })
 }
 
+/// openAIP's airports in a box: private and fuel, for the chart symbols.
+#[derive(serde::Serialize)]
+struct AirportExtras {
+    list: Vec<airspace::AirportExtra>,
+    more: bool,
+}
+
+#[tauri::command]
+async fn airport_extras(state: tauri::State<'_, AppState>, w: f64, s: f64, e: f64, n: f64) -> CmdResult<AirportExtras> {
+    let dir = state.data_dir.clone();
+    let (list, more) = tauri::async_runtime::spawn_blocking(move || airspace::airport_extras(&dir, w, s, e, n, 2)).await.map_err(err)?;
+    Ok(AirportExtras { list, more })
+}
+
 /// Nav aids (from the sim's own database) in a box, for the map layer:
 /// VORs and NDBs, and waypoints when `waypoints`. Asking means the layer is
 /// on, so FlightDeck asks the sim for them while it is connected.
@@ -1000,6 +1014,7 @@ const SETTING_KEYS: &[&str] = &[
     "map_3d",
     "map_layers",
     "map_airport_detail",
+    "map_asp_filter",
     "map_roads_opacity",
     "map_rings_count",
     "map_rings_nm",
@@ -1584,6 +1599,7 @@ pub(crate) async fn dispatch(app: &tauri::AppHandle, cmd: &str, a: serde_json::V
         }),
         "us_airspace" => ok(to_value(us_airspace(st()).await?)),
         "sua_airspace" => ok(to_value(sua_airspace(st()).await?)),
+        "airport_extras" => ok(to_value(airport_extras(st(), arg(&a, "w")?, arg(&a, "s")?, arg(&a, "e")?, arg(&a, "n")?).await?)),
         "world_airspace" => ok(to_value(world_airspace(st(), arg(&a, "w")?, arg(&a, "s")?, arg(&a, "e")?, arg(&a, "n")?).await?)),
         "pfd_watch" => ok(to_value(pfd_watch(st())?)),
         "us_obstacles" => ok(to_value(us_obstacles(st()).await?)),
@@ -1773,6 +1789,7 @@ pub fn run() {
             us_airspace,
             sua_airspace,
             world_airspace,
+            airport_extras,
             pfd_watch,
             us_obstacles,
             pln_text,

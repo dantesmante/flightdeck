@@ -1029,6 +1029,8 @@ export const api = {
   wxAdvisories: () => call<WxAdvisories>("wx_advisories"),
   onlineNetwork: (net: Net) => call<NetworkData>("online_network", { net }),
   onlinePilot: (net: Net, callsign: string) => call<NetPilot | null>("online_pilot", { net, callsign }),
+  /** openAIP's airports in a box: [lat, lon, ICAO, private, fuel]. */
+  airportExtras: (w: number, s: number, e: number, n: number) => call<{ list: [number, number, string, boolean, boolean][]; more: boolean }>("airport_extras", { w, s, e, n }),
   mapAirports: (detail: number) => call<MapAirport[]>("map_airports", { detail }),
   airportCard: (ident: string) => call<AirportCardData | null>("airport_card", { ident }),
   /** An airport's elevation and runway thresholds (glidepath view). */

@@ -478,7 +478,7 @@ export async function mockCall<T>(cmd: string, _args?: Record<string, unknown>):
     };
     const fc = (features: object[]) => JSON.stringify({ type: "FeatureCollection", features });
     if (cmd === "sua_airspace") return fc([f("R", "R-6703: GND-FL230", 0, 23000, circ(-122.55, 46.9, 0.12)), f("MOA", "OLYMPIC MOA: 6000MSL-FL180", 6000, 18000, wobbly(-122.05, 47.2, 0.13))]) as T;
-    return { geojson: fc([f("C", "C: GND-2500AGL", 0, 2500, circ(-123.18, 49.19, 0.12)), f("G", "G: GND-2000AGL", 0, 2000, circ(-122.6, 49.4, 0.2))]), more: false } as T;
+    return { geojson: fc([f("C", "C: GND-2500AGL", 0, 2500, circ(-123.18, 49.19, 0.12)), f("G", "G: GND-2000AGL", 0, 2000, circ(-122.6, 49.4, 0.2)), { ...f("E", "V300 LOW LEVEL AIRWAY: 2200AGL-FL180", 2200, 18000, circ(-123.6, 49.5, 0.1)), properties: { ...f("E", "V300 LOW LEVEL AIRWAY: 2200AGL-FL180", 2200, 18000, circ(-123.6, 49.5, 0.1)).properties, aw: true } }]), more: false } as T;
   }
   if (cmd === "sky_grid") {
     // Made-up weather systems: bands of cloud, poor visibility under them.
@@ -628,6 +628,11 @@ export async function mockCall<T>(cmd: string, _args?: Record<string, unknown>):
         : [{ icao: "KDFW", name: "Dallas-Fort Worth Intl", lat: 32.9, lon: -97.04, controllers: [c("KDFW_TWR", "TWR", "126.550"), c("KDFW_GND", "GND", "121.650")] }],
       other: [], error: null,
     } as T;
+  }
+  if (cmd === "airport_extras") {
+    // Test fields: X1 private with fuel, X2 fuel, X3 private; KSEA fuel.
+    const at = (i: number): [number, number] => [47.45 + 0.22 * Math.sin(i * 0.8), -122.3 + 0.35 * Math.cos(i * 0.8)];
+    return { list: [[...at(1), "", true, true], [...at(2), "X2", false, true], [...at(3), "", true, false], [47.45, -122.31, "KSEA", false, true]], more: false } as T;
   }
   if (cmd === "map_airports") {
     const d = Number(_args?.detail ?? 1);

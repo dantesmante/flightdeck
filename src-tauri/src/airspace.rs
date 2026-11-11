@@ -316,8 +316,14 @@ pub fn world(data_dir: &Path, w: f64, s: f64, e: f64, n: f64, max_new: usize) ->
     (json!({ "type": "FeatureCollection", "features": out }).to_string(), more)
 }
 
-/// Country codes whose box meets the view (the view may cross the date line).
+/// Country codes whose box meets the view (the view may cross the date
+/// line), leaving out the US (its airspace comes from the FAA).
 fn countries_in(w: f64, s: f64, e: f64, n: f64) -> Vec<String> {
+    countries_in_all(w, s, e, n).into_iter().filter(|c| !crate::countries::FAA_COVERED.contains(&c.as_str())).collect()
+}
+
+/// Every country code whose box meets the view.
+fn countries_in_all(w: f64, s: f64, e: f64, n: f64) -> Vec<String> {
     let spans: Vec<(f64, f64)> = if w <= e { vec![(w, e)] } else { vec![(w, 180.0), (-180.0, e)] };
     let mut out: Vec<String> = Vec::new();
     for (cc, b) in crate::countries::COUNTRY_BOXES {
@@ -334,7 +340,7 @@ fn countries_in(w: f64, s: f64, e: f64, n: f64) -> Vec<String> {
 
 fn load_country(data_dir: &Path, cc: &str) -> Country {
     // "oaip2": copies kept before the reader understood every export are not trusted.
-    let json = cached(data_dir, &format!("oaip3-{cc}"), |_| {
+    let json = cached(data_dir, &format!("oaip4-{cc}"), |_| {
         let url = format!("{OPENAIP}/{cc}_asp.geojson");
         let text = match get_text(&url, "openAIP") {
             Ok(t) => t,
@@ -388,6 +394,90 @@ fn bbox(g: &Value) -> Option<[f64; 4]> {
     }
     walk(&g["coordinates"], &mut b);
     (b[0] <= b[2]).then_some(b)
+}
+
+// ---- openAIP airports: private, fuel ---------------------------------------
+
+/// What the chart symbols need that the world airport list lacks: whether
+/// an airport is private and whether it sells fuel. One row per airport:
+/// [lat, lon, ICAO code, private, fuel].
+pub type AirportExtra = (f32, f32, String, bool, bool);
+
+type LoadedApt = std::collections::HashMap<String, (std::sync::Arc<Vec<AirportExtra>>, Option<std::time::Instant>)>;
+static APTS: Mutex<Option<LoadedApt>> = Mutex::new(None);
+
+/// openAIP's airports in a box (countries read as they come into view, at
+/// most `max_new` new ones per call), and whether more are still to come.
+pub fn airport_extras(data_dir: &Path, w: f64, s: f64, e: f64, n: f64, max_new: usize) -> (Vec<AirportExtra>, bool) {
+    let mut out = Vec::new();
+    let mut fresh = 0;
+    let mut more = false;
+    for cc in countries_in_all(w, s, e, n) {
+        let have = APTS
+            .lock()
+            .unwrap()
+            .get_or_insert_with(Default::default)
+            .get(&cc)
+            .cloned()
+            .filter(|(_, failed)| failed.is_none_or(|t| t.elapsed() < std::time::Duration::from_secs(120)));
+        let list = match have {
+            Some((l, _)) => l,
+            None if fresh < max_new => {
+                fresh += 1;
+                let (l, failed) = load_airports(data_dir, &cc);
+                let l = std::sync::Arc::new(l);
+                APTS.lock().unwrap().get_or_insert_with(Default::default).insert(cc.clone(), (l.clone(), failed));
+                l
+            }
+            None => {
+                more = true;
+                continue;
+            }
+        };
+        out.extend(list.iter().filter(|a| (a.0 as f64) >= s && (a.0 as f64) <= n && (a.1 as f64) >= w && (a.1 as f64) <= e).cloned());
+    }
+    (out, more)
+}
+
+fn truthy(v: &Value) -> bool {
+    v.as_bool().unwrap_or(false) || v.as_i64().is_some_and(|x| x != 0) || v.as_str().is_some_and(|s| matches!(s.to_ascii_lowercase().as_str(), "true" | "yes" | "1"))
+}
+
+fn openaip_airport(f: &Value) -> Option<AirportExtra> {
+    let p = &f["properties"];
+    let c = f["geometry"]["coordinates"].as_array()?;
+    let (lon, lat) = (c.first()?.as_f64()?, c.get(1)?.as_f64()?);
+    let icao = p["icaoCode"].as_str().or(p["icao"].as_str()).unwrap_or("").trim().to_ascii_uppercase();
+    let private = truthy(&p["private"]);
+    let fuel = p["services"]["fuelTypes"].as_array().is_some_and(|a| !a.is_empty()) || p["fuelTypes"].as_array().is_some_and(|a| !a.is_empty());
+    Some((lat as f32, lon as f32, icao, private, fuel))
+}
+
+fn load_airports(data_dir: &Path, cc: &str) -> (Vec<AirportExtra>, Option<std::time::Instant>) {
+    let json = cached(data_dir, &format!("oapt1-{cc}"), |_| {
+        let url = format!("{OPENAIP}/{cc}_apt.geojson");
+        let text = match get_text(&url, "openAIP") {
+            Ok(t) => t,
+            Err(e) if e.contains("404") => return Ok("[]".into()),
+            Err(e) => return Err(e),
+        };
+        let v: Value = serde_json::from_str(&text).map_err(|e| format!("Unexpected answer from openAIP: {e}"))?;
+        let all = v["features"].as_array().cloned().unwrap_or_default();
+        let rows: Vec<AirportExtra> = all.iter().filter_map(openaip_airport).collect();
+        let (pv, fu) = (rows.iter().filter(|r| r.3).count(), rows.iter().filter(|r| r.4).count());
+        log::info!("airports: openAIP {cc}: {} airports, {pv} private, {fu} with fuel", rows.len());
+        if pv == 0 && fu == 0 && !all.is_empty() {
+            log::info!("airports: openAIP {cc}: first airport's properties: {}", all[0]["properties"].to_string().chars().take(500).collect::<String>());
+        }
+        serde_json::to_string(&rows).map_err(|e| e.to_string())
+    });
+    match json.and_then(|j| serde_json::from_str::<Vec<AirportExtra>>(&j).map_err(|e| e.to_string())) {
+        Ok(l) => (l, None),
+        Err(e) => {
+            log::warn!("airports: openAIP {cc}: {e}");
+            (Vec::new(), Some(std::time::Instant::now()))
+        }
+    }
 }
 
 /// A number, or a number written as text.
@@ -501,7 +591,12 @@ fn openaip_feature(f: &Value) -> Option<Value> {
             _ => None,
         },
     };
+    // Airways (and Canada's low-level airways, given as class E corridors):
+    // kept, marked, so the map can hide them.
+    let name_u = p["name"].as_str().unwrap_or("").to_ascii_uppercase();
+    let airway = t == 15 || name_u.contains("AIRWAY") || name_u.contains("LOW LEVEL") || name_u.contains("CORRIDOR");
     let kind = match t {
+        15 => class.unwrap_or("E"),
         3 => "P",
         1 => "R",
         2 => "DNG",
@@ -523,7 +618,11 @@ fn openaip_feature(f: &Value) -> Option<Value> {
     let lo = openaip_limit(&p["lowerLimit"]).or_else(|| openaip_limit(&p["lower_limit"])).or_else(|| openaip_limit(&p["bottom"]));
     let hi = openaip_limit(&p["upperLimit"]).or_else(|| openaip_limit(&p["upper_limit"])).or_else(|| openaip_limit(&p["top"]));
     let geometry = clean_geometry(&f["geometry"], SIMPLIFY_SUA)?;
-    Some(feature(kind, &name, &tag, lo, hi, geometry))
+    let mut out = feature(kind, &name, &tag, lo, hi, geometry);
+    if airway {
+        out["properties"]["aw"] = json!(true);
+    }
+    Some(out)
 }
 
 fn fetch(cycle: &str) -> Result<Vec<u8>, String> {
@@ -553,8 +652,8 @@ fn forget_others(dir: &Path, prefix: &str, keep: &Path) {
         let p = e.path();
         // Also the old US copies ("us-…", before the labels changed).
         // Also the copies of older versions ("us-…", "class-…", "oaip-xx-…").
-        let base = prefix.replace("oaip3-", "oaip-").replace("class2", "class").replace("sua2", "sua");
-        let older = is_copy(&p, "us") || is_copy(&p, &base) || is_copy(&p, &prefix.replace("oaip3-", "oaip2-"));
+        let base = prefix.replace("oaip4-", "oaip-").replace("class2", "class").replace("sua2", "sua");
+        let older = is_copy(&p, "us") || ["oaip2-", "oaip3-"].iter().any(|o| is_copy(&p, &prefix.replace("oaip4-", o))) || is_copy(&p, &base);
         if p != keep && (is_copy(&p, prefix) || older) {
             let _ = std::fs::remove_file(p);
         }
@@ -771,6 +870,18 @@ mod tests {
         assert_eq!(w["properties"]["label"], "D: GND-2500MSL");
         let d = openaip_feature(&json!({ "properties": { "name": "ED-R 116", "type": 1, "icaoClass": 8, "lowerLimit": { "value": 0, "unit": 1, "referenceDatum": 0 }, "upperLimit": { "value": 100, "unit": 6, "referenceDatum": 2 } }, "geometry": sq })).unwrap();
         assert_eq!(d["properties"]["label"], "ED-R 116: GND-FL100");
+    }
+
+    #[test]
+    fn openaip_airports_private_and_fuel() {
+        let f = json!({ "type": "Feature", "properties": { "name": "X", "icaoCode": "kful", "private": true, "services": { "fuelTypes": [1, 2] } }, "geometry": { "type": "Point", "coordinates": [-117.98, 33.87] } });
+        let a = openaip_airport(&f).unwrap();
+        assert_eq!((a.2.as_str(), a.3, a.4), ("KFUL", true, true));
+        let g = json!({ "properties": { "name": "Y" }, "geometry": { "type": "Point", "coordinates": [1.0, 2.0] } });
+        assert_eq!(openaip_airport(&g).map(|a| (a.3, a.4)), Some((false, false)));
+        assert!(countries_in_all(-125.0, 30.0, -70.0, 49.0).iter().any(|c| c == "us"));
+        let aw = openaip_feature(&json!({ "properties": { "name": "V300 LOW LEVEL AIRWAY", "type": 0, "icaoClass": 4 }, "geometry": { "type": "Polygon", "coordinates": [[[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 0.0]]] } })).unwrap();
+        assert_eq!(aw["properties"]["aw"], true);
     }
 
     #[test]
