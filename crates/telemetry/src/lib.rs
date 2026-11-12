@@ -99,6 +99,10 @@ pub struct Telemetry {
     /// MSFS camera state, for diagnostics (2 = cockpit, 3 = external, ...).
     #[serde(default)]
     pub camera_state: Option<u8>,
+    /// The sim's clock minus this computer's (ms), when the sim says: the
+    /// sim's time of day decides logbook day and night.
+    #[serde(default)]
+    pub sim_clock_offset_ms: Option<i64>,
 }
 
 /// Cockpit instrument values beyond position and attitude (MSFS). Each is

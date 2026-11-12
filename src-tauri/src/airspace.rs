@@ -262,13 +262,32 @@ const OPENAIP: &str = "https://s3.openaip.net/openaip-system-exports";
 
 /// One country's airspace, ready to answer for a box.
 struct Country {
-    features: Vec<([f64; 4], Value)>,
+    /// Each area's box and its GeoJSON, kept as compact text (a parsed
+    /// tree takes several times the memory).
+    features: Vec<([f64; 4], Box<str>)>,
     /// Could not be read (offline, openAIP down): try again after a while.
     failed: Option<std::time::Instant>,
 }
 
-type Loaded = std::collections::HashMap<String, std::sync::Arc<Country>>;
+/// Each country read, and when it was last in view.
+type Loaded = std::collections::HashMap<String, (std::sync::Arc<Country>, std::time::Instant)>;
 static WORLD: Mutex<Option<Loaded>> = Mutex::new(None);
+
+/// Countries out of view this long are let go from memory (read again from
+/// the copy on disk, quickly, if they come back into view).
+const FORGET_AFTER: std::time::Duration = std::time::Duration::from_secs(180);
+
+/// Lets go of what has been out of view for a while: the ones in `keep`
+/// are marked as just used.
+fn forget_unused<V>(map: &mut std::collections::HashMap<String, (V, std::time::Instant)>, keep: &[String]) {
+    let now = std::time::Instant::now();
+    for cc in keep {
+        if let Some(e) = map.get_mut(cc) {
+            e.1 = now;
+        }
+    }
+    map.retain(|_, (_, used)| now.duration_since(*used) < FORGET_AFTER);
+}
 
 /// The airspace outside the US in a box (countries are read as they come
 /// into view, at most `max_new` new ones per call so a call stays quick).
@@ -276,6 +295,7 @@ static WORLD: Mutex<Option<Loaded>> = Mutex::new(None);
 /// be read.
 pub fn world(data_dir: &Path, w: f64, s: f64, e: f64, n: f64, max_new: usize) -> (String, bool) {
     let codes = countries_in(w, s, e, n);
+    forget_unused(WORLD.lock().unwrap().get_or_insert_with(Default::default), &codes);
     let mut fresh = 0;
     let mut more = false;
     let mut list: Vec<std::sync::Arc<Country>> = Vec::new();
@@ -285,14 +305,14 @@ pub fn world(data_dir: &Path, w: f64, s: f64, e: f64, n: f64, max_new: usize) ->
             .unwrap()
             .get_or_insert_with(Default::default)
             .get(&cc)
-            .cloned()
+            .map(|e| e.0.clone())
             .filter(|c| c.failed.is_none_or(|t| t.elapsed() < std::time::Duration::from_secs(120)));
         let c = match have {
             Some(c) => c,
             None if fresh < max_new => {
                 fresh += 1;
                 let c = std::sync::Arc::new(load_country(data_dir, &cc));
-                WORLD.lock().unwrap().get_or_insert_with(Default::default).insert(cc.clone(), c.clone());
+                WORLD.lock().unwrap().get_or_insert_with(Default::default).insert(cc.clone(), (c.clone(), std::time::Instant::now()));
                 c
             }
             None => {
@@ -302,18 +322,24 @@ pub fn world(data_dir: &Path, w: f64, s: f64, e: f64, n: f64, max_new: usize) ->
         };
         list.push(c);
     }
-    let mut out = Vec::new();
-    for c in &list {
+    let mut out = String::from(r#"{"type":"FeatureCollection","features":["#);
+    let mut count = 0;
+    'all: for c in &list {
         for (b, f) in &c.features {
             if b[2] >= w && b[0] <= e && b[3] >= s && b[1] <= n {
-                out.push(f);
-                if out.len() >= 6000 {
-                    break;
+                if count > 0 {
+                    out.push(',');
+                }
+                out.push_str(f);
+                count += 1;
+                if count >= 6000 {
+                    break 'all;
                 }
             }
         }
     }
-    (json!({ "type": "FeatureCollection", "features": out }).to_string(), more)
+    out.push_str("]}");
+    (out, more)
 }
 
 /// Country codes whose box meets the view (the view may cross the date
@@ -367,7 +393,7 @@ fn load_country(data_dir: &Path, cc: &str) -> Country {
             .and_then(|v| v["features"].as_array().cloned())
             .unwrap_or_default()
             .into_iter()
-            .filter_map(|f| Some((bbox(&f["geometry"])?, f)))
+            .filter_map(|f| Some((bbox(&f["geometry"])?, f.to_string().into_boxed_str())))
             .collect(),
         Err(e) => {
             log::warn!("airspace: openAIP {cc}: {e}");
@@ -403,7 +429,8 @@ fn bbox(g: &Value) -> Option<[f64; 4]> {
 /// [lat, lon, ICAO code, private, fuel].
 pub type AirportExtra = (f32, f32, String, bool, bool);
 
-type LoadedApt = std::collections::HashMap<String, (std::sync::Arc<Vec<AirportExtra>>, Option<std::time::Instant>)>;
+type AptEntry = (std::sync::Arc<Vec<AirportExtra>>, Option<std::time::Instant>);
+type LoadedApt = std::collections::HashMap<String, (AptEntry, std::time::Instant)>;
 static APTS: Mutex<Option<LoadedApt>> = Mutex::new(None);
 
 /// openAIP's airports in a box (countries read as they come into view, at
@@ -412,13 +439,15 @@ pub fn airport_extras(data_dir: &Path, w: f64, s: f64, e: f64, n: f64, max_new: 
     let mut out = Vec::new();
     let mut fresh = 0;
     let mut more = false;
-    for cc in countries_in_all(w, s, e, n) {
+    let codes = countries_in_all(w, s, e, n);
+    forget_unused(APTS.lock().unwrap().get_or_insert_with(Default::default), &codes);
+    for cc in codes {
         let have = APTS
             .lock()
             .unwrap()
             .get_or_insert_with(Default::default)
             .get(&cc)
-            .cloned()
+            .map(|e| e.0.clone())
             .filter(|(_, failed)| failed.is_none_or(|t| t.elapsed() < std::time::Duration::from_secs(120)));
         let list = match have {
             Some((l, _)) => l,
@@ -426,7 +455,7 @@ pub fn airport_extras(data_dir: &Path, w: f64, s: f64, e: f64, n: f64, max_new: 
                 fresh += 1;
                 let (l, failed) = load_airports(data_dir, &cc);
                 let l = std::sync::Arc::new(l);
-                APTS.lock().unwrap().get_or_insert_with(Default::default).insert(cc.clone(), (l.clone(), failed));
+                APTS.lock().unwrap().get_or_insert_with(Default::default).insert(cc.clone(), ((l.clone(), failed), std::time::Instant::now()));
                 l
             }
             None => {

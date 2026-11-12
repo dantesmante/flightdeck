@@ -87,7 +87,12 @@
     fit();
     const ro = new ResizeObserver(fit);
     if (canvas) ro.observe(canvas);
-    return () => ro.disconnect();
+    // Not passive: the page itself must not scroll.
+    canvas?.addEventListener("wheel", wheel, { passive: false });
+    return () => {
+      ro.disconnect();
+      canvas?.removeEventListener("wheel", wheel);
+    };
   });
   onDestroy(() => {
     pen.erasing = false;
@@ -161,6 +166,31 @@
     paint();
     redo = [];
     onchange([...marks, { c: pen.color, w: pen.size, p: ll }]);
+  }
+  /** The mouse wheel zooms the map (and so moves around it) whenever the
+   * pen is not pressed on the map; while drawing, the map stays put. */
+  function wheel(e: WheelEvent) {
+    e.preventDefault();
+    if (drawingNow) return;
+    const target = getMap().getCanvas();
+    target.dispatchEvent(
+      new WheelEvent("wheel", {
+        bubbles: true,
+        cancelable: true,
+        deltaX: e.deltaX,
+        deltaY: e.deltaY,
+        deltaZ: e.deltaZ,
+        deltaMode: e.deltaMode,
+        clientX: e.clientX,
+        clientY: e.clientY,
+        screenX: e.screenX,
+        screenY: e.screenY,
+        ctrlKey: e.ctrlKey,
+        shiftKey: e.shiftKey,
+        altKey: e.altKey,
+        metaKey: e.metaKey,
+      }),
+    );
   }
   function undo() {
     if (!marks.length) return;

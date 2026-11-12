@@ -52,6 +52,10 @@ pub const POWER_VARS: &[Var] = &[
     v("ELECTRICAL MASTER BATTERY", "bool"),
     v("ELECTRICAL MAIN BUS VOLTAGE", "volts"),
     v("CAMERA STATE", "number"),
+    // The sim's own clock (UTC), for logbook day and night by sim time.
+    v("ZULU TIME", "seconds"),
+    v("ZULU DAY OF YEAR", "number"),
+    v("ZULU YEAR", "number"),
 ];
 
 /// Instruments for the PFD. Each its own definition and request (id
@@ -200,6 +204,9 @@ pub struct State {
     battery: Option<bool>,
     bus_volts: Option<f64>,
     camera: Option<u8>,
+    zulu_s: Option<f64>,
+    zulu_doy: Option<f64>,
+    zulu_year: Option<f64>,
     instr: telemetry::Instruments,
     have_instr: bool,
 }
@@ -330,7 +337,10 @@ pub fn parse(b: &[u8], st: &mut State, now_ms: i64) -> Parsed {
                         match r - POWER_BASE {
                             0 => st.battery = Some(x != 0.0),
                             1 => st.bus_volts = Some(x),
-                            _ => st.camera = Some(x.clamp(0.0, 255.0) as u8),
+                            2 => st.camera = Some(x.clamp(0.0, 255.0) as u8),
+                            3 => st.zulu_s = Some(x),
+                            4 => st.zulu_doy = Some(x),
+                            _ => st.zulu_year = Some(x),
                         }
                     }
                     Parsed::Other
@@ -415,7 +425,20 @@ fn parse_telemetry(b: &[u8], st: &mut State, now_ms: i64) -> Option<Telemetry> {
             (b, v) => Some(b == Some(true) || v.is_some_and(|v| v > 8.0)),
         },
         camera_state: st.camera,
+        sim_clock_offset_ms: sim_clock_ms(st).map(|sim| sim - now_ms),
     })
+}
+
+/// The sim's clock as Unix milliseconds (UTC), once it has sent it.
+fn sim_clock_ms(st: &State) -> Option<i64> {
+    let (s, doy, y) = (st.zulu_s?, st.zulu_doy?, st.zulu_year?);
+    if !(1971.0..=2200.0).contains(&y) || !(1.0..=366.0).contains(&doy) || !(0.0..86_401.0).contains(&s) {
+        return None;
+    }
+    // Days from 1970-01-01 to 1 January of year y.
+    let y = y as i64;
+    let days = (1970..y).map(|yr| if (yr % 4 == 0 && yr % 100 != 0) || yr % 400 == 0 { 366 } else { 365 }).sum::<i64>();
+    Some((days + doy as i64 - 1) * 86_400_000 + (s * 1000.0) as i64)
 }
 
 /// One aircraft field arrived; merge it and return the updated aircraft.
@@ -655,6 +678,12 @@ mod tests {
         assert_eq!(t(&mut st).powered, Some(true));
         parse(&data_msg(POWER_BASE + 2, &2.0f64.to_le_bytes()), &mut st, 0);
         assert_eq!(t(&mut st).camera_state, Some(2));
+        // The sim's clock: 2026, day 315 (11 Nov), 23:00 UTC.
+        parse(&data_msg(POWER_BASE + 3, &82_800.0f64.to_le_bytes()), &mut st, 0);
+        parse(&data_msg(POWER_BASE + 4, &315.0f64.to_le_bytes()), &mut st, 0);
+        assert_eq!(t(&mut st).sim_clock_offset_ms, None);
+        parse(&data_msg(POWER_BASE + 5, &2026.0f64.to_le_bytes()), &mut st, 0);
+        assert_eq!(t(&mut st).sim_clock_offset_ms, Some(1_794_438_000_000));
     }
 
     #[test]

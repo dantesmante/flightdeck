@@ -856,10 +856,12 @@
     stroke-linecap: round;
     stroke-linejoin: round;
   }
+  /* The page scrolls as a whole, so the scroll bar sits at the window's
+     right edge; the text keeps a readable width (796 px) on the left. */
   .inner {
-    padding: 22px 32px 40px;
-    max-width: 860px;
+    padding: 22px max(32px, calc(100% - 828px)) 40px 32px;
     overflow-y: auto;
+    min-width: 0;
   }
   .title {
     color: var(--ink);

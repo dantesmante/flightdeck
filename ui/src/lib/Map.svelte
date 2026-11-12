@@ -1695,6 +1695,8 @@
         return { type: "Feature", properties: { id, name, r, t: !!towered }, geometry: { type: "Point", coordinates: [lon, lat] } };
       }),
     };
+    // Only the detail level in use is kept.
+    worldCache.clear();
     worldCache.set(detail, fc);
     return fc;
   }
@@ -2381,15 +2383,19 @@
     // Right-click on an airport: send it to the planner, or fit it in view.
     map.on("contextmenu", (e) => {
       // Drawing a route: a right-click adds a point, just as a click does.
+      // On an airport, the airport's menu (Set as destination ends the
+      // route there; Add as waypoint passes over it).
       if (drawOn) {
         e.preventDefault();
         // Not after a right-drag that turned the map.
         const turned = rightDown && Math.hypot(e.originalEvent.clientX - rightDown[0], e.originalEvent.clientY - rightDown[1]) > 4;
-        if (!skipClick && !turned) drawClick(e.point, [e.lngLat.lng, e.lngLat.lat]);
-        return;
-      }
-      if (tracing) {
-        // While measuring or drawing, a right-click takes back the last point.
+        if (skipClick || turned) return;
+        if (drawing.stage !== "route" || !airportHit(e.point) || pointAt(e.point) != null) {
+          drawClick(e.point, [e.lngLat.lng, e.lngLat.lat]);
+          return;
+        }
+      } else if (tracing) {
+        // While measuring, a right-click takes back the last point.
         undoPoint();
         return;
       }
@@ -3094,6 +3100,11 @@
       <button role="menuitem" disabled={pick.locked} onclick={() => sendToPlanner("dest")}>
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 21V4h11l-2 4 2 4H5" /></svg>Set as destination
       </button>
+      {#if drawOn && drawing.stage === "route"}
+        <button role="menuitem" onclick={() => { const c = ctx; ctx = null; if (c && map) drawClick(map.project(c.at), c.at); }}>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 18l6-6 4 4 6-8" /><circle cx="10" cy="12" r="2" /></svg>Add as waypoint
+        </button>
+      {/if}
       {#if pick.locked}<p>A flight is under way: the plan is set.</p>{/if}
     {/if}
     <button role="menuitem" onclick={() => ctx && fitAirport(ctx.ident, ctx.at)}>

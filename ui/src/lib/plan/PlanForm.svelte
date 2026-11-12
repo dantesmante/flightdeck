@@ -85,12 +85,23 @@
     const which = pick.which;
     if (mode !== "start" || !spot || !which) return;
     untrack(() => {
+      pick.spot = null;
+      pick.which = null;
+      // While drawing: a new start, or the end of the route.
+      if (drawing.stage === "route") {
+        if (which === "origin") {
+          drawing.origin = spot;
+          return;
+        }
+        const last = drawing.pts[drawing.pts.length - 1];
+        if (!last || last.icao !== spot.icao) drawing.pts = [...drawing.pts, { icao: spot.icao, name: spot.name, lat: spot.lat, lon: spot.lon }];
+        finishDrawing();
+        return;
+      }
       if (which === "origin") {
         origin = spot;
         originAuto = false;
       } else dest = spot;
-      pick.spot = null;
-      pick.which = null;
       // Origin from the map with nowhere to go yet: straight on to drawing
       // the route, so (right-)clicks on the map add its waypoints.
       if (which === "origin" && !dest && drawing.stage === "off") startDrawing();
@@ -450,8 +461,9 @@
         </div>
       {:else}
         <p class="step">
-          Click or right-click the map to add waypoints from <b>{drawing.origin?.icao}</b>. Clicking an airport passes over it; end on your
-          destination airport. Drag a point to move it, click it to take it out, or drag the line to put one in.
+          Click or right-click the map to add waypoints from <b>{drawing.origin?.icao}</b>. Clicking an airport passes over it; right-click your
+          destination airport and choose Set as destination to finish. Drag a point to move it, click it to take it out, or drag the line to put one
+          in.
         </p>
         <div class="chain num">
           <span class="apt">{drawing.origin?.icao}</span>
@@ -668,7 +680,7 @@
     display: flex;
     flex-direction: column;
     gap: 2px;
-    font-size: 11px;
+    font-size: 10px;
     font-weight: 600;
     letter-spacing: 0.08em;
     text-transform: uppercase;
@@ -677,7 +689,7 @@
   .ids input {
     font: inherit;
     font-family: var(--cond);
-    font-size: 25px;
+    font-size: 19px;
     font-weight: 700;
     letter-spacing: 0.03em;
     text-transform: uppercase;

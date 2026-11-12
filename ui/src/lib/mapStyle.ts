@@ -278,6 +278,8 @@ export function showTerrain(map: maplibregl.Map, on: boolean, satellite: boolean
         source: "fd-contours",
         "source-layer": "contours",
         minzoom: 9,
+        // Land only: no lines on the seabed or in coastal dips below sea level.
+        filter: [">", ["get", "ele"], 0],
         paint: { "line-width": ["match", ["get", "level"], 1, 1, 0.5] },
       },
       before,
@@ -290,7 +292,7 @@ export function showTerrain(map: maplibregl.Map, on: boolean, satellite: boolean
           source: "fd-contours",
           "source-layer": "contours",
           minzoom: 11,
-          filter: [">", ["get", "level"], 0],
+          filter: ["all", [">", ["get", "level"], 0], [">", ["get", "ele"], 0]],
           layout: {
             "symbol-placement": "line",
             "text-size": 10,

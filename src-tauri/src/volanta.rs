@@ -287,6 +287,7 @@ pub fn parse(text: &str, refdata: &refdata::RefData) -> Result<ImportedFlight, S
         landings,
         track,
         events: vec![],
+        sim_clock: Vec::new(),
     };
     let ctx = SaveContext {
         dep: place(refdata, origin),

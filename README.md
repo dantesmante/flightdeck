@@ -159,8 +159,9 @@ MIT licensed.
   **Right-click** an airport for **Set as origin**, **Set as destination**
   (they fill in Start a flight on the Map tab) and **Zoom to fit**. Set as
   origin with no destination yet goes straight on to Draw a route: a
-  click or right-click anywhere on the map adds a waypoint, and the
-  route ends on an airport. The
+  click or right-click anywhere on the map adds a waypoint; right-click an
+  airport for Set as destination (the route ends there) or Add as
+  waypoint. The
   airport clicked is marked by an amber ring that glows softly in and out
   until you zoom in on it (zoom 12.5).
 - **Airspace** (Layers, Aviation), worldwide:
@@ -368,7 +369,8 @@ MIT licensed.
 - **Markup** (Tools → Markup): draw on the map with the same palette; the
   marks stick to the map, stay after the tool closes and are kept in the
   browser until cleared. The eraser takes away whole marks; the move
-  button lets the map be panned meanwhile.
+  button lets the map be panned meanwhile. The mouse wheel zooms the map
+  whenever the pen is lifted; while the pen is pressed the map stays put.
 - **Layers panel first**: it keeps the top right; airport, weather and
   network cards open to its left while it is open, and opening Tools
   closes it.
@@ -401,7 +403,7 @@ MIT licensed.
   seabed shading or lines), towns pale yellow as on VFR charts, woods,
   parks and ice step aside, and place names turn bright as over
   satellite pictures. Relief shading and contour lines
-  in feet (from open elevation data, AWS Terrain Tiles;
+  in feet, land only (none on the seabed; from open elevation data, AWS Terrain Tiles;
   contours from zoom 9, worked out in the background only for what is on
   screen), stronger borders, past routes, airports, **parked aircraft** (where you last left
   each aircraft, off by default), and live **rain radar** (RainViewer,
@@ -569,7 +571,8 @@ MIT licensed.
   FlightDeck keeps your value.
 - **Paper logbook**: a two-page ruled logbook in FAA or EASA layout,
   handwritten or typed, with page totals carried forward. Night time and
-  night landings come from the sun's position along your track. Click a
+  night landings come from the sun's position along your track, by the
+  simulator's clock (MSFS zulu time), not the computer's. Click a
   line to see the flight on a mini map, edit any field (date, times,
   airports, aircraft, hours, remarks, and the class: SEL, MEL, SES or
   MES) or delete it everywhere. The class comes from a table of aircraft

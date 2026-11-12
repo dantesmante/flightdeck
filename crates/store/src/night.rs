@@ -5,8 +5,20 @@ use telemetry::{sun, TrackPoint};
 /// Gaps longer than this between track points are pauses, not flying.
 const MAX_GAP_MS: i64 = 120_000;
 
+/// The sim's clock at computer time `t`: the latest reading at or before
+/// it (or the first one); none known: the computer's own.
+fn sim_time(clock: &[(i64, i64)], t: i64) -> i64 {
+    let at = clock.iter().rev().find(|(c, _)| *c <= t).or(clock.first());
+    t + at.map_or(0, |(_, o)| *o)
+}
+
 /// Minutes of the track between `from` and `to` flown at night.
 pub fn night_minutes(track: &[TrackPoint], from: Option<i64>, to: Option<i64>) -> i64 {
+    night_minutes_by(track, from, to, &[])
+}
+
+/// Minutes flown at night by the sim's clock (see `FlightSummary::sim_clock`).
+pub fn night_minutes_by(track: &[TrackPoint], from: Option<i64>, to: Option<i64>, clock: &[(i64, i64)]) -> i64 {
     let (from, to) = (from.unwrap_or(i64::MIN), to.unwrap_or(i64::MAX));
     let mut ms = 0i64;
     for w in track.windows(2) {
@@ -16,7 +28,7 @@ pub fn night_minutes(track: &[TrackPoint], from: Option<i64>, to: Option<i64>) -
             continue;
         }
         let mid = (t0 + t1) / 2;
-        if sun::is_night(mid, (a.lat + b.lat) / 2.0, (a.lon + b.lon) / 2.0) {
+        if sun::is_night(sim_time(clock, mid), (a.lat + b.lat) / 2.0, (a.lon + b.lon) / 2.0) {
             ms += t1 - t0;
         }
     }
@@ -25,8 +37,13 @@ pub fn night_minutes(track: &[TrackPoint], from: Option<i64>, to: Option<i64>) -
 
 /// (day, night) landing counts.
 pub fn landing_split(landings: impl IntoIterator<Item = (i64, f64, f64)>) -> (i64, i64) {
+    landing_split_by(landings, &[])
+}
+
+/// (day, night) landing counts by the sim's clock.
+pub fn landing_split_by(landings: impl IntoIterator<Item = (i64, f64, f64)>, clock: &[(i64, i64)]) -> (i64, i64) {
     landings.into_iter().fold((0, 0), |(d, n), (t, lat, lon)| {
-        if sun::is_night(t, lat, lon) {
+        if sun::is_night(sim_time(clock, t), lat, lon) {
             (d, n + 1)
         } else {
             (d + 1, n)
@@ -61,6 +78,9 @@ mod tests {
         track.push(pt(MIDNIGHT + 3_600_000)); // a 50-minute pause
         assert_eq!(night_minutes(&track, None, None), 10);
         assert_eq!(night_minutes(&track, Some(MIDNIGHT + 5 * 60_000), None), 5);
+        // The same night track flown with the sim set 12 hours later: day.
+        assert_eq!(night_minutes_by(&track, None, None, &[(0, 12 * 3_600_000)]), 0);
+        assert_eq!(landing_split_by([(MIDNIGHT, 51.47, -0.46)], &[(0, 12 * 3_600_000)]), (1, 0));
     }
 
     #[test]

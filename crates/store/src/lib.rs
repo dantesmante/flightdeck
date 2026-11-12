@@ -807,8 +807,9 @@ impl StoreTx<'_> {
         // Logbook line. IFR, approaches and role are left for the pilot.
         let total = f.total_minutes().round() as i64;
         let (span_a, span_b) = f.counted_span();
-        let night = night::night_minutes(&f.track, Some(span_a), Some(span_b)).min(total);
-        let (day_ldg, night_ldg) = night::landing_split(f.landings.iter().map(|l| (l.t_ms, l.lat, l.lon)));
+        // Day and night by the sim's clock, not this computer's.
+        let night = night::night_minutes_by(&f.track, Some(span_a), Some(span_b), &f.sim_clock).min(total);
+        let (day_ldg, night_ldg) = night::landing_split_by(f.landings.iter().map(|l| (l.t_ms, l.lat, l.lon)), &f.sim_clock);
         let direct = geo::distance_nm(f.dep_lat, f.dep_lon, f.arr_lat, f.arr_lon);
         let xc = if direct > 50.0 { total } else { 0 };
         let mut remarks = String::new();

@@ -146,6 +146,11 @@ pub struct FlightSummary {
     pub landings: Vec<LandingReport>,
     pub track: Vec<TrackPoint>,
     pub events: Vec<FlightEvent>,
+    /// The sim's clock along the flight: (time, sim minus computer ms),
+    /// a new entry whenever it moves by more than two minutes (time set in
+    /// the sim, or the sim running faster). Empty when the sim never said.
+    #[serde(default)]
+    pub sim_clock: Vec<(i64, i64)>,
 }
 
 impl FlightSummary {
@@ -278,6 +283,7 @@ pub struct Tracker {
     max_sim_rate: f64,
     track: Vec<TrackPoint>,
     events: Vec<FlightEvent>,
+    sim_clock: Vec<(i64, i64)>,
     finished: bool,
     handling: Handling,
     /// Height above ground on the runway, and the highest point of a lift
@@ -336,6 +342,7 @@ impl Tracker {
             max_sim_rate: 1.0,
             track: Vec::new(),
             events: Vec::new(),
+            sim_clock: Vec::new(),
             finished: false,
             handling: Handling::default(),
             lift_ref_agl: 0.0,
@@ -459,6 +466,11 @@ impl Tracker {
         self.distance_nm += jump;
         self.max_alt_ft = self.max_alt_ft.max(s.alt_msl_ft);
         self.fuel_last = s.fuel_kg;
+        if let Some(o) = s.sim_clock_offset_ms {
+            if self.sim_clock.last().is_none_or(|&(_, last)| (o - last).abs() > 120_000) {
+                self.sim_clock.push((s.t_ms, o));
+            }
+        }
         if s.sim_rate > self.max_sim_rate + 0.01 {
             self.event(s.t_ms, "sim_rate", serde_json::json!({ "rate": s.sim_rate }));
             self.max_sim_rate = s.sim_rate;
@@ -722,6 +734,7 @@ impl Tracker {
             landings: self.landings.clone(),
             track: std::mem::take(&mut self.track),
             events: std::mem::take(&mut self.events),
+            sim_clock: std::mem::take(&mut self.sim_clock),
         })
     }
 }
