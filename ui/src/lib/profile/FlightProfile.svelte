@@ -16,6 +16,7 @@
   import { onDestroy, untrack } from "svelte";
   import { api, type RunwayEnd, type RunwayEnds } from "../api";
   import RunwayPicker from "../plan/RunwayPicker.svelte";
+  import { profileState } from "./store.svelte";
   import { areasNear, crossingsAlong } from "../routeAirspace.svelte";
   import { ASP_KINDS } from "../airspaceLayer";
   import {
@@ -452,6 +453,12 @@
   // --- Pointer: hover readout, drag to scroll, wheel and pinch to zoom -------
   let svgEl = $state<SVGSVGElement | null>(null);
   let hoverD = $state<number | null>(null);
+  // The same spot on the map: a small ring on the route.
+  $effect(() => {
+    const d = hoverD;
+    profileState.hover = d != null && !glide && pts.length > 1 ? pointAt(pts, d) : null;
+  });
+  onDestroy(() => (profileState.hover = null));
   const touches = new Map<number, number>();
   let drag: { x: number; a: number; b: number } | null = null;
   let pinch: { dist: number; mid: number; a: number; b: number } | null = null;

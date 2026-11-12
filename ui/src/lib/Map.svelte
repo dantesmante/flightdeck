@@ -2229,6 +2229,14 @@
         paint: { "text-color": "#ffc4ee", "text-halo-color": C.land, "text-halo-width": 1.4 },
       });
     }
+    // Where the pointer is on the flight profile: a small white ring on the route.
+    map.addSource("profile-hover", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+    map.addLayer({
+      id: "profile-hover",
+      type: "circle",
+      source: "profile-hover",
+      paint: { "circle-radius": 6, "circle-color": "rgba(0,0,0,0)", "circle-stroke-color": "#ffffff", "circle-stroke-width": 2.2 },
+    });
     // Conflicts: the stretch of the route inside a special-use area, red
     // with a white core, and a red ! at its middle.
     map.addSource("route-conflict", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
@@ -2646,13 +2654,43 @@
     });
     map.on("mouseout", () => (mHover = null));
     map.on("zoom", () => (zoomNow = map!.getZoom()));
+    // The middle mouse button pans the map too.
+    {
+      const box = map.getCanvasContainer();
+      let last: [number, number] | null = null;
+      box.addEventListener("mousedown", (e) => {
+        if (e.button !== 1) return;
+        e.preventDefault();
+        last = [e.clientX, e.clientY];
+      });
+      window.addEventListener("mousemove", (e) => {
+        if (!last || !map) return;
+        map.panBy([last[0] - e.clientX, last[1] - e.clientY], { animate: false });
+        last = [e.clientX, e.clientY];
+      });
+      window.addEventListener("mouseup", (e) => {
+        if (e.button === 1) last = null;
+      });
+      // No browser auto-scroll on a middle click.
+      box.addEventListener("auxclick", (e) => e.button === 1 && e.preventDefault());
+    }
     map.on("click", (e) => {
       ctx = null;
       if (skipClick && !drawOn) return;
       // A conflict's !: what the route goes through there.
       if (!drawOn && map?.getLayer("route-conflict-mark")) {
         const hit = map.queryRenderedFeatures([[e.point.x - 12, e.point.y - 12], [e.point.x + 12, e.point.y + 12]], { layers: ["route-conflict-mark"] })[0];
-        const c = hit && routeAsp.list.find((x) => x.id === (hit.properties as { id: string }).id);
+        const hid = hit ? (hit.properties as { id: string }).id : "";
+        const ter = hid.startsWith("terrain-") ? routeAsp.terrain[Number(hid.slice(8))] : null;
+        if (ter) {
+          const ft = (v: number) => `${Math.round(v).toLocaleString("en-US")} ft`;
+          new maplibregl.Popup({ closeButton: true, className: "conflict-pop", maxWidth: "280px" })
+            .setLngLat(e.lngLat)
+            .setHTML(`<strong>Terrain</strong><br><span>Ground up to ${ft(ter.ground)}, the flight path at ${ft(ter.alt)}</span><br><span class="in">Below the ground here: climb higher or route around it.</span>`)
+            .addTo(map);
+          return;
+        }
+        const c = hit && routeAsp.list.find((x) => x.id === hid);
         if (c) {
           const esc = (t: string) => t.replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[ch]!);
           const ft = (v: number) => (v >= 18000 ? `FL${String(Math.round(v / 100)).padStart(3, "0")}` : `${Math.round(v).toLocaleString("en-US")} ft`);
@@ -2871,18 +2909,31 @@
   // The route's stretch through each conflict, and a ! at its middle.
   $effect(() => {
     const list = routeAsp.list;
+    const terrain = routeAsp.terrain;
     const pts = routeAsp.pts;
     if (!loaded || !map || !planner || bare || history) return;
     const feats: GeoJSON.Feature[] = [];
-    for (const c of list) {
-      if (!c.conflict || pts.length < 2) continue;
-      const n = Math.max(2, Math.ceil((c.to - c.from) / 0.5));
+    // Only where the flight path itself is inside: across the outline and
+    // between floor and ceiling (or below the ground).
+    const stretch = (id: string, a: number, b: number) => {
+      if (pts.length < 2 || !(b > a)) return;
+      const n = Math.max(2, Math.ceil((b - a) / 0.5));
       const coords: [number, number][] = [];
-      for (let i = 0; i <= n; i++) coords.push(alongRoute(pts, c.from + ((c.to - c.from) * i) / n));
-      feats.push({ type: "Feature", properties: { id: c.id }, geometry: { type: "LineString", coordinates: coords } });
-      feats.push({ type: "Feature", properties: { id: c.id }, geometry: { type: "Point", coordinates: alongRoute(pts, (c.from + c.to) / 2) } });
-    }
+      for (let i = 0; i <= n; i++) coords.push(alongRoute(pts, a + ((b - a) * i) / n));
+      feats.push({ type: "Feature", properties: { id }, geometry: { type: "LineString", coordinates: coords } });
+      feats.push({ type: "Feature", properties: { id }, geometry: { type: "Point", coordinates: alongRoute(pts, (a + b) / 2) } });
+    };
+    for (const c of list) if (c.conflict) stretch(c.id, c.inFrom, c.inTo);
+    terrain.forEach((t, i) => stretch(`terrain-${i}`, Math.max(0, t.from - 0.25), t.to + 0.25));
     (map.getSource("route-conflict") as GeoJSONSource | undefined)?.setData({ type: "FeatureCollection", features: feats });
+  });
+  $effect(() => {
+    const at = profileState.hover;
+    if (!loaded || !map) return;
+    (map.getSource("profile-hover") as GeoJSONSource | undefined)?.setData({
+      type: "FeatureCollection",
+      features: at ? [{ type: "Feature", properties: {}, geometry: { type: "Point", coordinates: at } }] : [],
+    });
   });
   /** A red circle with a white !, for conflicts on the route. */
   function bangImage(): ImageData {

@@ -509,9 +509,105 @@
     }
   }
 
+  // --- Cards beside this one --------------------------------------------------
+  /** Moves an element to the page itself, so it can sit over the map beside this card. */
+  function portal(node: HTMLElement) {
+    document.body.appendChild(node);
+    return { destroy: () => node.remove() };
+  }
+  let formEl = $state<HTMLDivElement>();
+  let warnBtn = $state<HTMLButtonElement>();
+  let altAnchorDraw = $state<HTMLElement>();
+  let altAnchorRoute = $state<HTMLElement>();
+  let floatLeft = $state(0);
+  let warnTop = $state(0);
+  let altTop = $state(0);
+  /** Where the cards go: just right of the Start a flight card. */
+  function place() {
+    const card = (formEl?.closest(".live") as HTMLElement | null) ?? formEl;
+    if (!card) return;
+    floatLeft = Math.round(card.getBoundingClientRect().right + 10);
+    if (warnBtn) warnTop = Math.max(56, Math.round(warnBtn.getBoundingClientRect().top - 8));
+    const a = drawing.stage === "route" ? altAnchorDraw : altAnchorRoute;
+    if (a) altTop = Math.min(Math.max(56, Math.round(a.getBoundingClientRect().top)), window.innerHeight - 160);
+  }
+  onMount(() => {
+    const on = () => place();
+    window.addEventListener("resize", on);
+    window.addEventListener("scroll", on, true);
+    return () => {
+      window.removeEventListener("resize", on);
+      window.removeEventListener("scroll", on, true);
+    };
+  });
+  let warnOpen = $state(false);
+  let warnTimer: ReturnType<typeof setTimeout> | undefined;
+  function showWarn(on: boolean) {
+    clearTimeout(warnTimer);
+    if (on) {
+      place();
+      warnOpen = true;
+    } else warnTimer = setTimeout(() => (warnOpen = false), 180);
+  }
+  /** The points whose altitude can be set: while drawing, or the form's own route (never SimBrief's). */
+  const altRows = $derived.by(() => {
+    if (mode === "attach") return [];
+    if (drawing.stage === "route") {
+      const last = drawing.pts.length - 1;
+      return drawing.pts
+        .map((p, i) => ({ p, i }))
+        .filter(({ p, i }) => !(i === last && p.icao && lastIsAirport))
+        .map(({ p, i }) => ({
+          key: `d${i}`,
+          label: p.icao || `WP${drawing.pts.slice(0, i + 1).filter((x) => !x.icao).length}`,
+          apt: !!p.icao,
+          alt: p.alt ?? null,
+          set: (v: number | null) => (drawing.pts[i].alt = v),
+        }));
+    }
+    if (drawing.stage !== "off" || !drawn) return [];
+    return drawn.map((f, i) => ({
+      key: `r${i}`,
+      label: f.ident || `WP${i + 1}`,
+      apt: f.kind === "apt",
+      alt: f.stage === "CRZ" ? null : f.alt_ft || null,
+      set: (v: number | null) => (drawn = drawn!.map((x, k) => (k === i ? { ...x, alt_ft: v ?? cruiseNow, stage: v ? "USR" : "CRZ" } : x))),
+    }));
+  });
+  // Keep the cards in place as the card changes.
+  $effect(() => {
+    void altRows.length;
+    void drawing.stage;
+    void drawn;
+    requestAnimationFrame(place);
+  });
+
+  /** Starts over: no airports, route, SimBrief plan or names. */
+  function clearPlan() {
+    cancelDrawing();
+    base = null;
+    drawn = null;
+    plnName = null;
+    plnNote = null;
+    origin = null;
+    dest = null;
+    altn = null;
+    originAuto = false;
+    landRwy = "";
+    cruiseFt = 5000;
+    callsign = "";
+    flightNo = "";
+    saved = null;
+    error = null;
+  }
+
   // --- Airspace the route enters ---------------------------------------------------
   /** Prohibited, restricted and danger areas entered at the planned altitude. */
-  const conflicts = $derived(origin && dest && drawing.stage === "off" ? routeAsp.list.filter((c) => c.conflict) : []);
+  /** Warnings apply to the route being drawn too. */
+  const routeShown = $derived(drawing.stage === "route" ? drawing.pts.length > 0 : !!(origin && dest && drawing.stage === "off"));
+  const conflicts = $derived(routeShown ? routeAsp.list.filter((c) => c.conflict) : []);
+  /** Anything to warn about: special-use areas the path goes into, or the ground. */
+  const warnings = $derived(conflicts.length + (routeShown ? routeAsp.terrain.length : 0) > 0);
   const ftText = (ft: number) => (ft >= 18000 ? `FL${String(Math.round(ft / 100)).padStart(3, "0")}` : `${Math.round(ft).toLocaleString("en-US")} ft`);
 
   // --- Time and fuel ---------------------------------------------------------------
@@ -611,6 +707,20 @@
   onDestroy(() => (planInfo.v = null));
 </script>
 
+{#snippet warnButton()}
+          <button
+            type="button"
+            class="warn"
+            bind:this={warnBtn}
+            aria-label="Conflicts on the route: show on the map"
+            onclick={() => routeAsp.focus++}
+            onmouseenter={() => showWarn(true)}
+            onmouseleave={() => showWarn(false)}
+            onfocus={() => showWarn(true)}
+            onblur={() => showWarn(false)}>!</button
+          >
+{/snippet}
+
 {#snippet perf()}
   <div class="perf" aria-hidden="true"><span></span></div>
 {/snippet}
@@ -623,7 +733,7 @@
   </svg>
 {/snippet}
 
-<div class="form" class:start={mode === "start"}>
+<div class="form" class:start={mode === "start"} bind:this={formEl}>
   <div class="ids">
     <label>
       <span>Callsign</span>
@@ -638,7 +748,7 @@
   {#if mode === "start"}{@render perf()}{/if}
 
   {#if drawing.stage !== "off" && mode !== "attach"}
-    <section class="draw" aria-label="Draw a route">
+    <section class="draw" aria-label="Draw a route" bind:this={altAnchorDraw}>
       <h3>Draw a route</h3>
       {#if drawing.stage === "origin"}
         <p class="step">Choose where you depart from: type it, or click an airport on the map.</p>
@@ -672,34 +782,10 @@
             <span class="sep">›</span><span class:apt={!!p.icao}>{p.icao || `WP${drawing.pts.slice(0, i + 1).filter((x) => !x.icao).length}`}</span>
           {/each}
         </div>
-        <p class="total"><b class="num">{Math.round(drawnNm)}</b> nm · {drawing.pts.length} point{drawing.pts.length === 1 ? "" : "s"}</p>
-        {#if drawing.pts.length}
-          <!-- Altitudes by point; empty follows the cruise altitude. -->
-          <ol class="alts" aria-label="Waypoint altitudes">
-            {#each drawing.pts as p, i (i)}
-              {#if !(i === drawing.pts.length - 1 && p.icao && lastIsAirport)}
-                <li>
-                  <span class="num" class:apt={!!p.icao}>{p.icao || `WP${drawing.pts.slice(0, i + 1).filter((x) => !x.icao).length}`}</span>
-                  <input
-                    class="num"
-                    type="number"
-                    min="0"
-                    max="60000"
-                    step="100"
-                    placeholder={cruiseFt ? `${cruiseFt}` : "Cruise"}
-                    value={p.alt ?? ""}
-                    oninput={(e) => {
-                      const v = (e.currentTarget as HTMLInputElement).valueAsNumber;
-                      drawing.pts[i].alt = Number.isFinite(v) && v > 0 ? v : null;
-                    }}
-                    aria-label="Altitude at {p.icao || 'waypoint ' + (i + 1)}, feet"
-                  />
-                  <span class="u">ft</span>
-                </li>
-              {/if}
-            {/each}
-          </ol>
-        {/if}
+        <div class="dist-row">
+          <p class="total"><b class="num">{Math.round(drawnNm)}</b> nm · {drawing.pts.length} point{drawing.pts.length === 1 ? "" : "s"}</p>
+          {#if warnings}{@render warnButton()}{/if}
+        </div>
         {#if drawing.pts.length && !lastIsAirport}<p class="note">Finish on an airport: click your destination.</p>{/if}
         <div class="row">
           <button type="button" class="ghost" onclick={cancelDrawing}>Cancel</button>
@@ -709,6 +795,9 @@
       {/if}
     </section>
   {:else}
+    {#if mode !== "attach" && (origin || dest || drawn || base || callsign || flightNo)}
+      <div class="clear-row"><button type="button" class="clear-all" onclick={clearPlan}>Clear plan</button></div>
+    {/if}
     <ol class="legs">
       {#if mode === "start"}
         <li class="ac">
@@ -772,26 +861,7 @@
         {:else if direct != null}
           <p class="hint">{distance(direct).value} {distance(direct).unit} direct{base && sameRoute && base.distance_nm ? `, ${distance(base.distance_nm).value} ${distance(base.distance_nm).unit} planned` : ""}</p>
         {/if}
-        {#if conflicts.length}
-          <!-- The route enters a prohibited, restricted or danger area: hover for which, click to see it on the map. -->
-          <span class="conflict">
-            <button type="button" class="warn" aria-label="Airspace conflict: show on the map" onclick={() => routeAsp.focus++}>!</button>
-            <span class="warn-card" role="tooltip">
-              <strong>Airspace conflict</strong>
-              {#each conflicts as c (c.id)}
-                <span class="wc-row">
-                  <i style:background={ASP_KINDS[c.c]?.color ?? "#ff4f6d"}></i>
-                  <span>
-                    <b>{ASP_KINDS[c.c]?.name ?? c.c}</b>{c.name ? ` · ${c.name}` : ""}<br />
-                    <em>{c.loText || ftText(c.lo)} to {c.hiText || ftText(c.hi)} · {Math.round(c.from)}–{Math.round(c.to)} nm from {origin?.icao}</em><br />
-                    <em class:in={c.vert === "in"}>{c.vert === "in" ? `Inside it at ${ftText(c.alt)}` : c.vert === "below" ? `Below it at ${ftText(c.alt)}` : `Above it at ${ftText(c.alt)}`}</em>
-                  </span>
-                </span>
-              {/each}
-              <span class="wc-foot">Click to show on the map.</span>
-            </span>
-          </span>
-        {/if}
+        {#if warnings}{@render warnButton()}{/if}
       </div>
     {:else if partial}
       <p class="hint">Add both an origin and a destination to use a flight plan.</p>
@@ -802,7 +872,7 @@
 
 
     {#if drawn && mode !== "attach"}
-      <section class="drawn" aria-label="Your route">
+      <section class="drawn" aria-label="Your route" bind:this={altAnchorRoute}>
         <div class="drawn-top">
           <strong>{plnName ? "Imported route" : "Your route"}</strong>
           <span class="seg" role="radiogroup" aria-label="Flight rules">
@@ -818,30 +888,6 @@
           <button type="button" class="ghost" onclick={() => startDrawing()}>Redraw</button>
           <button type="button" class="ghost" onclick={() => ((drawn = null), (plnName = null), (plnNote = null))}>Remove</button>
         </div>
-        <!-- Altitude at each point; empty follows the cruise altitude. -->
-        <ol class="alts" aria-label="Waypoint altitudes">
-          {#each drawn as f, i (i)}
-            <li>
-              <span class="num" class:apt={f.kind === "apt"}>{f.ident || `WP${i + 1}`}</span>
-              <input
-                class="num"
-                type="number"
-                min="0"
-                max="60000"
-                step="100"
-                placeholder={cruiseNow ? `${cruiseNow}` : "Cruise"}
-                value={f.stage === "CRZ" ? "" : f.alt_ft || ""}
-                onchange={(e) => {
-                  const v = (e.currentTarget as HTMLInputElement).valueAsNumber;
-                  const set = Number.isFinite(v) && v > 0;
-                  drawn = drawn!.map((x, k) => (k === i ? { ...x, alt_ft: set ? v : cruiseNow, stage: set ? "USR" : "CRZ" } : x));
-                }}
-                aria-label="Altitude at {f.ident || 'waypoint ' + (i + 1)}, feet"
-              />
-              <span class="u">ft</span>
-            </li>
-          {/each}
-        </ol>
         {#if plnNote}<p class="hint">{plnNote}</p>{/if}
         {#if saved}<p class="hint">Saved {saved}. In MSFS 2020 or 2024, load it from the world map's flight plan menu.</p>{/if}
         <p class="hint">On the map: drag a point to move it, drag the line to add one, right-click a point to take it out.</p>
@@ -923,6 +969,62 @@
     <p class="hint center">Tracking starts as soon as you are in the cockpit.</p>
   {/if}
 </div>
+
+<!-- Beside the card, over the map: the conflicts (on hover) and the waypoint altitudes. -->
+{#if warnOpen && warnings}
+  <div class="warn-card" use:portal style:left="{floatLeft}px" style:top="{warnTop}px" role="tooltip" onmouseenter={() => showWarn(true)} onmouseleave={() => showWarn(false)}>
+    <strong>Conflicts on the route</strong>
+    {#each conflicts as c (c.id)}
+      <span class="wc-row">
+        <i style:background={ASP_KINDS[c.c]?.color ?? "#ff4f6d"}></i>
+        <span>
+          <b>{ASP_KINDS[c.c]?.name ?? c.c}</b>{c.name ? ` · ${c.name}` : ""}<br />
+          <em>{c.loText || ftText(c.lo)} to {c.hiText || ftText(c.hi)} · {Math.round(c.inFrom)}–{Math.round(c.inTo)} nm from {(drawing.stage === "route" ? drawing.origin : origin)?.icao}</em><br />
+          <em class="in">The flight path goes into it at {ftText(c.alt)}</em>
+        </span>
+      </span>
+    {/each}
+    {#each routeAsp.terrain as t, i (i)}
+      <span class="wc-row">
+        <i style:background="#c9a35a"></i>
+        <span>
+          <b>Terrain</b><br />
+          <em>Ground up to {ftText(t.ground)} · {Math.round(t.from)}–{Math.round(t.to)} nm from {(drawing.stage === "route" ? drawing.origin : origin)?.icao}</em><br />
+          <em class="in">The flight path is below it at {ftText(t.alt)}</em>
+        </span>
+      </span>
+    {/each}
+    <span class="wc-foot">Click the ! to show them on the map.</span>
+  </div>
+{/if}
+{#if altRows.length}
+  <div class="alt-card" use:portal style:left="{floatLeft}px" style:top="{altTop}px" style:max-height="calc(100vh - {altTop + 16}px)" aria-label="Waypoint altitudes">
+    <h4>Altitudes</h4>
+    <ol>
+      {#each altRows as r (r.key)}
+        <li>
+          <span class="num" class:apt={r.apt}>{r.label}</span>
+          <input
+            class="num"
+            type="number"
+            min="0"
+            max="60000"
+            step="100"
+            placeholder={cruiseNow ? `${cruiseNow}` : "Cruise"}
+            value={r.alt ?? ""}
+            onchange={(e) => {
+              const v = (e.currentTarget as HTMLInputElement).valueAsNumber;
+              r.set(Number.isFinite(v) && v > 0 ? v : null);
+            }}
+            aria-label="Altitude at {r.label}, feet"
+          />
+          <span class="u">ft</span>
+        </li>
+      {/each}
+    </ol>
+    <p>Empty: the cruise altitude.</p>
+  </div>
+{/if}
 
 <style>
   .form {
@@ -1246,14 +1348,12 @@
     align-items: center;
     gap: 8px;
   }
-  .dist-row .hint {
+  .dist-row .hint,
+  .dist-row .total {
     flex: 1;
   }
-  .conflict {
-    position: relative;
-    flex: none;
-  }
   .warn {
+    flex: none;
     width: 22px;
     height: 22px;
     border-radius: 50%;
@@ -1269,13 +1369,93 @@
   .warn:focus-visible {
     box-shadow: 0 0 0 4px rgba(229, 72, 77, 0.4);
   }
+  .clear-row {
+    display: flex;
+    justify-content: flex-end;
+    margin: -4px 0 -6px;
+  }
+  .clear-row .clear-all {
+    border: 0;
+    background: none;
+    padding: 2px 0;
+    font: inherit;
+    font-size: 12px;
+    color: var(--ink-faint);
+    cursor: pointer;
+  }
+  .clear-row .clear-all:hover {
+    color: var(--amber);
+  }
+  /* Beside the Start a flight card, over the map. */
+  .alt-card {
+    position: fixed;
+    z-index: 1000;
+    width: 150px;
+    overflow-y: auto;
+    padding: 10px 12px;
+    background: rgba(28, 30, 33, 0.97);
+    border: 1px solid var(--rule);
+    border-radius: 12px;
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
+    color: var(--ink);
+  }
+  .alt-card h4 {
+    margin: 0 0 6px;
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-dim);
+    text-align: center;
+  }
+  .alt-card ol {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 5px;
+  }
+  .alt-card li {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .alt-card span.num {
+    width: 44px;
+    font-size: 12px;
+    color: var(--ink-dim);
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .alt-card span.apt {
+    color: var(--amber);
+  }
+  .alt-card input {
+    width: 64px;
+    padding: 3px 6px;
+    border: 1px solid var(--rule);
+    border-radius: 5px;
+    background: rgba(0, 0, 0, 0.2);
+    color: var(--ink);
+    font: inherit;
+    font-size: 12px;
+  }
+  .alt-card .u {
+    font-size: 11px;
+    color: var(--ink-faint);
+  }
+  .alt-card p {
+    margin: 6px 0 0;
+    font-size: 10.5px;
+    color: var(--ink-faint);
+  }
   .warn-card {
-    position: absolute;
-    right: -6px;
-    top: calc(100% + 8px);
-    width: 290px;
-    z-index: 20;
-    display: none;
+    position: fixed;
+    z-index: 1001;
+    width: 300px;
+    max-height: calc(100vh - 80px);
+    overflow-y: auto;
+    display: flex;
     flex-direction: column;
     gap: 8px;
     padding: 10px 12px;
@@ -1285,10 +1465,6 @@
     box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5);
     font-size: 12px;
     color: var(--ink);
-  }
-  .conflict:hover .warn-card,
-  .conflict:focus-within .warn-card {
-    display: flex;
   }
   .warn-card strong {
     color: #ff8a8e;
@@ -1391,42 +1567,6 @@
     margin: 0;
     font-size: 12.5px;
     color: var(--amber);
-  }
-  .alts {
-    list-style: none;
-    margin: 0 0 8px;
-    padding: 0;
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-    gap: 4px 10px;
-    max-height: 168px;
-    overflow-y: auto;
-  }
-  .alts li {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-  .alts span.num {
-    width: 46px;
-    font-size: 12.5px;
-    color: var(--ink-dim);
-  }
-  .alts span.apt {
-    color: var(--amber);
-  }
-  .alts input {
-    width: 72px;
-    padding: 3px 6px;
-    border: 1px solid var(--rule);
-    border-radius: 5px;
-    background: transparent;
-    color: var(--ink);
-    font-size: 13px;
-  }
-  .alts .u {
-    font-size: 11.5px;
-    color: var(--ink-faint);
   }
   .chain {
     display: flex;

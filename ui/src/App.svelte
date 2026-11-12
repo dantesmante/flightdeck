@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, untrack } from "svelte";
   import { fly as slide } from "svelte/transition";
-  import { draft, fly } from "./lib/flyStore.svelte";
+  import { draft, drawing, fly } from "./lib/flyStore.svelte";
   import { api, inRemote, on, type FlightDetail, type FlightPlan, type HangarItem, type Photo, type Route, type Status } from "./lib/api";
   import FlightsPanel from "./lib/FlightsPanel.svelte";
   import PhotosPanel from "./lib/PhotosPanel.svelte";
@@ -252,15 +252,24 @@
   // conflict warning and the map's glow on crossed areas. Worked out a
   // moment after the route stops changing.
   // (The route object is rebuilt on every status update: go by its key.)
+  // While a route is being drawn: the points so far (the last one as the
+  // end), so the warnings follow every click and drag.
+  const drawingRoute = $derived.by<ProfileRoute | null>(() => {
+    if (drawing.stage !== "route" || !drawing.origin || !drawing.pts.length) return null;
+    const fx = drawing.pts.map((p, i) => ({ ident: p.icao || `WP${i + 1}`, lat: p.lat, lon: p.lon, alt_ft: p.alt ?? draft.cruise_ft, stage: p.alt ? "USR" : "CRZ" }));
+    const end = fx[fx.length - 1];
+    return { origin: drawing.origin, dest: { icao: end.ident, lat: end.lat, lon: end.lon }, fixes: fx.slice(0, -1), cruise_ft: draft.cruise_ft || 5000 };
+  });
+  const aspRoute = $derived(view !== "live" ? null : drawing.stage === "route" ? drawingRoute : profileRoute);
   const aspKey = $derived.by(() => {
-    const r = view === "live" ? profileRoute : null;
-    return r ? [r.origin, ...r.fixes, r.dest].map((p) => `${p.lat.toFixed(4)},${p.lon.toFixed(4)}`).join("|") + `@${r.cruise_ft}` : "";
+    const r = aspRoute;
+    return r ? [r.origin, ...r.fixes, r.dest].map((p) => `${p.lat.toFixed(4)},${p.lon.toFixed(4)},${"alt_ft" in p ? p.alt_ft : ""}`).join("|") + `@${r.cruise_ft}` : "";
   });
   let aspTimer: ReturnType<typeof setTimeout> | undefined;
   $effect(() => {
     const k = aspKey;
     clearTimeout(aspTimer);
-    aspTimer = setTimeout(() => updateRouteAirspace(k ? untrack(() => profileRoute) : null), k ? 500 : 0);
+    aspTimer = setTimeout(() => updateRouteAirspace(k ? untrack(() => aspRoute) : null), k ? 400 : 0);
   });
   const profileAircraft = $derived(
     status?.telemetry

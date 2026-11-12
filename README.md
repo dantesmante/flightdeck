@@ -32,12 +32,14 @@ MIT licensed.
   Once origin and destination are chosen, the map zooms to the route and
   previews it as a dashed magenta line (the flight profile's colour),
   solid once the flight is started. During a flight the same card shows
-  the flight; fold it down to see more of the map.
+  the flight; fold it down to see more of the map. The middle mouse
+  button pans the map too.
   - **One route, however it was entered** (typed airports, a .PLN,
     drawn): while planning, drag any point of the dashed line to move it,
     drag the line itself to put a new point in, right-click a point to
     take it out. No Edit button needed. Every point's altitude can be set
-    (empty follows the cruise), while drawing and after. SimBrief's own
+    in a small Altitudes card beside Start a flight (empty follows the
+    cruise), while drawing and after. **Clear plan** empties the form. SimBrief's own
     route is never changed. Each leg's length is written along it once
     the zoom leaves room for it.
   - **Import .PLN** (beside SimBrief): an MSFS flight plan from MSFS 2020
@@ -51,14 +53,15 @@ MIT licensed.
     points are not in such files).
   - **Cruise altitude**: 5,000 ft unless changed; shown once a
     destination is in.
-  - **Airspace conflict**: a red ! beside the distance when the route
-    crosses a prohibited, restricted, danger, MOA, warning, national
-    security, temporary reserved/segregated or military area; point at it
-    for which areas (limits, where along the route, and whether the
-    planned altitude is inside, below or above them), click it to see
-    them on the map. On the map the stretch of route inside each such
-    area is red with a white core, with a red ! at its middle (click it
-    for the area). Every area the
+  - **Conflicts**: a red ! beside the distance when the planned flight
+    path goes into a prohibited, restricted, danger, MOA, warning,
+    national security, temporary reserved/segregated or military area
+    (across its outline and between its floor and ceiling, as the flight
+    profile shows it), or below the ground (coarse terrain). Point at it
+    for the list, in a card beside Start a flight; click it to see them
+    on the map. On the map that stretch of the path is red with a white
+    core, with a red ! at its middle (click it for details). The warnings
+    follow the route while it is drawn or edited. Every area the
     route crosses has a bold outline with a soft glow on the map, whether
     or not the Airspace layer is on (not the vast class A and E blocks).
   - **ETE and fuel**, in a card at the bottom of the map (Distance, ETE,
@@ -325,7 +328,8 @@ MIT licensed.
   flying to the right. **Highest** (ahead of you while you fly the route)
   and **Clearance** (cruise altitude above it) sit in its header, with
   switches for Terrain, Obstacles and Airspace; point at the chart for the
-  distance, planned altitude and ground there. It follows the flight's plan,
+  distance, planned altitude and ground there, with a small white ring
+  at that spot on the map's route. It follows the flight's plan,
   or the route being set up in Start a flight. It **zooms and scrolls
   sideways** like a sound editor: the wheel (or a pinch) zooms where you
   point, dragging or a sideways swipe scrolls, and − / + / **Fit** sit in
