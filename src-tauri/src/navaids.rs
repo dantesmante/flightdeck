@@ -49,6 +49,11 @@ impl NavDb {
         self.items.len()
     }
 
+    /// Every aid with this ident.
+    pub fn find(&self, ident: &str) -> Vec<&NavAid> {
+        self.items.iter().filter(|a| a.ident.eq_ignore_ascii_case(ident)).collect()
+    }
+
     /// How many waypoints are known (the rest are VORs and NDBs).
     pub fn waypoints(&self) -> usize {
         self.items.iter().filter(|a| a.kind == NavKind::Waypoint).count()

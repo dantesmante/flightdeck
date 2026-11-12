@@ -137,6 +137,11 @@ fn big_agent() -> ureq::Agent {
         .into()
 }
 
+/// A web page's text (for other modules: the FAA's fix lookups).
+pub fn fetch_text(url: &str, who: &str) -> Result<String, String> {
+    get_text(url, who)
+}
+
 fn get_text(url: &str, who: &str) -> Result<String, String> {
     let t = std::time::Instant::now();
     let mut res = big_agent().get(url).call().map_err(|e| format!("Could not reach {who}: {e}"))?;

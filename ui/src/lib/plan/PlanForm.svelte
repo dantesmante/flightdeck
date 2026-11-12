@@ -4,10 +4,10 @@
   import RunwayPicker from "./RunwayPicker.svelte";
   // and mid-flight to add a plan.
   import { onDestroy, onMount, untrack } from "svelte";
-  import { draft, drawing, pick, planEdit } from "../flyStore.svelte";
+  import { draft, drawing, pick, planEdit, planInfo } from "../flyStore.svelte";
   import { routeAsp } from "../routeAirspace.svelte";
   import { ASP_KINDS } from "../airspaceLayer";
-  import { parsePln } from "./pln";
+  import { needsPositions, parsePln, toFixes } from "./pln";
   import { estimate, fuelText, perfFor, type AircraftHint } from "./perf";
   import { decodeGrid, levelFor, sample, type Field } from "../wind/wind";
   import type { AircraftInfo, Telemetry } from "../api";
@@ -81,6 +81,8 @@
     draft.dest = dest;
     // The route itself: drawn, or SimBrief's while its airports are kept.
     draft.fixes = routeFixes;
+    // SimBrief's own route stays as dispatched.
+    draft.locked = !drawn && routeFixes.length > 0;
     // The flight profile's cruise: SimBrief's, or the one typed in.
     draft.cruise_ft = cruiseNow;
     draft.runway = landRwy;
@@ -442,28 +444,63 @@
   let plnInput = $state<HTMLInputElement>();
   let plnBusy = $state(false);
   let plnName = $state<string | null>(null);
+  /** What the import could not place, or procedures named without their points. */
+  let plnNote = $state<string | null>(null);
   async function importPln(file: File | undefined) {
     if (!file) return;
     plnBusy = true;
     error = null;
+    plnNote = null;
     try {
       const p = parsePln(await file.text());
+      // Airports: FlightDeck's own list (name, and position if the file has none).
       const named = async (a: { icao: string; lat: number; lon: number }): Promise<Spot> => {
         const h = ((await api.searchAirports(a.icao).catch(() => [])) ?? []).find((x) => x.icao === a.icao);
-        // The file's own position for the airport, its name from FlightDeck's list.
-        return { icao: a.icao, name: h?.name ?? "", lat: a.lat || h?.lat || 0, lon: a.lon || h?.lon || 0 };
+        const has = Number.isFinite(a.lat) && Number.isFinite(a.lon);
+        if (!h && !has) throw new Error(`Airport ${a.icao} is not in FlightDeck's airport list.`);
+        return { icao: a.icao, name: h?.name ?? "", lat: has ? a.lat : h!.lat, lon: has ? a.lon : h!.lon };
       };
       const [o, d] = await Promise.all([named(p.dep), named(p.dest)]);
+      // Waypoints given by ident only: looked up, nearest to the route.
+      const want = needsPositions(p);
+      const found = want.length ? ((await api.resolveFixes(want).catch(() => [])) ?? []) : [];
+      const unknown: string[] = [];
+      let prev = { lat: o.lat, lon: o.lon };
+      for (const w of p.points) {
+        if (!Number.isFinite(w.lat)) {
+          if (w.kind === "apt") {
+            const h = ((await api.searchAirports(w.ident).catch(() => [])) ?? []).find((x) => x.icao === w.ident);
+            if (h) [w.lat, w.lon] = [h.lat, h.lon];
+          } else {
+            const c = found.filter((f) => f.ident === w.ident && (!w.region || !f.region || f.region === w.region));
+            // The candidate nearest the previous point (and not far off the way to the destination).
+            const best = c.sort((a, b) => gc(prev as Spot, a as unknown as Spot) + gc(a as unknown as Spot, d) - (gc(prev as Spot, b as unknown as Spot) + gc(b as unknown as Spot, d)))[0];
+            if (best) [w.lat, w.lon] = [best.lat, best.lon];
+          }
+          if (!Number.isFinite(w.lat)) unknown.push(w.ident);
+        }
+        if (Number.isFinite(w.lat)) prev = { lat: w.lat, lon: w.lon };
+      }
       base = null;
       originAuto = false;
       origin = o;
       dest = d;
+      if (p.arrRunway) {
+        rwyFor = d.icao;
+        landRwy = p.arrRunway;
+      }
       if (p.cruiseFt > 0) cruiseFt = p.cruiseFt;
       rules = p.rules;
-      drawn = renumber(p.fixes);
+      const fx = renumber(toFixes(p.points, p.cruiseFt));
+      drawn = fx;
       drawnFor = { o: o.icao, d: d.icao };
       saved = null;
       plnName = file.name;
+      const notes: string[] = [];
+      const procs = [p.departure && `departure ${p.departure}`, p.arrival && `arrival ${p.arrival}`, p.approach && `approach ${p.approach}`].filter(Boolean);
+      if (procs.length) notes.push(`The plan names the ${procs.join(", ")}; their own points are not in the file, so the line runs straight between the rest.`);
+      if (unknown.length) notes.push(`Not found, left out: ${unknown.join(", ")}.`);
+      plnNote = notes.join(" ") || null;
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
     } finally {
@@ -537,6 +574,41 @@
   const hm = (m: number) => (m >= 60 ? `${Math.floor(m / 60)} h ${String(Math.round(m % 60)).padStart(2, "0")} min` : `${Math.round(m)} min`);
   /** Fuel on board now (sim aircraft only), lb. */
   const onBoardLb = $derived(aircraftId <= 0 && simAc?.telemetry && simAc.telemetry.fuel_kg > 0 ? simAc.telemetry.fuel_kg / 0.45359237 : null);
+  /** The route's length, nm. */
+  const alongNm = $derived(drawn && routeNm != null ? routeNm : origin && dest ? routeFixes.reduce((t, f, i, a) => t + gc((i ? a[i - 1] : origin) as Spot, f as unknown as Spot), 0) + gc((routeFixes.length ? routeFixes[routeFixes.length - 1] : origin) as Spot, dest) : null);
+  // Time and fuel go to the card at the bottom of the map.
+  $effect(() => {
+    const e = est;
+    const p = acPerf;
+    if (mode === "attach" || !e || !p || alongNm == null) {
+      planInfo.v = null;
+      return;
+    }
+    const f = (lb: number) => fuelText(p, lb).main;
+    const rows: [string, string, string?][] = [
+      ["Climb · cruise · descent", `${hm(e.climbMin)} · ${hm(e.cruiseMin)} · ${hm(e.descentMin)}`],
+      ["Taxi", f(e.taxi)],
+      ["Trip", f(e.trip)],
+    ];
+    if (e.contingency > 0) rows.push(["Contingency 5%", f(e.contingency)]);
+    if (e.alternate > 0) rows.push([`Alternate ${altn?.icao ?? ""}`, f(e.alternate)]);
+    rows.push([`Reserve ${e.reserveMin} min`, f(e.reserve)]);
+    rows.push(["Block fuel", `${f(e.block)} · ${fuelText(p, e.block).sub}`, "tot"]);
+    rows.push(["Usable in the tanks", f(e.usable)]);
+    if (onBoardLb != null) rows.push(["On board now", `${f(onBoardLb)}${onBoardLb < e.block ? ` · ${f(e.block - onBoardLb)} short` : ""}`, onBoardLb < e.block ? "bad" : undefined]);
+    const d = distance(alongNm);
+    planInfo.v = {
+      distance: `${d.value} ${d.unit}`,
+      ete: hm(e.ete),
+      fuel: f(e.block),
+      fuelSub: "with reserves",
+      wind: e.headwind == null ? "—" : Math.abs(e.headwind) < 1 ? "Calm" : `${Math.abs(Math.round(e.headwind))} kt ${e.headwind > 0 ? "head" : "tail"}`,
+      rows,
+      source: `${p.name}${p.source === "design" ? " (from the sim's figures)" : ""} · ${ftText(e.cruiseFt)}${e.cruiseFt < cruiseNow - 50 ? " on this short route" : ""}${e.headwind != null ? " · GFS winds" : ""}`,
+      warn: e.block > e.usable ? "More fuel than the tanks hold" : null,
+    };
+  });
+  onDestroy(() => (planInfo.v = null));
 </script>
 
 {#snippet perf()}
@@ -601,7 +673,7 @@
           {/each}
         </div>
         <p class="total"><b class="num">{Math.round(drawnNm)}</b> nm · {drawing.pts.length} point{drawing.pts.length === 1 ? "" : "s"}</p>
-        {#if altEdit}
+        {#if drawing.pts.length}
           <!-- Altitudes by point; empty follows the cruise altitude. -->
           <ol class="alts" aria-label="Waypoint altitudes">
             {#each drawing.pts as p, i (i)}
@@ -632,7 +704,6 @@
         <div class="row">
           <button type="button" class="ghost" onclick={cancelDrawing}>Cancel</button>
           <button type="button" class="ghost" disabled={!drawing.pts.length} onclick={() => (drawing.pts = drawing.pts.slice(0, -1))}>Undo</button>
-          <button type="button" class="ghost" class:on={altEdit} aria-pressed={altEdit} disabled={!drawing.pts.length} onclick={() => (altEdit = !altEdit)}>Altitudes</button>
           <button type="button" class="next" disabled={!lastIsAirport} onclick={finishDrawing}>Finish</button>
         </div>
       {/if}
@@ -712,7 +783,8 @@
                   <i style:background={ASP_KINDS[c.c]?.color ?? "#ff4f6d"}></i>
                   <span>
                     <b>{ASP_KINDS[c.c]?.name ?? c.c}</b>{c.name ? ` · ${c.name}` : ""}<br />
-                    <em>{c.loText || ftText(c.lo)} to {c.hiText || ftText(c.hi)} · route at {ftText(c.alt)}, {Math.round(c.from)}–{Math.round(c.to)} nm from {origin?.icao}</em>
+                    <em>{c.loText || ftText(c.lo)} to {c.hiText || ftText(c.hi)} · {Math.round(c.from)}–{Math.round(c.to)} nm from {origin?.icao}</em><br />
+                    <em class:in={c.vert === "in"}>{c.vert === "in" ? `Inside it at ${ftText(c.alt)}` : c.vert === "below" ? `Below it at ${ftText(c.alt)}` : `Above it at ${ftText(c.alt)}`}</em>
                   </span>
                 </span>
               {/each}
@@ -727,34 +799,7 @@
       <p class="hint">Departing from {origin.icao}, where the aircraft is. Add a destination for a flight plan.</p>
     {/if}
 
-    {#if est && acPerf && mode !== "attach"}
-      <!-- Time and fuel: typical acPerformance of the aircraft type, the route, the cruise and forecast winds. -->
-      <details class="est">
-        <summary>
-          <span class="est-k">ETE</span><b class="num">{hm(est.ete)}</b>
-          <span class="est-k">Fuel</span><b class="num">{fuelText(acPerf, est.block).main}</b>
-          <span class="est-s">with reserves</span>
-          {#if est.block > est.usable}<span class="est-bad" title="More than the tanks hold">Over capacity</span>{/if}
-        </summary>
-        <div class="est-body">
-          <p class="est-src">{acPerf.name}{acPerf.source === "design" ? " (from the sim's figures)" : ""} · {est.cruiseFt < cruiseNow - 50 ? `${ftText(est.cruiseFt)} on this short route` : ftText(est.cruiseFt)}{est.headwind != null ? ` · ${Math.abs(Math.round(est.headwind))} kt ${est.headwind >= 0 ? "headwind" : "tailwind"} (GFS)` : ""}</p>
-          <dl>
-            <dt>Climb · cruise · descent</dt><dd class="num">{hm(est.climbMin)} · {hm(est.cruiseMin)} · {hm(est.descentMin)}</dd>
-            <dt>Taxi</dt><dd class="num">{fuelText(acPerf, est.taxi).main}</dd>
-            <dt>Trip</dt><dd class="num">{fuelText(acPerf, est.trip).main}</dd>
-            {#if est.contingency > 0}<dt>Contingency 5%</dt><dd class="num">{fuelText(acPerf, est.contingency).main}</dd>{/if}
-            {#if est.alternate > 0}<dt>Alternate {altn?.icao}</dt><dd class="num">{fuelText(acPerf, est.alternate).main}</dd>{/if}
-            <dt>Reserve {est.reserveMin} min</dt><dd class="num">{fuelText(acPerf, est.reserve).main}</dd>
-            <dt class="tot">Block fuel</dt><dd class="num tot">{fuelText(acPerf, est.block).main} <span>{fuelText(acPerf, est.block).sub}</span></dd>
-            <dt>Usable in the tanks</dt><dd class="num">{fuelText(acPerf, est.usable).main}</dd>
-            {#if onBoardLb != null}
-              <dt>On board now</dt><dd class="num" class:short={onBoardLb < est.block}>{fuelText(acPerf, onBoardLb).main}{onBoardLb < est.block ? ` · ${fuelText(acPerf, est.block - onBoardLb).main} short` : ""}</dd>
-            {/if}
-          </dl>
-          <p class="est-note">An estimate from typical published figures for the type, for planning in the sim only.</p>
-        </div>
-      </details>
-    {/if}
+
 
     {#if drawn && mode !== "attach"}
       <section class="drawn" aria-label="Your route">
@@ -771,8 +816,33 @@
             {saving ? "Saving…" : "Save .PLN"}
           </button>
           <button type="button" class="ghost" onclick={() => startDrawing()}>Redraw</button>
-          <button type="button" class="ghost" onclick={() => ((drawn = null), (plnName = null))}>Remove</button>
+          <button type="button" class="ghost" onclick={() => ((drawn = null), (plnName = null), (plnNote = null))}>Remove</button>
         </div>
+        <!-- Altitude at each point; empty follows the cruise altitude. -->
+        <ol class="alts" aria-label="Waypoint altitudes">
+          {#each drawn as f, i (i)}
+            <li>
+              <span class="num" class:apt={f.kind === "apt"}>{f.ident || `WP${i + 1}`}</span>
+              <input
+                class="num"
+                type="number"
+                min="0"
+                max="60000"
+                step="100"
+                placeholder={cruiseNow ? `${cruiseNow}` : "Cruise"}
+                value={f.stage === "CRZ" ? "" : f.alt_ft || ""}
+                onchange={(e) => {
+                  const v = (e.currentTarget as HTMLInputElement).valueAsNumber;
+                  const set = Number.isFinite(v) && v > 0;
+                  drawn = drawn!.map((x, k) => (k === i ? { ...x, alt_ft: set ? v : cruiseNow, stage: set ? "USR" : "CRZ" } : x));
+                }}
+                aria-label="Altitude at {f.ident || 'waypoint ' + (i + 1)}, feet"
+              />
+              <span class="u">ft</span>
+            </li>
+          {/each}
+        </ol>
+        {#if plnNote}<p class="hint">{plnNote}</p>{/if}
         {#if saved}<p class="hint">Saved {saved}. In MSFS 2020 or 2024, load it from the world map's flight plan menu.</p>{/if}
         <p class="hint">On the map: drag a point to move it, drag the line to add one, right-click a point to take it out.</p>
       </section>
@@ -1240,92 +1310,13 @@
     font-style: normal;
     color: var(--ink-dim);
   }
+  .wc-row em.in {
+    color: #ff8a8e;
+    font-weight: 600;
+  }
   .wc-foot {
     color: var(--ink-faint);
     font-size: 11px;
-  }
-  /* Time and fuel. */
-  .est {
-    border: 1px solid var(--rule);
-    border-radius: 10px;
-    background: rgba(255, 255, 255, 0.02);
-  }
-  .est summary {
-    display: flex;
-    align-items: baseline;
-    gap: 6px;
-    padding: 8px 10px;
-    cursor: pointer;
-    list-style: none;
-    font-size: 12.5px;
-  }
-  .est summary::-webkit-details-marker {
-    display: none;
-  }
-  .est-k {
-    color: var(--ink-faint);
-    font-size: 10.5px;
-    font-weight: 600;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-  }
-  .est summary b {
-    color: var(--ink);
-    margin-right: 6px;
-  }
-  .est-s {
-    color: var(--ink-faint);
-    font-size: 11px;
-  }
-  .est-bad {
-    margin-left: auto;
-    color: #ff8a8e;
-    font-size: 11px;
-    font-weight: 600;
-  }
-  .est-body {
-    padding: 0 10px 10px;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-  .est-src,
-  .est-note {
-    margin: 0;
-    font-size: 11.5px;
-    color: var(--ink-dim);
-  }
-  .est-note {
-    color: var(--ink-faint);
-    font-size: 10.5px;
-  }
-  .est dl {
-    display: grid;
-    grid-template-columns: 1fr auto;
-    gap: 3px 10px;
-    margin: 0;
-    font-size: 12px;
-  }
-  .est dt {
-    color: var(--ink-dim);
-  }
-  .est dd {
-    margin: 0;
-    text-align: right;
-    color: var(--ink);
-  }
-  .est .tot {
-    font-weight: 700;
-    color: var(--ink);
-    border-top: 1px solid var(--rule);
-    padding-top: 3px;
-  }
-  .est dd.tot span {
-    color: var(--ink-faint);
-    font-weight: 500;
-  }
-  .est dd.short {
-    color: #ff8a8e;
   }
   .two {
     display: grid;
@@ -1436,10 +1427,6 @@
   .alts .u {
     font-size: 11.5px;
     color: var(--ink-faint);
-  }
-  .draw .row button.ghost.on {
-    border-color: #5aa9ff;
-    color: #a9d1ff;
   }
   .chain {
     display: flex;

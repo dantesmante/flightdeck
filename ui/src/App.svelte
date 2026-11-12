@@ -51,7 +51,7 @@
   }
   /** Room the map's card takes, for the map to keep clear of. */
   let inset = $state({ l: 0, b: 0 });
-  const draftRoute = $derived(view === "live" && draft.origin && draft.dest ? { origin: draft.origin, dest: draft.dest, fixes: draft.fixes } : null);
+  const draftRoute = $derived(view === "live" && draft.origin && draft.dest ? { origin: draft.origin, dest: draft.dest, fixes: draft.fixes, locked: draft.locked } : null);
   let openRequest = $state<{ id: number; n: number } | null>(null);
 
   let parked = $state<HangarItem[]>([]);

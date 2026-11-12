@@ -1031,6 +1031,8 @@ export const api = {
   wxAdvisories: () => call<WxAdvisories>("wx_advisories"),
   onlineNetwork: (net: Net) => call<NetworkData>("online_network", { net }),
   onlinePilot: (net: Net, callsign: string) => call<NetPilot | null>("online_pilot", { net, callsign }),
+  /** Every known position of waypoints named without one in a flight plan. */
+  resolveFixes: (idents: string[]) => call<{ ident: string; region: string; kind: string; lat: number; lon: number }[]>("resolve_fixes", { idents }),
   /** openAIP's airports in a box: [lat, lon, ICAO, private, fuel]. */
   airportExtras: (w: number, s: number, e: number, n: number) => call<{ list: [number, number, string, boolean, boolean][]; more: boolean }>("airport_extras", { w, s, e, n }),
   mapAirports: (detail: number) => call<MapAirport[]>("map_airports", { detail }),

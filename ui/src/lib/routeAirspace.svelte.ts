@@ -24,15 +24,21 @@ export interface Crossing {
   to: number;
   /** The planned altitude is inside the area somewhere along the crossing. */
   inside: boolean;
-  /** Prohibited, restricted or danger area entered at the planned altitude. */
+  /** A special-use area (prohibited, restricted, danger, MOA, warning,
+   * military...) the route passes through, at whatever altitude. */
   conflict: boolean;
+  /** Where the planned altitude is: inside the area's limits somewhere
+   * along the crossing, or wholly below or above them. */
+  vert: "in" | "below" | "above";
   /** Planned altitude where the route is first inside it vertically (or at its middle). */
   alt: number;
   feature: GeoJSON.Feature;
 }
 
-/** The areas that stop a flight: prohibited, restricted, danger. */
-export const CONFLICT_KINDS = new Set(["P", "R", "DNG"]);
+/** The areas a pilot must know a route crosses: prohibited, restricted,
+ * danger, MOAs, warning, national security, temporary reserved or
+ * segregated and military areas. */
+export const CONFLICT_KINDS = new Set(["P", "R", "DNG", "MOA", "W", "NSA", "TRA", "TSA", "MIL"]);
 /** Left out: class G (everything else) and airways. */
 const SKIP = new Set(["G"]);
 
@@ -144,6 +150,7 @@ export function crossingsAlong(route: ProfileRoute, pts: RoutePoint[], areas: Ge
     if (seen.has(id)) continue;
     let start: number | null = null;
     let inside = false;
+    let below = false;
     let alt = NaN;
     let midAlt = NaN;
     for (let i = 0; i <= samples.length; i++) {
@@ -152,6 +159,7 @@ export function crossingsAlong(route: ProfileRoute, pts: RoutePoint[], areas: Ge
       if (isIn) {
         if (start == null) start = sm[0];
         if (Number.isNaN(midAlt)) midAlt = sm[3];
+        if (sm[3] < lo) below = true;
         if (sm[3] >= lo && sm[3] <= hi && !inside) {
           inside = true;
           alt = sm[3];
@@ -166,7 +174,7 @@ export function crossingsAlong(route: ProfileRoute, pts: RoutePoint[], areas: Ge
           // The same area entered again: one entry from first in to last out.
           prev.to = to;
           prev.inside ||= inside;
-          prev.conflict ||= inside && CONFLICT_KINDS.has(c);
+          prev.vert = prev.inside ? "in" : prev.vert;
         } else
           out.push({
             id,
@@ -179,7 +187,8 @@ export function crossingsAlong(route: ProfileRoute, pts: RoutePoint[], areas: Ge
             from,
             to,
             inside,
-            conflict: inside && CONFLICT_KINDS.has(c),
+            conflict: CONFLICT_KINDS.has(c),
+            vert: inside ? "in" : below ? "below" : "above",
             alt: Number.isNaN(alt) ? midAlt : alt,
             feature: f,
           });
@@ -192,7 +201,7 @@ export function crossingsAlong(route: ProfileRoute, pts: RoutePoint[], areas: Ge
 
 /** The crossings of the route being planned (or flown), for the planner's
  * warning and the map's glow; `focus`: conflicts the pilot asked to see. */
-export const routeAsp = $state<{ key: string; list: Crossing[]; focus: number; busy: boolean }>({ key: "", list: [], focus: 0, busy: false });
+export const routeAsp = $state<{ key: string; list: Crossing[]; pts: RoutePoint[]; focus: number; busy: boolean }>({ key: "", list: [], pts: [], focus: 0, busy: false });
 
 /** Works out the crossings for a route (again only when it changes). */
 export async function updateRouteAirspace(route: ProfileRoute | null) {
@@ -203,12 +212,14 @@ export async function updateRouteAirspace(route: ProfileRoute | null) {
   routeAsp.key = key;
   if (!route) {
     routeAsp.list = [];
+    routeAsp.pts = [];
     return;
   }
   routeAsp.busy = true;
   const pts = routePoints(route);
   const areas = await areasNear(pts);
   if (routeAsp.key !== key) return;
+  routeAsp.pts = pts;
   routeAsp.list = crossingsAlong(route, pts, areas);
   routeAsp.busy = false;
 }

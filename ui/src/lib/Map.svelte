@@ -20,8 +20,9 @@
   import { day } from "./format";
   import { modelName } from "./hangar/names";
   import { prefs, setPref } from "./prefs.svelte";
-  import { drawing, pick, planEdit } from "./flyStore.svelte";
+  import { drawing, pick, planEdit, planInfo } from "./flyStore.svelte";
   import { routeAsp } from "./routeAirspace.svelte";
+  import { pointAt as alongRoute } from "./profile/build";
   import { pfdState } from "./pfd/store.svelte";
   import { padState } from "./pad/store.svelte";
   import ScratchPad from "./pad/ScratchPad.svelte";
@@ -30,7 +31,7 @@
   import { profileState } from "./profile/store.svelte";
   import { taxiState } from "./taxi/store.svelte";
   import { NO_TOWER_MAGENTA, TOWER_BLUE, addAirportImages, runwayFeatures, symbolName } from "./airportSymbols";
-  import { ASP_COLOR, addAirspaceLayers, airspaceAt, airspaceCard, airspaceOverlay, fillForAltitude, scaleAirspace, showAirspace } from "./airspaceLayer";
+  import { ASP_COLOR, ASP_KINDS, addAirspaceLayers, airspaceAt, airspaceCard, airspaceOverlay, fillForAltitude, scaleAirspace, showAirspace } from "./airspaceLayer";
   import { NAV_AIDS_ENABLED, NAV_MIN_ZOOM, WPT_MIN_ZOOM, navAt, navCard, setNavData, showNavLayers } from "./navLayer";
   import { decodeTemps, setTempCanvas, showTemp, tempImage, tempAt, TEMP_BAR, gridImage, setGridCanvas, showGrid, cloudColor, visColor, visMiles, CLOUD_BAR, VIS_BANDS } from "./tempLayer";
   import { coversFl, decodeIcing, icingSeverity, icingShapes, setIcingAdvisories, setIcingShapes, showIcing } from "./icingLayer";
@@ -71,7 +72,7 @@
     /** "Fly this aircraft" was pressed in a parked aircraft's card. */
     onfly?: (item: HangarItem) => void;
     /** A route being set up and not flown yet: drawn like a plan when there is none. */
-    draft?: { origin: { icao: string; name: string; lat: number; lon: number }; dest: { icao: string; name: string; lat: number; lon: number }; fixes?: FlightPlan["fixes"] } | null;
+    draft?: { origin: { icao: string; name: string; lat: number; lon: number }; dest: { icao: string; name: string; lat: number; lon: number }; fixes?: FlightPlan["fixes"]; locked?: boolean } | null;
     /** Room taken by cards over the right and bottom of the map, in pixels:
      * the map controls move clear of it and routes fit beside it. */
     insetRight?: number;
@@ -168,6 +169,19 @@
     const features: GeoJSON.Feature[] = [
       { type: "Feature", properties: { kind: "line" }, geometry: { type: "LineString", coordinates: pts } },
     ];
+    // Each leg on its own, for its length written along it (shown only
+    // where the label fits the leg at the zoom).
+    const corners: [number, number][] = [[p.origin.lon, p.origin.lat], ...p.fixes.filter((f) => f.lat || f.lon).map((f) => [f.lon, f.lat] as [number, number]), [p.destination.lon, p.destination.lat]];
+    for (let i = 1; i < corners.length; i++) {
+      const a = corners[i - 1];
+      const b = corners[i];
+      if ((!a[0] && !a[1]) || (!b[0] && !b[1])) continue;
+      const nm = gcNm(a, b);
+      if (nm < 0.5) continue;
+      // Written left to right whichever way the leg goes.
+      const coords = Math.hypot(b[0] - a[0], b[1] - a[1]) > 4 ? greatCircle(a, b, 24) : [a, b];
+      features.push({ type: "Feature", properties: { kind: "leg", nm: `${nm < 10 ? nm.toFixed(1) : Math.round(nm)} nm` }, geometry: { type: "LineString", coordinates: coords } });
+    }
     for (const f of p.fixes) {
       if (f.kind === "apt" || (!f.lat && !f.lon)) continue;
       features.push({
@@ -1268,7 +1282,8 @@
   // dashed line can be changed right there: drag a point to move it, drag
   // the line to put a new point in, right-click a point to take it out.
   // Start a flight takes the result (planEdit).
-  const planEditable = $derived(planner && !plan && !!draft && !drawOn && !tracing && !bare && !history);
+  // SimBrief's own route is never changed here.
+  const planEditable = $derived(planner && !plan && !!draft && !draft.locked && !drawOn && !tracing && !bare && !history);
   let planDrag: { fixes: PlanFix[]; i: number; insert: number | null; from: maplibregl.Point; moved: boolean } | null = null;
   /** The route's corners on screen: origin, each fix, destination. */
   function planVerts(): [number, number][] {
@@ -2214,6 +2229,57 @@
         paint: { "text-color": "#ffc4ee", "text-halo-color": C.land, "text-halo-width": 1.4 },
       });
     }
+    // Conflicts: the stretch of the route inside a special-use area, red
+    // with a white core, and a red ! at its middle.
+    map.addSource("route-conflict", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+    map.addLayer({
+      id: "route-conflict-red",
+      type: "line",
+      source: "route-conflict",
+      filter: ["==", ["geometry-type"], "LineString"],
+      layout: { "line-cap": "butt", "line-join": "round" },
+      paint: { "line-color": "#e5484d", "line-width": 7 },
+    });
+    map.addLayer({
+      id: "route-conflict-white",
+      type: "line",
+      source: "route-conflict",
+      filter: ["==", ["geometry-type"], "LineString"],
+      layout: { "line-cap": "butt", "line-join": "round" },
+      paint: { "line-color": "#ffffff", "line-width": 2.2 },
+    });
+    if (!map.hasImage("conflict-bang")) map.addImage("conflict-bang", bangImage(), { pixelRatio: 2 });
+    map.addLayer({
+      id: "route-conflict-mark",
+      type: "symbol",
+      source: "route-conflict",
+      filter: ["==", ["geometry-type"], "Point"],
+      layout: { "icon-image": "conflict-bang", "icon-allow-overlap": true, "icon-ignore-placement": true },
+    });
+    // Each leg's length, along it, in a dark pill.
+    if (map.getStyle().glyphs) {
+      if (!map.hasImage("leg-pill")) map.addImage("leg-pill", pillImage(), { pixelRatio: 2, stretchX: [[12, 20]], stretchY: [[12, 16]], content: [8, 6, 24, 22] });
+      map.addLayer({
+        id: "plan-legs",
+        type: "symbol",
+        source: "plan",
+        filter: ["==", ["get", "kind"], "leg"],
+        layout: {
+          "symbol-placement": "line-center",
+          "text-field": ["get", "nm"],
+          "text-size": 11.5,
+          "text-font": ["Noto Sans Bold"],
+          "text-rotation-alignment": "map",
+          "text-keep-upright": true,
+          "icon-image": "leg-pill",
+          "icon-text-fit": "both",
+          "icon-text-fit-padding": [1, 4, 1, 4],
+          "icon-rotation-alignment": "map",
+          "text-padding": 4,
+        },
+        paint: { "text-color": "#f2f4f7" },
+      });
+    }
     map.addSource("track", {
       type: "geojson",
       data: { type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: [] } },
@@ -2583,6 +2649,23 @@
     map.on("click", (e) => {
       ctx = null;
       if (skipClick && !drawOn) return;
+      // A conflict's !: what the route goes through there.
+      if (!drawOn && map?.getLayer("route-conflict-mark")) {
+        const hit = map.queryRenderedFeatures([[e.point.x - 12, e.point.y - 12], [e.point.x + 12, e.point.y + 12]], { layers: ["route-conflict-mark"] })[0];
+        const c = hit && routeAsp.list.find((x) => x.id === (hit.properties as { id: string }).id);
+        if (c) {
+          const esc = (t: string) => t.replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[ch]!);
+          const ft = (v: number) => (v >= 18000 ? `FL${String(Math.round(v / 100)).padStart(3, "0")}` : `${Math.round(v).toLocaleString("en-US")} ft`);
+          const where = c.vert === "in" ? `Inside it at ${ft(c.alt)}` : c.vert === "below" ? `Below it at ${ft(c.alt)}` : `Above it at ${ft(c.alt)}`;
+          new maplibregl.Popup({ closeButton: true, className: "conflict-pop", maxWidth: "280px" })
+            .setLngLat(e.lngLat)
+            .setHTML(
+              `<strong>${esc(ASP_KINDS[c.c]?.name ?? c.c)}</strong>${c.name ? ` · ${esc(c.name)}` : ""}<br><span>${esc(c.loText || ft(c.lo))} to ${esc(c.hiText || ft(c.hi))}</span><br><span class="${c.vert === "in" ? "in" : ""}">${where}</span>`,
+            )
+            .addTo(map);
+          return;
+        }
+      }
       if (drawOn) {
         if (skipClick) return;
         drawClick(e.point, [e.lngLat.lng, e.lngLat.lat]);
@@ -2785,6 +2868,63 @@
       (map!.getSource("route-asp") as GeoJSONSource | undefined)?.setData({ type: "FeatureCollection", features: feats });
     });
   });
+  // The route's stretch through each conflict, and a ! at its middle.
+  $effect(() => {
+    const list = routeAsp.list;
+    const pts = routeAsp.pts;
+    if (!loaded || !map || !planner || bare || history) return;
+    const feats: GeoJSON.Feature[] = [];
+    for (const c of list) {
+      if (!c.conflict || pts.length < 2) continue;
+      const n = Math.max(2, Math.ceil((c.to - c.from) / 0.5));
+      const coords: [number, number][] = [];
+      for (let i = 0; i <= n; i++) coords.push(alongRoute(pts, c.from + ((c.to - c.from) * i) / n));
+      feats.push({ type: "Feature", properties: { id: c.id }, geometry: { type: "LineString", coordinates: coords } });
+      feats.push({ type: "Feature", properties: { id: c.id }, geometry: { type: "Point", coordinates: alongRoute(pts, (c.from + c.to) / 2) } });
+    }
+    (map.getSource("route-conflict") as GeoJSONSource | undefined)?.setData({ type: "FeatureCollection", features: feats });
+  });
+  /** A red circle with a white !, for conflicts on the route. */
+  function bangImage(): ImageData {
+    const c = document.createElement("canvas");
+    c.width = c.height = 44;
+    const g = c.getContext("2d")!;
+    g.beginPath();
+    g.arc(22, 22, 19, 0, Math.PI * 2);
+    g.fillStyle = "#e5484d";
+    g.fill();
+    g.lineWidth = 3;
+    g.strokeStyle = "rgba(255,255,255,0.9)";
+    g.stroke();
+    g.fillStyle = "#ffffff";
+    g.fillRect(19.5, 10, 5, 16);
+    g.beginPath();
+    g.arc(22, 32, 3, 0, Math.PI * 2);
+    g.fill();
+    return g.getImageData(0, 0, 44, 44);
+  }
+  /** A dark rounded box that stretches round a leg's length. */
+  function pillImage(): ImageData {
+    const c = document.createElement("canvas");
+    c.width = 32;
+    c.height = 28;
+    const g = c.getContext("2d")!;
+    g.beginPath();
+    g.roundRect(1, 1, 30, 26, 8);
+    g.fillStyle = "rgba(20,22,25,0.9)";
+    g.fill();
+    g.lineWidth = 1.5;
+    g.strokeStyle = "rgba(255,255,255,0.18)";
+    g.stroke();
+    return g.getImageData(0, 0, 32, 28);
+  }
+  let infoOpen = $state(false);
+  /** The map keys' size: the plan card keeps clear of them (beside them
+   * when there is room, else just above). */
+  let keysW = $state(0);
+  let keysH = $state(0);
+  const cardRight = $derived(openAirport || netPick || wxPick ? Math.max(372, insetRight) : insetRight);
+  const besideKeys = $derived.by(() => mapW - insetLeft - Math.max(cardRight, keysW ? keysW + 68 : 0) >= 460);
   // Show the conflicts: zoom to them, brighter for a few seconds.
   let lastFocus = 0;
   $effect(() => {
@@ -3304,6 +3444,28 @@
     </button>
   </div>
 {/if}
+{#if planner && planInfo.v && !drawOn && !(measuring || mPts.length > 1)}
+  <!-- The plan's distance, time and fuel; click for the breakdown. -->
+  <div class="pinfo" style:--ml="{insetLeft}px" style:--mr="{besideKeys ? Math.max(cardRight, keysW ? keysW + 68 : 0) : cardRight}px" style:bottom="{16 + insetBottom + (besideKeys || !keysH ? 0 : keysH + 10)}px">
+    {#if infoOpen}
+      <div class="pi-more">
+        <p class="pi-src">{planInfo.v.source}</p>
+        <dl>
+          {#each planInfo.v.rows as [k, v, cls] (k)}
+            <dt class={cls}>{k}</dt><dd class="num {cls}">{v}</dd>
+          {/each}
+        </dl>
+        <p class="pi-note">An estimate from typical published figures for the type, for planning in the sim only.</p>
+      </div>
+    {/if}
+    <button type="button" class="pi-bar" aria-expanded={infoOpen} onclick={() => (infoOpen = !infoOpen)} title="Time and fuel: click for the breakdown">
+      <span><small>Distance</small><b class="num">{planInfo.v.distance}</b></span>
+      <span><small>ETE</small><b class="num">{planInfo.v.ete}</b></span>
+      <span class:warn={!!planInfo.v.warn} title={planInfo.v.warn ?? planInfo.v.fuelSub}><small>Fuel</small><b class="num">{planInfo.v.fuel}</b></span>
+      <span><small>Wind</small><b class="num">{planInfo.v.wind}</b></span>
+    </button>
+  </div>
+{/if}
 {#if !drawOn && (measuring || mPts.length > 1)}
   <div class="measure" style:--ml="{insetLeft}px" style:--mr="{openAirport || netPick || wxPick ? Math.max(372, insetRight) : insetRight}px" style:bottom="{16 + insetBottom}px">
     <div class="m-total">
@@ -3468,7 +3630,7 @@
     {/if}
   </div>
 {/if}
-<div class="keys" class:above-replay={replayOn && !!history}>
+<div class="keys" class:above-replay={replayOn && !!history} bind:clientWidth={keysW} bind:clientHeight={keysH}>
 {#if layers.has("wind")}
   <div class="wind-key" aria-label="Wind speed colours">
     <span class="t">Wind <em>{levelLabel}</em></span>
@@ -3988,6 +4150,121 @@
     font-weight: 600;
     white-space: nowrap;
     pointer-events: none;
+  }
+  /* The plan's distance, time and fuel, at the bottom of the map. */
+  .pinfo {
+    position: absolute;
+    z-index: 5;
+    left: calc(var(--ml) + (100% - var(--ml) - var(--mr)) / 2);
+    transform: translateX(-50%);
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+    max-width: calc(100% - var(--ml) - var(--mr) - 24px);
+  }
+  .pi-bar {
+    display: flex;
+    padding: 0;
+    border-radius: 10px;
+    background: rgba(28, 30, 33, 0.94);
+    border: 1px solid var(--rule);
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
+    color: var(--ink);
+    cursor: pointer;
+    font: inherit;
+    overflow: hidden;
+  }
+  .pi-bar > span {
+    display: grid;
+    justify-items: center;
+    gap: 1px;
+    padding: 6px 18px;
+  }
+  .pi-bar > span + span {
+    border-left: 1px solid var(--rule);
+  }
+  .pi-bar small {
+    font-size: 11px;
+    color: var(--ink-dim);
+  }
+  .pi-bar b {
+    font-family: var(--cond);
+    font-size: 17px;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  .pi-bar .warn b {
+    color: #ff8a8e;
+  }
+  .pi-bar:hover {
+    border-color: #4a4e55;
+  }
+  .pi-more {
+    padding: 10px 14px;
+    border-radius: 10px;
+    background: rgba(28, 30, 33, 0.97);
+    border: 1px solid var(--rule);
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
+    font-size: 12.5px;
+  }
+  .pi-more dl {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 3px 16px;
+    margin: 6px 0;
+  }
+  .pi-more dt {
+    color: var(--ink-dim);
+  }
+  .pi-more dd {
+    margin: 0;
+    text-align: right;
+  }
+  .pi-more .tot {
+    font-weight: 700;
+    color: var(--ink);
+    border-top: 1px solid var(--rule);
+    padding-top: 3px;
+  }
+  .pi-more .bad {
+    color: #ff8a8e;
+  }
+  .pi-src,
+  .pi-note {
+    margin: 0;
+    color: var(--ink-dim);
+    font-size: 11.5px;
+  }
+  .pi-note {
+    color: var(--ink-faint);
+    font-size: 10.5px;
+  }
+  :global(.conflict-pop .maplibregl-popup-content) {
+    background: rgba(28, 30, 33, 0.97);
+    color: #eceef1;
+    border: 1px solid rgba(229, 72, 77, 0.6);
+    border-radius: 10px;
+    font-size: 12px;
+    line-height: 1.45;
+    padding: 9px 26px 9px 11px;
+  }
+  :global(.conflict-pop .maplibregl-popup-content strong) {
+    color: #ff8a8e;
+  }
+  :global(.conflict-pop .maplibregl-popup-content span) {
+    color: #a8adb4;
+  }
+  :global(.conflict-pop .maplibregl-popup-content span.in) {
+    color: #ff8a8e;
+    font-weight: 600;
+  }
+  :global(.conflict-pop .maplibregl-popup-close-button) {
+    color: #a8adb4;
+  }
+  :global(.conflict-pop .maplibregl-popup-tip) {
+    border-top-color: rgba(28, 30, 33, 0.97);
+    border-bottom-color: rgba(28, 30, 33, 0.97);
   }
   .measure {
     position: absolute;

@@ -157,6 +157,8 @@ const AIRPORTS = [
   { icao: "KLAS", name: "Harry Reid International Airport", country: "United States", lat: 36.084, lon: -115.1537 },
   { icao: "KDTW", name: "Detroit Metropolitan Wayne County Airport", country: "United States", lat: 42.2124, lon: -83.3534 },
   { icao: "KSEA", name: "Seattle-Tacoma International Airport", country: "United States", lat: 47.449, lon: -122.3093 },
+  { icao: "KSAN", name: "San Diego International Airport", country: "United States", lat: 32.7336, lon: -117.1897 },
+  { icao: "KSFO", name: "San Francisco International Airport", country: "United States", lat: 37.619, lon: -122.375 },
   { icao: "KPDX", name: "Portland International Airport", country: "United States", lat: 45.5887, lon: -122.5975 },
   { icao: "EGLL", name: "London Heathrow Airport", country: "United Kingdom", lat: 51.4706, lon: -0.4619 },
   { icao: "EGKK", name: "London Gatwick Airport", country: "United Kingdom", lat: 51.1481, lon: -0.1903 },
@@ -628,6 +630,12 @@ export async function mockCall<T>(cmd: string, _args?: Record<string, unknown>):
         : [{ icao: "KDFW", name: "Dallas-Fort Worth Intl", lat: 32.9, lon: -97.04, controllers: [c("KDFW_TWR", "TWR", "126.550"), c("KDFW_GND", "GND", "121.650")] }],
       other: [], error: null,
     } as T;
+  }
+  if (cmd === "resolve_fixes") {
+    // A few real-world fixes (approximate) for importing SimBrief/MSFS plans.
+    const known: Record<string, [number, number, string]> = { SLI: [33.78, -118.05, "vor"], SEBBY: [34.3, -117.45, "wpt"], YELAH: [35.0, -116.6, "wpt"], MISEN: [35.6, -115.75, "wpt"] };
+    const ids = ((_args as { idents?: string[] })?.idents ?? []).map((i) => i.toUpperCase());
+    return ids.filter((i) => known[i]).map((i) => ({ ident: i, region: "K2", kind: known[i][2], lat: known[i][0], lon: known[i][1] })) as T;
   }
   if (cmd === "airport_extras") {
     // Test fields: X1 private with fuel, X2 fuel, X3 private; KSEA fuel.

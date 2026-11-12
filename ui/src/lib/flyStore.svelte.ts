@@ -9,7 +9,7 @@ export const fly = $state<{ item: HangarItem | null }>({ item: null });
  * The origin and destination being typed into Start a flight, before the
  * flight is started: the map previews that route.
  */
-export const draft = $state<{ origin: Spot | null; dest: Spot | null; fixes: PlanFix[]; cruise_ft: number; runway: string }>({ origin: null, dest: null, fixes: [], cruise_ft: 0, runway: "" });
+export const draft = $state<{ origin: Spot | null; dest: Spot | null; fixes: PlanFix[]; cruise_ft: number; runway: string; locked: boolean }>({ origin: null, dest: null, fixes: [], cruise_ft: 0, runway: "", locked: false });
 
 /**
  * An airport sent to the flight planner from the map (right-click, "Set
@@ -42,6 +42,20 @@ export const drawing = $state<{ stage: "off" | "origin" | "route"; origin: Spot 
   pts: [],
   note: "",
 });
+
+/** The plan's time and fuel for the card at the bottom of the map. */
+export interface PlanInfo {
+  distance: string;
+  ete: string;
+  fuel: string;
+  fuelSub: string;
+  wind: string;
+  /** The breakdown, opened from the card. */
+  rows: [string, string, string?][];
+  source: string;
+  warn: string | null;
+}
+export const planInfo = $state<{ v: PlanInfo | null }>({ v: null });
 
 /**
  * The planned route changed on the map (a point dragged, put in or taken

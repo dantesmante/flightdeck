@@ -588,7 +588,7 @@ const VIEW: &[&str] = &[
     "get_status", "list_flights", "get_totals", "get_flight", "current_briefing", "demo_routes", "get_settings",
     "get_pilot", "get_logbook", "find_duplicates", "aircraft_with_registration", "get_passport", "get_hangar",
     "get_routes", "spotter_photo", "aircraft_flights", "get_aircraft_photo", "app_version", "simbrief_latest",
-    "search_airports", "get_pilot_profile", "airport_at", "map_airports", "airport_card", "runway_ends", "divert_options", "flight_screenshots", "screenshots_since", "photos", "airport_weather", "online_network", "online_pilot", "wx_categories", "wx_advisories", "wind_grid", "temperature_grid", "sky_grid", "icing_grid", "icing_point", "navaids", "us_airspace", "sua_airspace", "world_airspace", "airport_extras", "pln_text", "pfd_watch", "us_obstacles",
+    "search_airports", "get_pilot_profile", "airport_at", "map_airports", "airport_card", "runway_ends", "divert_options", "flight_screenshots", "screenshots_since", "photos", "airport_weather", "online_network", "online_pilot", "wx_categories", "wx_advisories", "wind_grid", "temperature_grid", "sky_grid", "icing_grid", "icing_point", "navaids", "us_airspace", "sua_airspace", "world_airspace", "airport_extras", "resolve_fixes", "pln_text", "pfd_watch", "us_obstacles",
 ];
 /// Commands that change something: only when editing is allowed.
 const EDIT: &[&str] = &[

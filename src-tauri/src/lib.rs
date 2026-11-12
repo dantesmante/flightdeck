@@ -9,6 +9,7 @@ mod efb;
 mod networks;
 mod airspace;
 mod countries;
+mod fixes;
 mod obstacles;
 mod pln;
 mod backup;
@@ -387,6 +388,15 @@ async fn airport_extras(state: tauri::State<'_, AppState>, w: f64, s: f64, e: f6
     let dir = state.data_dir.clone();
     let (list, more) = tauri::async_runtime::spawn_blocking(move || airspace::airport_extras(&dir, w, s, e, n, 2)).await.map_err(err)?;
     Ok(AirportExtras { list, more })
+}
+
+/// Positions of waypoints named in a flight plan without them (SimBrief and
+/// MSFS 2024 .PLN files): the sim's nav data on this PC, then the FAA.
+#[tauri::command]
+async fn resolve_fixes(state: tauri::State<'_, AppState>, idents: Vec<String>) -> CmdResult<Vec<fixes::FixPos>> {
+    let nav = state.nav.clone();
+    let dir = state.data_dir.clone();
+    tauri::async_runtime::spawn_blocking(move || fixes::resolve(&nav, &dir, &idents)).await.map_err(err)
 }
 
 /// Nav aids (from the sim's own database) in a box, for the map layer:
@@ -1599,6 +1609,7 @@ pub(crate) async fn dispatch(app: &tauri::AppHandle, cmd: &str, a: serde_json::V
         }),
         "us_airspace" => ok(to_value(us_airspace(st()).await?)),
         "sua_airspace" => ok(to_value(sua_airspace(st()).await?)),
+        "resolve_fixes" => ok(to_value(resolve_fixes(st(), arg(&a, "idents")?).await?)),
         "airport_extras" => ok(to_value(airport_extras(st(), arg(&a, "w")?, arg(&a, "s")?, arg(&a, "e")?, arg(&a, "n")?).await?)),
         "world_airspace" => ok(to_value(world_airspace(st(), arg(&a, "w")?, arg(&a, "s")?, arg(&a, "e")?, arg(&a, "n")?).await?)),
         "pfd_watch" => ok(to_value(pfd_watch(st())?)),
@@ -1790,6 +1801,7 @@ pub fn run() {
             sua_airspace,
             world_airspace,
             airport_extras,
+            resolve_fixes,
             pfd_watch,
             us_obstacles,
             pln_text,

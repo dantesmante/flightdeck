@@ -33,23 +33,36 @@ MIT licensed.
   previews it as a dashed magenta line (the flight profile's colour),
   solid once the flight is started. During a flight the same card shows
   the flight; fold it down to see more of the map.
-  - **One route, however it was entered** (typed airports, SimBrief, a
-    .PLN, drawn): while planning, drag any point of the dashed line to
-    move it, drag the line itself to put a new point in, right-click a
-    point to take it out. No Edit button needed.
+  - **One route, however it was entered** (typed airports, a .PLN,
+    drawn): while planning, drag any point of the dashed line to move it,
+    drag the line itself to put a new point in, right-click a point to
+    take it out. No Edit button needed. Every point's altitude can be set
+    (empty follows the cruise), while drawing and after. SimBrief's own
+    route is never changed. Each leg's length is written along it once
+    the zoom leaves room for it.
   - **Import .PLN** (beside SimBrief): an MSFS flight plan from MSFS 2020
-    or 2024, Little Navmap or others: airports, every waypoint with its
-    position and altitude, cruise altitude and VFR or IFR, on the map and
-    in the flight profile.
+    or 2024's planner, SimBrief, Little Navmap, FlightDeck or others:
+    airports, every waypoint with its position and altitude, cruise
+    altitude, VFR or IFR and the landing runway, on the map and in the
+    flight profile. Files that name waypoints without positions (SimBrief
+    and MSFS 2024 exports) are placed from the sim's nav data kept on this
+    PC, then the FAA's published designated points and nav aids (US);
+    named departures, arrivals and approaches are listed (their own
+    points are not in such files).
   - **Cruise altitude**: 5,000 ft unless changed; shown once a
     destination is in.
   - **Airspace conflict**: a red ! beside the distance when the route
-    enters a prohibited, restricted or danger area at its planned
-    altitude; point at it for which areas (limits, the route's altitude,
-    where along it), click it to see them on the map. Every area the
+    crosses a prohibited, restricted, danger, MOA, warning, national
+    security, temporary reserved/segregated or military area; point at it
+    for which areas (limits, where along the route, and whether the
+    planned altitude is inside, below or above them), click it to see
+    them on the map. On the map the stretch of route inside each such
+    area is red with a white core, with a red ! at its middle (click it
+    for the area). Every area the
     route crosses has a bold outline with a soft glow on the map, whether
     or not the Airspace layer is on (not the vast class A and E blocks).
-  - **ETE and fuel**: for the aircraft in the sim (or the hangar aircraft
+  - **ETE and fuel**, in a card at the bottom of the map (Distance, ETE,
+    Fuel, Wind; click it for the breakdown): for the aircraft in the sim (or the hangar aircraft
     chosen), from typical published performance of about 60 types
     (climb, cruise and approach speeds, fuel flows, usable fuel), or from
     the sim's own figures (cruise speed and altitude, tank size) for
