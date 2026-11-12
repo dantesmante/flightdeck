@@ -55,6 +55,8 @@ export interface Telemetry {
   on_ground: boolean;
   engines_running: number;
   fuel_kg: number;
+  /** The aircraft's design figures from the sim, when it gives them. */
+  design?: { fuel_capacity_gal: number | null; fuel_lb_per_gal: number | null; cruise_kt: number | null; cruise_alt_ft: number | null };
   paused: boolean;
   sim_rate: number;
   /** Electrical power (battery or a live bus); null when the sim doesn't say. */

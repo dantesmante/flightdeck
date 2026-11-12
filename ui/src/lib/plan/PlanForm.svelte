@@ -4,7 +4,13 @@
   import RunwayPicker from "./RunwayPicker.svelte";
   // and mid-flight to add a plan.
   import { onDestroy, onMount, untrack } from "svelte";
-  import { draft, drawing, pick } from "../flyStore.svelte";
+  import { draft, drawing, pick, planEdit } from "../flyStore.svelte";
+  import { routeAsp } from "../routeAirspace.svelte";
+  import { ASP_KINDS } from "../airspaceLayer";
+  import { parsePln } from "./pln";
+  import { estimate, fuelText, perfFor, type AircraftHint } from "./perf";
+  import { decodeGrid, levelFor, sample, type Field } from "../wind/wind";
+  import type { AircraftInfo, Telemetry } from "../api";
   import { briefing, openBriefing } from "../briefingStore.svelte";
   import { api, inTauri, type FlightPlan, type HangarItem, type PlanFix, type PlnRoute } from "../api";
   import { modelName } from "../hangar/names";
@@ -57,8 +63,9 @@
   let drawn = $state<PlanFix[] | null>(null);
   let drawnFor = { o: "", d: "" };
   let rules = $state<"VFR" | "IFR">("VFR");
-  /** Cruise altitude typed in (ft), for a route without SimBrief's own. */
-  let cruiseFt = $state<number | null>(null);
+  /** Cruise altitude typed in (ft), for a route without SimBrief's own:
+   * 5,000 ft unless changed. */
+  let cruiseFt = $state<number | null>(5000);
   let saved = $state<string | null>(null);
   let saving = $state(false);
   // Another origin or destination than the route was drawn for: it no
@@ -73,12 +80,29 @@
     draft.origin = origin;
     draft.dest = dest;
     // The route itself: drawn, or SimBrief's while its airports are kept.
-    const simbrief = !!base && origin?.icao === base.origin.icao && dest?.icao === base.destination.icao;
-    draft.fixes = drawnFixes ?? (simbrief ? base!.fixes : []);
+    draft.fixes = routeFixes;
     // The flight profile's cruise: SimBrief's, or the one typed in.
-    draft.cruise_ft = simbrief ? base!.cruise_ft : (cruiseFt ?? 0);
+    draft.cruise_ft = cruiseNow;
     draft.runway = landRwy;
   });
+  // The route reshaped on the map (a point dragged, put in or taken out):
+  // it becomes this form's own route, whichever way it was entered.
+  $effect(() => {
+    const fx = planEdit.fixes;
+    if (mode === "attach" || !fx) return;
+    untrack(() => {
+      planEdit.fixes = null;
+      if (!origin || !dest) return;
+      drawn = renumber(fx);
+      drawnFor = { o: origin.icao, d: dest.icao };
+      saved = null;
+    });
+  });
+  /** User waypoints numbered in order: WP1, WP2, ... */
+  function renumber(fx: PlanFix[]): PlanFix[] {
+    let n = 0;
+    return fx.map((f) => (f.kind === "ltlg" && (!f.ident || /^WP\d+$/.test(f.ident)) ? { ...f, ident: `WP${++n}` } : f));
+  }
   // An airport sent from the map's right-click menu.
   $effect(() => {
     const spot = pick.spot;
@@ -136,8 +160,13 @@
   }
   /** The altitudes list (Altitudes button) while drawing. */
   let altEdit = $state(false);
-  /** A drawn route's points with their altitudes: the ones set, else the cruise. */
-  const drawnFixes = $derived(drawn ? drawn.map((f) => ({ ...f, alt_ft: f.stage === "USR" ? f.alt_ft : (cruiseFt ?? 0) })) : null);
+  /** The cruise altitude in use: SimBrief's for its own route, else the one typed. */
+  const cruiseNow = $derived(!!base && base.source === "simbrief" && origin?.icao === base.origin.icao && dest?.icao === base.destination.icao ? base.cruise_ft : (cruiseFt ?? 0));
+  /** The route's points with their altitudes: their own (set by the pilot,
+   * or SimBrief's climb and descent), else the cruise. */
+  const drawnFixes = $derived(drawn ? drawn.map((f) => ({ ...f, alt_ft: f.stage === "CRZ" ? cruiseNow : f.alt_ft })) : null);
+  /** The route between origin and destination: this form's own, or SimBrief's while its airports are kept. */
+  const routeFixes = $derived(drawnFixes ?? (!!base && origin?.icao === base.origin.icao && dest?.icao === base.destination.icao ? base.fixes : []));
   function cancelDrawing() {
     drawing.stage = "off";
     drawing.pts = [];
@@ -373,11 +402,11 @@
       route: drawn ? [origin.icao, ...drawn.map((f) => f.ident), dest.icao].join(" ") : (keep?.route ?? ""),
       cruise_ft: mode === "edit" && cruiseFt != null ? cruiseFt : keep ? keep.cruise_ft : (cruiseFt ?? 0),
       distance_nm: drawn ? Math.round(routeNm ?? 0) : keep?.distance_nm || Math.round(direct ?? 0),
-      ete_min: keep?.ete_min ?? 0,
+      ete_min: keep?.ete_min || est?.ete || 0,
       aircraft_icao: ac?.icao_type || base?.aircraft_icao || "",
       aircraft_name: ac ? modelName(ac) : (base?.aircraft_name ?? ""),
       registration: ac?.registration || base?.registration || "",
-      block_fuel_kg: keep?.block_fuel_kg ?? 0,
+      block_fuel_kg: keep?.block_fuel_kg || (est ? Math.round(est.block * 0.45359237) : 0),
       sched_out_ms: keep?.sched_out_ms ?? null,
       sched_in_ms: keep?.sched_in_ms ?? null,
       fixes: drawnFixes ?? keep?.fixes ?? [],
@@ -408,6 +437,106 @@
     const h = Math.round(m / 60);
     return h < 36 ? `dispatched ${h} h ago` : `dispatched ${Math.round(h / 24)} days ago`;
   };
+
+  // --- Import a .PLN -----------------------------------------------------------
+  let plnInput = $state<HTMLInputElement>();
+  let plnBusy = $state(false);
+  let plnName = $state<string | null>(null);
+  async function importPln(file: File | undefined) {
+    if (!file) return;
+    plnBusy = true;
+    error = null;
+    try {
+      const p = parsePln(await file.text());
+      const named = async (a: { icao: string; lat: number; lon: number }): Promise<Spot> => {
+        const h = ((await api.searchAirports(a.icao).catch(() => [])) ?? []).find((x) => x.icao === a.icao);
+        // The file's own position for the airport, its name from FlightDeck's list.
+        return { icao: a.icao, name: h?.name ?? "", lat: a.lat || h?.lat || 0, lon: a.lon || h?.lon || 0 };
+      };
+      const [o, d] = await Promise.all([named(p.dep), named(p.dest)]);
+      base = null;
+      originAuto = false;
+      origin = o;
+      dest = d;
+      if (p.cruiseFt > 0) cruiseFt = p.cruiseFt;
+      rules = p.rules;
+      drawn = renumber(p.fixes);
+      drawnFor = { o: o.icao, d: d.icao };
+      saved = null;
+      plnName = file.name;
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e);
+    } finally {
+      plnBusy = false;
+      if (plnInput) plnInput.value = "";
+    }
+  }
+
+  // --- Airspace the route enters ---------------------------------------------------
+  /** Prohibited, restricted and danger areas entered at the planned altitude. */
+  const conflicts = $derived(origin && dest && drawing.stage === "off" ? routeAsp.list.filter((c) => c.conflict) : []);
+  const ftText = (ft: number) => (ft >= 18000 ? `FL${String(Math.round(ft / 100)).padStart(3, "0")}` : `${Math.round(ft).toLocaleString("en-US")} ft`);
+
+  // --- Time and fuel ---------------------------------------------------------------
+  /** The sim's aircraft and fuel on board, kept fresh while the form is open. */
+  let simAc = $state.raw<{ aircraft: AircraftInfo | null; telemetry: Telemetry | null } | null>(null);
+  onMount(() => {
+    const look = () =>
+      api
+        .status()
+        .then((s) => (simAc = s?.link === "connected" ? { aircraft: s.aircraft, telemetry: s.telemetry } : null))
+        .catch(() => {});
+    look();
+    const t = setInterval(look, 5000);
+    return () => clearInterval(t);
+  });
+  /** What performance to plan with: the sim's aircraft, or the hangar one chosen. */
+  const acHint = $derived.by<AircraftHint | null>(() => {
+    const ac = chosen;
+    if (aircraftId > 0 && ac) return { icao: ac.icao_type, title: ac.title, engineType: ac.engine_type, engineCount: ac.engine_count };
+    const a = simAc?.aircraft;
+    if (a) return { icao: a.icao_type, title: a.title, engineType: a.engine_type, engineCount: a.engine_count, design: simAc?.telemetry?.design ?? null };
+    // No sim: the plan's own aircraft type, if SimBrief gave one.
+    if (base?.aircraft_icao) return { icao: base.aircraft_icao, title: base.aircraft_name, engineType: "", engineCount: 0 };
+    return null;
+  });
+  const acPerf = $derived(acHint ? perfFor(acHint) : null);
+  /** Winds aloft at the cruise level (GFS), loaded once per level. */
+  const winds = new Map<string, Field | null>();
+  let windField = $state.raw<Field | null>(null);
+  $effect(() => {
+    const ft = cruiseNow;
+    if (!origin || !dest || ft <= 0) return;
+    const lvl = levelFor(ft);
+    if (winds.has(lvl)) {
+      windField = winds.get(lvl) ?? null;
+      return;
+    }
+    winds.set(lvl, null);
+    api
+      .windGrid(lvl)
+      .then((g) => {
+        const f = decodeGrid(g);
+        winds.set(lvl, f);
+        if (levelFor(untrack(() => cruiseNow)) === lvl) windField = f;
+      })
+      .catch(() => {});
+  });
+  const est = $derived.by(() => {
+    const perf = acPerf;
+    if (!perf || !origin || !dest || drawing.stage !== "off") return null;
+    const pts = [origin, ...routeFixes.filter((f) => f.lat || f.lon), dest];
+    const f = windField;
+    const flying = sameRoute && base?.source === "simbrief" ? "IFR" : rules;
+    return estimate(perf, pts, cruiseNow > 0 ? cruiseNow : perf.cruiseFt, {
+      rules: flying,
+      alternateNm: altn && (altn.lat || altn.lon) ? gc(dest, altn) : 0,
+      wind: f ? (lat, lon) => sample(f, lon, lat) : null,
+    });
+  });
+  const hm = (m: number) => (m >= 60 ? `${Math.floor(m / 60)} h ${String(Math.round(m % 60)).padStart(2, "0")} min` : `${Math.round(m)} min`);
+  /** Fuel on board now (sim aircraft only), lb. */
+  const onBoardLb = $derived(aircraftId <= 0 && simAc?.telemetry && simAc.telemetry.fuel_kg > 0 ? simAc.telemetry.fuel_kg / 0.45359237 : null);
 </script>
 
 {#snippet perf()}
@@ -548,7 +677,7 @@
         <span class="mark icon alt" aria-hidden="true">{@render glyph(90)}</span>
         <AirportField label="Alternate" placeholder="Alternate" value={altn} onchange={(v) => (altn = v)} />
       </li>
-      {#if !(sameRoute && base?.source === "simbrief")}
+      {#if dest && !(sameRoute && base?.source === "simbrief")}
         <!-- Cruise altitude: the flight profile climbs to it and descends from it. -->
         <li class="pt cruise-row">
           <span class="mark icon" aria-hidden="true">
@@ -565,20 +694,72 @@
     {#if mode === "start" && aircraftId > 0}
       <p class="hint">This flight is logged to {chosen?.registration || "this aircraft"}, whatever the sim shows.</p>
     {/if}
-    {#if drawn && routeNm != null}
-      <p class="hint">{distance(routeNm).value} {distance(routeNm).unit} along the drawn route ({drawn.length} point{drawn.length === 1 ? "" : "s"})</p>
-    {:else if direct != null}
-      <p class="hint">{distance(direct).value} {distance(direct).unit} direct{base && sameRoute && base.distance_nm ? `, ${distance(base.distance_nm).value} ${distance(base.distance_nm).unit} planned` : ""}</p>
+    {#if (drawn && routeNm != null) || direct != null}
+      <div class="dist-row">
+        {#if drawn && routeNm != null}
+          <p class="hint">{distance(routeNm).value} {distance(routeNm).unit} along the route ({drawn.length} point{drawn.length === 1 ? "" : "s"})</p>
+        {:else if direct != null}
+          <p class="hint">{distance(direct).value} {distance(direct).unit} direct{base && sameRoute && base.distance_nm ? `, ${distance(base.distance_nm).value} ${distance(base.distance_nm).unit} planned` : ""}</p>
+        {/if}
+        {#if conflicts.length}
+          <!-- The route enters a prohibited, restricted or danger area: hover for which, click to see it on the map. -->
+          <span class="conflict">
+            <button type="button" class="warn" aria-label="Airspace conflict: show on the map" onclick={() => routeAsp.focus++}>!</button>
+            <span class="warn-card" role="tooltip">
+              <strong>Airspace conflict</strong>
+              {#each conflicts as c (c.id)}
+                <span class="wc-row">
+                  <i style:background={ASP_KINDS[c.c]?.color ?? "#ff4f6d"}></i>
+                  <span>
+                    <b>{ASP_KINDS[c.c]?.name ?? c.c}</b>{c.name ? ` · ${c.name}` : ""}<br />
+                    <em>{c.loText || ftText(c.lo)} to {c.hiText || ftText(c.hi)} · route at {ftText(c.alt)}, {Math.round(c.from)}–{Math.round(c.to)} nm from {origin?.icao}</em>
+                  </span>
+                </span>
+              {/each}
+              <span class="wc-foot">Click to show on the map.</span>
+            </span>
+          </span>
+        {/if}
+      </div>
     {:else if partial}
       <p class="hint">Add both an origin and a destination to use a flight plan.</p>
     {:else if originAuto && origin && !dest}
       <p class="hint">Departing from {origin.icao}, where the aircraft is. Add a destination for a flight plan.</p>
     {/if}
 
+    {#if est && acPerf && mode !== "attach"}
+      <!-- Time and fuel: typical acPerformance of the aircraft type, the route, the cruise and forecast winds. -->
+      <details class="est">
+        <summary>
+          <span class="est-k">ETE</span><b class="num">{hm(est.ete)}</b>
+          <span class="est-k">Fuel</span><b class="num">{fuelText(acPerf, est.block).main}</b>
+          <span class="est-s">with reserves</span>
+          {#if est.block > est.usable}<span class="est-bad" title="More than the tanks hold">Over capacity</span>{/if}
+        </summary>
+        <div class="est-body">
+          <p class="est-src">{acPerf.name}{acPerf.source === "design" ? " (from the sim's figures)" : ""} · {est.cruiseFt < cruiseNow - 50 ? `${ftText(est.cruiseFt)} on this short route` : ftText(est.cruiseFt)}{est.headwind != null ? ` · ${Math.abs(Math.round(est.headwind))} kt ${est.headwind >= 0 ? "headwind" : "tailwind"} (GFS)` : ""}</p>
+          <dl>
+            <dt>Climb · cruise · descent</dt><dd class="num">{hm(est.climbMin)} · {hm(est.cruiseMin)} · {hm(est.descentMin)}</dd>
+            <dt>Taxi</dt><dd class="num">{fuelText(acPerf, est.taxi).main}</dd>
+            <dt>Trip</dt><dd class="num">{fuelText(acPerf, est.trip).main}</dd>
+            {#if est.contingency > 0}<dt>Contingency 5%</dt><dd class="num">{fuelText(acPerf, est.contingency).main}</dd>{/if}
+            {#if est.alternate > 0}<dt>Alternate {altn?.icao}</dt><dd class="num">{fuelText(acPerf, est.alternate).main}</dd>{/if}
+            <dt>Reserve {est.reserveMin} min</dt><dd class="num">{fuelText(acPerf, est.reserve).main}</dd>
+            <dt class="tot">Block fuel</dt><dd class="num tot">{fuelText(acPerf, est.block).main} <span>{fuelText(acPerf, est.block).sub}</span></dd>
+            <dt>Usable in the tanks</dt><dd class="num">{fuelText(acPerf, est.usable).main}</dd>
+            {#if onBoardLb != null}
+              <dt>On board now</dt><dd class="num" class:short={onBoardLb < est.block}>{fuelText(acPerf, onBoardLb).main}{onBoardLb < est.block ? ` · ${fuelText(acPerf, est.block - onBoardLb).main} short` : ""}</dd>
+            {/if}
+          </dl>
+          <p class="est-note">An estimate from typical published figures for the type, for planning in the sim only.</p>
+        </div>
+      </details>
+    {/if}
+
     {#if drawn && mode !== "attach"}
-      <section class="drawn" aria-label="Drawn route">
+      <section class="drawn" aria-label="Your route">
         <div class="drawn-top">
-          <strong>Drawn route</strong>
+          <strong>{plnName ? "Imported route" : "Your route"}</strong>
           <span class="seg" role="radiogroup" aria-label="Flight rules">
             <button type="button" role="radio" aria-checked={rules === "VFR"} class:on={rules === "VFR"} onclick={() => (rules = "VFR")}>VFR</button>
             <button type="button" role="radio" aria-checked={rules === "IFR"} class:on={rules === "IFR"} onclick={() => (rules = "IFR")}>IFR</button>
@@ -589,15 +770,16 @@
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 19h14" /></svg>
             {saving ? "Saving…" : "Save .PLN"}
           </button>
-          <button type="button" class="ghost" onclick={() => startDrawing(true)}>Edit</button>
           <button type="button" class="ghost" onclick={() => startDrawing()}>Redraw</button>
-          <button type="button" class="ghost" onclick={() => (drawn = null)}>Remove</button>
+          <button type="button" class="ghost" onclick={() => ((drawn = null), (plnName = null))}>Remove</button>
         </div>
         {#if saved}<p class="hint">Saved {saved}. In MSFS 2020 or 2024, load it from the world map's flight plan menu.</p>{/if}
+        <p class="hint">On the map: drag a point to move it, drag the line to add one, right-click a point to take it out.</p>
       </section>
     {/if}
 
-    <div class="box">
+    <input bind:this={plnInput} type="file" accept=".pln,.PLN,application/xml,text/xml" hidden onchange={(e) => importPln((e.currentTarget as HTMLInputElement).files?.[0])} />
+    <div class="box sb-pln">
       {#if !hasId}
         <button type="button" class="opt" onclick={onsettings}>
           <strong>Import from SimBrief</strong>
@@ -626,6 +808,13 @@
           <strong>Import from SimBrief</strong>
           <span>{sbError ?? "No flight found"}</span>
           <span class="again">Click to try again</span>
+        </button>
+      {/if}
+      {#if mode !== "attach"}
+        <button type="button" class="opt pln-in" disabled={plnBusy} onclick={() => plnInput?.click()} title="Import an MSFS flight plan (.PLN)">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h7l4 4v14H7zM14 3v4h4" /><path d="M12.5 10v7M9.5 14l3 3 3-3" /></svg>
+          <strong>{plnBusy ? "Reading…" : ".PLN"}</strong>
+          <span>Import</span>
         </button>
       {/if}
     </div>
@@ -953,6 +1142,190 @@
   }
   .opt.wait {
     cursor: default;
+  }
+  /* SimBrief, with the .PLN import to its right. */
+  .box.sb-pln {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 74px;
+    align-items: stretch;
+  }
+  .opt.pln-in {
+    justify-content: center;
+    gap: 1px;
+    padding: 6px 4px;
+  }
+  .opt.pln-in svg {
+    width: 20px;
+    height: 20px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.7;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    color: var(--ink-dim);
+  }
+  .opt.pln-in strong {
+    font-size: 12.5px;
+  }
+  .opt.pln-in span {
+    font-size: 11px;
+  }
+  /* Distance, with the airspace warning at its right. */
+  .dist-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .dist-row .hint {
+    flex: 1;
+  }
+  .conflict {
+    position: relative;
+    flex: none;
+  }
+  .warn {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    border: 0;
+    padding: 0;
+    background: #e5484d;
+    color: #fff;
+    font: 800 14px/22px var(--cond, sans-serif);
+    cursor: pointer;
+    box-shadow: 0 0 0 3px rgba(229, 72, 77, 0.25);
+  }
+  .warn:hover,
+  .warn:focus-visible {
+    box-shadow: 0 0 0 4px rgba(229, 72, 77, 0.4);
+  }
+  .warn-card {
+    position: absolute;
+    right: -6px;
+    top: calc(100% + 8px);
+    width: 290px;
+    z-index: 20;
+    display: none;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px 12px;
+    background: rgba(28, 30, 33, 0.98);
+    border: 1px solid rgba(229, 72, 77, 0.55);
+    border-radius: 10px;
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5);
+    font-size: 12px;
+    color: var(--ink);
+  }
+  .conflict:hover .warn-card,
+  .conflict:focus-within .warn-card {
+    display: flex;
+  }
+  .warn-card strong {
+    color: #ff8a8e;
+    font-size: 12.5px;
+  }
+  .wc-row {
+    display: flex;
+    gap: 8px;
+    line-height: 1.35;
+  }
+  .wc-row i {
+    flex: none;
+    width: 8px;
+    height: 8px;
+    margin-top: 4px;
+    border-radius: 2px;
+  }
+  .wc-row em {
+    font-style: normal;
+    color: var(--ink-dim);
+  }
+  .wc-foot {
+    color: var(--ink-faint);
+    font-size: 11px;
+  }
+  /* Time and fuel. */
+  .est {
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.02);
+  }
+  .est summary {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    padding: 8px 10px;
+    cursor: pointer;
+    list-style: none;
+    font-size: 12.5px;
+  }
+  .est summary::-webkit-details-marker {
+    display: none;
+  }
+  .est-k {
+    color: var(--ink-faint);
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .est summary b {
+    color: var(--ink);
+    margin-right: 6px;
+  }
+  .est-s {
+    color: var(--ink-faint);
+    font-size: 11px;
+  }
+  .est-bad {
+    margin-left: auto;
+    color: #ff8a8e;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .est-body {
+    padding: 0 10px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .est-src,
+  .est-note {
+    margin: 0;
+    font-size: 11.5px;
+    color: var(--ink-dim);
+  }
+  .est-note {
+    color: var(--ink-faint);
+    font-size: 10.5px;
+  }
+  .est dl {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 3px 10px;
+    margin: 0;
+    font-size: 12px;
+  }
+  .est dt {
+    color: var(--ink-dim);
+  }
+  .est dd {
+    margin: 0;
+    text-align: right;
+    color: var(--ink);
+  }
+  .est .tot {
+    font-weight: 700;
+    color: var(--ink);
+    border-top: 1px solid var(--rule);
+    padding-top: 3px;
+  }
+  .est dd.tot span {
+    color: var(--ink-faint);
+    font-weight: 500;
+  }
+  .est dd.short {
+    color: #ff8a8e;
   }
   .two {
     display: grid;

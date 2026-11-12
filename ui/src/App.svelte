@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, untrack } from "svelte";
   import { fly as slide } from "svelte/transition";
   import { draft, fly } from "./lib/flyStore.svelte";
   import { api, inRemote, on, type FlightDetail, type FlightPlan, type HangarItem, type Photo, type Route, type Status } from "./lib/api";
@@ -7,6 +7,7 @@
   import PhotosPanel from "./lib/PhotosPanel.svelte";
   import PfdWindow from "./lib/pfd/PfdWindow.svelte";
   import FlightProfile from "./lib/profile/FlightProfile.svelte";
+  import { updateRouteAirspace } from "./lib/routeAirspace.svelte";
   import { profileState } from "./lib/profile/store.svelte";
   import type { ProfileRoute } from "./lib/profile/build";
   import { pfdState } from "./lib/pfd/store.svelte";
@@ -246,6 +247,20 @@
     if (p && p.origin.icao && p.destination.icao) return { origin: p.origin, dest: p.destination, fixes: p.fixes, cruise_ft: p.cruise_ft };
     if (draft.origin && draft.dest) return { origin: draft.origin, dest: { ...draft.dest, runway: draft.runway }, fixes: draft.fixes, cruise_ft: draft.cruise_ft };
     return null;
+  });
+  // Airspace along that route (whatever the map shows): the planner's
+  // conflict warning and the map's glow on crossed areas. Worked out a
+  // moment after the route stops changing.
+  // (The route object is rebuilt on every status update: go by its key.)
+  const aspKey = $derived.by(() => {
+    const r = view === "live" ? profileRoute : null;
+    return r ? [r.origin, ...r.fixes, r.dest].map((p) => `${p.lat.toFixed(4)},${p.lon.toFixed(4)}`).join("|") + `@${r.cruise_ft}` : "";
+  });
+  let aspTimer: ReturnType<typeof setTimeout> | undefined;
+  $effect(() => {
+    const k = aspKey;
+    clearTimeout(aspTimer);
+    aspTimer = setTimeout(() => updateRouteAirspace(k ? untrack(() => profileRoute) : null), k ? 500 : 0);
   });
   const profileAircraft = $derived(
     status?.telemetry

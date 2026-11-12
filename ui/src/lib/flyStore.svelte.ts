@@ -42,3 +42,10 @@ export const drawing = $state<{ stage: "off" | "origin" | "route"; origin: Spot 
   pts: [],
   note: "",
 });
+
+/**
+ * The planned route changed on the map (a point dragged, put in or taken
+ * out of the dashed line): the new points between origin and destination,
+ * for Start a flight to take.
+ */
+export const planEdit = $state<{ fixes: import("./api").PlanFix[] | null }>({ fixes: null });

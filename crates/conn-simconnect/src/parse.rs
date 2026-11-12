@@ -56,6 +56,11 @@ pub const POWER_VARS: &[Var] = &[
     v("ZULU TIME", "seconds"),
     v("ZULU DAY OF YEAR", "number"),
     v("ZULU YEAR", "number"),
+    // The aircraft's own figures, for the planner's time and fuel guess.
+    v("FUEL TOTAL CAPACITY", "gallons"),
+    v("FUEL WEIGHT PER GALLON", "pounds"),
+    v("DESIGN SPEED VC", "knots"),
+    v("DESIGN CRUISE ALT", "feet"),
 ];
 
 /// Instruments for the PFD. Each its own definition and request (id
@@ -207,6 +212,7 @@ pub struct State {
     zulu_s: Option<f64>,
     zulu_doy: Option<f64>,
     zulu_year: Option<f64>,
+    design: [Option<f64>; 4],
     instr: telemetry::Instruments,
     have_instr: bool,
 }
@@ -340,7 +346,9 @@ pub fn parse(b: &[u8], st: &mut State, now_ms: i64) -> Parsed {
                             2 => st.camera = Some(x.clamp(0.0, 255.0) as u8),
                             3 => st.zulu_s = Some(x),
                             4 => st.zulu_doy = Some(x),
-                            _ => st.zulu_year = Some(x),
+                            5 => st.zulu_year = Some(x),
+                            i @ 6..=9 => st.design[i as usize - 6] = Some(x).filter(|v| v.is_finite() && *v > 0.0),
+                            _ => {}
                         }
                     }
                     Parsed::Other
@@ -426,6 +434,12 @@ fn parse_telemetry(b: &[u8], st: &mut State, now_ms: i64) -> Option<Telemetry> {
         },
         camera_state: st.camera,
         sim_clock_offset_ms: sim_clock_ms(st).map(|sim| sim - now_ms),
+        design: telemetry::Design {
+            fuel_capacity_gal: st.design[0].map(|v| v as f32),
+            fuel_lb_per_gal: st.design[1].map(|v| v as f32),
+            cruise_kt: st.design[2].map(|v| v as f32),
+            cruise_alt_ft: st.design[3].map(|v| v as f32),
+        },
     })
 }
 
@@ -684,6 +698,10 @@ mod tests {
         assert_eq!(t(&mut st).sim_clock_offset_ms, None);
         parse(&data_msg(POWER_BASE + 5, &2026.0f64.to_le_bytes()), &mut st, 0);
         assert_eq!(t(&mut st).sim_clock_offset_ms, Some(1_794_438_000_000));
+        parse(&data_msg(POWER_BASE + 6, &53.0f64.to_le_bytes()), &mut st, 0);
+        parse(&data_msg(POWER_BASE + 8, &124.0f64.to_le_bytes()), &mut st, 0);
+        let d = t(&mut st).design;
+        assert_eq!((d.fuel_capacity_gal, d.cruise_kt, d.cruise_alt_ft), (Some(53.0), Some(124.0), None));
     }
 
     #[test]

@@ -30,6 +30,8 @@ export const ASP_KINDS: Record<string, { color: string; dash?: boolean; name: st
 };
 
 const KINDS = Object.keys(ASP_KINDS);
+/** An area's colour by its kind, as a map expression. */
+export const ASP_COLOR: unknown = ["match", ["get", "c"], ...Object.keys(ASP_KINDS).flatMap((k) => [k, ASP_KINDS[k].color]), "#4a8ce8"];
 const color = ["match", ["get", "c"], ...KINDS.flatMap((k) => [k, ASP_KINDS[k].color]), "#4a8ce8"] as unknown as maplibregl.ExpressionSpecification;
 const DASHED = KINDS.filter((k) => ASP_KINDS[k].dash);
 const isDashed = ["in", ["get", "c"], ["literal", DASHED]] as unknown as maplibregl.FilterSpecification;

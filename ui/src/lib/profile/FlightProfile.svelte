@@ -1,7 +1,8 @@
 <script lang="ts">
   // The flight profile under the map: the planned climb, cruise and
   // descent along the route, the ground beneath it (coarse: a guide, not a
-  // survey), FAA obstacles and US class B/C/D airspace along the way, and
+  // survey), FAA obstacles and every airspace the route passes through
+  // (FAA in the US, openAIP elsewhere, whether or not the map shows it), and
   // the aircraft, side on, flying left to right. Plain SVG drawn to the
   // panel's size; the data is worked out once per route.
   //
@@ -15,8 +16,9 @@
   import { onDestroy, untrack } from "svelte";
   import { api, type RunwayEnd, type RunwayEnds } from "../api";
   import RunwayPicker from "../plan/RunwayPicker.svelte";
+  import { areasNear, crossingsAlong } from "../routeAirspace.svelte";
+  import { ASP_KINDS } from "../airspaceLayer";
   import {
-    airspaceAlong,
     altAt,
     bearingDeg,
     destinationNm,
@@ -107,7 +109,6 @@
   /** The FAA obstacle file, parsed once (100,000-odd points): plain, not reactive. */
   let obstFc: GeoJSON.FeatureCollection | null = null;
   let obstReady = $state(false);
-  let aspFc: GeoJSON.FeatureCollection | null = null;
   let obstacles = $state.raw<ProfileObstacle[]>([]);
   let airspace = $state.raw<ProfileAirspace[]>([]);
   let faaNote = $state("");
@@ -128,10 +129,16 @@
         if (!gone) faaNote = "FAA obstacles not reachable";
       }
       try {
-        aspFc ??= JSON.parse(await api.usAirspace()) as GeoJSON.FeatureCollection;
-        if (!gone) airspace = airspaceAlong(p, aspFc, Math.max(0.2, t / 600));
+        // Every area along the route, whatever the map shows.
+        const r = untrack(() => route);
+        const areas = await areasNear(p);
+        if (!gone && r)
+          airspace = crossingsAlong(r, p, areas, Math.max(0.2, t / 600))
+            .map((c) => ({ cls: c.c, name: c.name, from: c.from, to: c.to, floor: c.lo, ceiling: c.hi }))
+            // Big boxes first, so smaller ones draw on top of them.
+            .sort((a, b) => b.ceiling - b.floor - (a.ceiling - a.floor));
       } catch {
-        if (!gone) faaNote = faaNote ? "FAA data not reachable" : "FAA airspace not reachable";
+        if (!gone) faaNote = faaNote ? "Obstacles and airspace not reachable" : "Airspace not reachable";
       }
     })();
     return () => {
@@ -391,8 +398,11 @@
   /** Airspace by class, each as one merged shape. */
   const aspShapes = $derived.by(() => {
     if (glide || !show.asp) return [];
-    return (["B", "C", "D"] as const).map((cls) => ({
+    const kinds = [...new Set(airspace.map((a) => a.cls))];
+    return kinds.map((cls) => ({
       cls,
+      color: ASP_KINDS[cls]?.color ?? "#4a8ce8",
+      dash: !!ASP_KINDS[cls]?.dash,
       ...unionShape(
         airspace
           .filter((a) => a.cls === cls && a.to > view.a && a.from < view.b)
@@ -556,7 +566,7 @@
         <button aria-pressed={show.terrain} class:on={show.terrain} onclick={() => (show.terrain = !show.terrain)}>Terrain</button>
         <button aria-pressed={show.obst} class:on={show.obst} onclick={() => (show.obst = !show.obst)} title="FAA obstacles near the route (US only)">Obstacles</button>
         {#if !glide}
-          <button aria-pressed={show.asp} class:on={show.asp} onclick={() => (show.asp = !show.asp)} title="Class B, C and D airspace (US only)">Airspace</button>
+          <button aria-pressed={show.asp} class:on={show.asp} onclick={() => (show.asp = !show.asp)} title="Airspace along the route, whether or not the map shows it">Airspace</button>
         {/if}
       </div>
       <button class="glide-btn" class:on={glide} aria-pressed={glide} onclick={() => (mode = glide ? "route" : "glide")} title="The final approach with a 3° glideslope">
@@ -607,10 +617,10 @@
           <!-- Airspace: one shape per class. -->
           {#each aspShapes as s (s.cls)}
             {#if s.fill}
-              <path d={s.fill} class="asp-fill {s.cls}" />
-              <path d={s.edge} class="asp-edge {s.cls}" />
+              <path d={s.fill} class="asp-fill" style:fill={s.color} />
+              <path d={s.edge} class="asp-edge" class:dash={s.dash} style:stroke={s.color} />
               {#each s.labels as l, i (i)}
-                <text x={l.x + 5} y={l.y + 13} class="asp-l {s.cls}">{s.cls}</text>
+                <text x={l.x + 5} y={l.y + 13} class="asp-l" style:fill={s.color}>{s.cls}</text>
               {/each}
             {/if}
           {/each}
@@ -937,41 +947,22 @@
   svg.grab:active {
     cursor: grabbing;
   }
-  /* Airspace: one fill and one outline per class. */
-  .asp-fill.B {
-    fill: rgba(79, 141, 255, 0.16);
-  }
-  .asp-fill.C {
-    fill: rgba(176, 72, 214, 0.26);
-  }
-  .asp-fill.D {
-    fill: rgba(79, 141, 255, 0.08);
+  /* Airspace: one fill and one outline per kind, in the map's colours. */
+  .asp-fill {
+    fill-opacity: 0.14;
   }
   .asp-edge {
     fill: none;
     stroke-width: 1.5;
     stroke-linecap: square;
   }
-  .asp-edge.B {
-    stroke: #4f8dff;
-  }
-  .asp-edge.C {
-    stroke: #c060e0;
-  }
-  .asp-edge.D {
-    stroke: #4f8dff;
+  .asp-edge.dash {
     stroke-dasharray: 5 3;
   }
   .asp-l {
     font-size: 11px;
     font-weight: 700;
-  }
-  .asp-l.B,
-  .asp-l.D {
-    fill: #8db8ff;
-  }
-  .asp-l.C {
-    fill: #dc9cf2;
+    filter: brightness(1.35);
   }
   .hover {
     stroke: rgba(255, 255, 255, 0.5);

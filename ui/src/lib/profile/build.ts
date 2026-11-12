@@ -280,7 +280,8 @@ export function obstaclesAlong(pts: RoutePoint[], fc: GeoJSON.FeatureCollection,
 // --- Airspace -------------------------------------------------------------------
 
 export interface ProfileAirspace {
-  cls: "B" | "C" | "D";
+  /** Kind: a class letter, "CTR", "R", "MOA", ... */
+  cls: string;
   name: string;
   from: number;
   to: number;

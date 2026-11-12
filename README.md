@@ -30,8 +30,37 @@ MIT licensed.
   found by code or name as you type. Your latest SimBrief plan is shown
   (callsign, route, aircraft, distance); press it to fill in the form.
   Once origin and destination are chosen, the map zooms to the route and
-  previews it as a dashed purple line. During a flight the same card shows
+  previews it as a dashed magenta line (the flight profile's colour),
+  solid once the flight is started. During a flight the same card shows
   the flight; fold it down to see more of the map.
+  - **One route, however it was entered** (typed airports, SimBrief, a
+    .PLN, drawn): while planning, drag any point of the dashed line to
+    move it, drag the line itself to put a new point in, right-click a
+    point to take it out. No Edit button needed.
+  - **Import .PLN** (beside SimBrief): an MSFS flight plan from MSFS 2020
+    or 2024, Little Navmap or others: airports, every waypoint with its
+    position and altitude, cruise altitude and VFR or IFR, on the map and
+    in the flight profile.
+  - **Cruise altitude**: 5,000 ft unless changed; shown once a
+    destination is in.
+  - **Airspace conflict**: a red ! beside the distance when the route
+    enters a prohibited, restricted or danger area at its planned
+    altitude; point at it for which areas (limits, the route's altitude,
+    where along it), click it to see them on the map. Every area the
+    route crosses has a bold outline with a soft glow on the map, whether
+    or not the Airspace layer is on (not the vast class A and E blocks).
+  - **ETE and fuel**: for the aircraft in the sim (or the hangar aircraft
+    chosen), from typical published performance of about 60 types
+    (climb, cruise and approach speeds, fuel flows, usable fuel), or from
+    the sim's own figures (cruise speed and altitude, tank size) for
+    others. Climb, cruise and descent are worked out along the route
+    with GFS winds at the cruise level, and a short route turns back down
+    before its cruise. Block fuel = taxi + trip + reserves: light aircraft
+    30 min VFR / 45 min IFR (US rules; helicopters 20 min VFR), jets 5%
+    contingency + 30 min final reserve (ICAO), plus the alternate if one
+    is set; checked against the tanks and the fuel on board. Gallons for
+    piston aircraft, pounds and kilograms for turbines. An estimate for
+    the sim, never for real-world planning.
   A plan can also be added mid-flight with **Add a flight plan**, and the
   plan in use changed at any stage with **Edit** on its card (callsign,
   flight number, airports, landing runway, alternate, cruise altitude, a
@@ -215,7 +244,8 @@ MIT licensed.
   flight plan, drawn on the map, and **Save as .PLN** writes it as a
   Microsoft Flight Simulator flight plan (VFR or IFR, cruise altitude;
   user waypoints) that MSFS 2020 and 2024 load from the world map. On a
-  phone or tablet the file downloads. "Enter route manually" comes later.
+  phone or tablet the file downloads. Right-click your destination and
+  choose Set as destination to finish. "Enter route manually" comes later.
 - **PFD** (beside Layers): a primary flight display in a window you can
   move and size (full screen on a phone): attitude with pitch ladder, bank
   scale and slip, speed and altitude tapes, vertical speed, heading rose
@@ -276,8 +306,9 @@ MIT licensed.
   the ground under the route (coarse, from the free Terrain Tiles: a
   guide, not a survey), FAA obstacles within 2 nm of the route (US only,
   red within 100 ft of the planned altitude, yellow within 1,000 ft), class
-  B, C and D airspace it passes through (US only; no MOAs or restricted
-  areas), fix names, distance flown and to go, and your aircraft side on,
+  every airspace it passes through, in the map's colours (FAA class
+  airspace and special-use areas in the US, openAIP elsewhere), whether or
+  not the map's Airspace layer is on, fix names, distance flown and to go, and your aircraft side on,
   flying to the right. **Highest** (ahead of you while you fly the route)
   and **Clearance** (cruise altitude above it) sit in its header, with
   switches for Terrain, Obstacles and Airspace; point at the chart for the

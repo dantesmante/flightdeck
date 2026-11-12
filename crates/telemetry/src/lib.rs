@@ -103,6 +103,19 @@ pub struct Telemetry {
     /// sim's time of day decides logbook day and night.
     #[serde(default)]
     pub sim_clock_offset_ms: Option<i64>,
+    /// The aircraft's own design figures, when the sim gives them.
+    #[serde(default)]
+    pub design: Design,
+}
+
+/// Figures the sim's aircraft file gives: tank size, fuel weight, cruise
+/// speed (indicated) and cruise altitude. For the planner's time and fuel.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
+pub struct Design {
+    pub fuel_capacity_gal: Option<f32>,
+    pub fuel_lb_per_gal: Option<f32>,
+    pub cruise_kt: Option<f32>,
+    pub cruise_alt_ft: Option<f32>,
 }
 
 /// Cockpit instrument values beyond position and attitude (MSFS). Each is

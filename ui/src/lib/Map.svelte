@@ -3,7 +3,7 @@
   // (OpenStreetMap data), recolored at load into a night-chart palette.
   import maplibregl, { type GeoJSONSource, type LngLatBoundsLike } from "maplibre-gl";
   import { onDestroy, onMount, untrack } from "svelte";
-  import { api, type FlightPlan, type HangarItem, type MapAirport, type Route } from "./api";
+  import { api, type FlightPlan, type HangarItem, type MapAirport, type PlanFix, type Route } from "./api";
   import AirportCard from "./AirportCard.svelte";
   import NetworkCard, { NET_COLOR, POSITION, type NetPick } from "./NetworkCard.svelte";
   import WxCard, { CATEGORY, WX_GROUP } from "./WxCard.svelte";
@@ -20,7 +20,8 @@
   import { day } from "./format";
   import { modelName } from "./hangar/names";
   import { prefs, setPref } from "./prefs.svelte";
-  import { drawing, pick } from "./flyStore.svelte";
+  import { drawing, pick, planEdit } from "./flyStore.svelte";
+  import { routeAsp } from "./routeAirspace.svelte";
   import { pfdState } from "./pfd/store.svelte";
   import { padState } from "./pad/store.svelte";
   import ScratchPad from "./pad/ScratchPad.svelte";
@@ -29,7 +30,7 @@
   import { profileState } from "./profile/store.svelte";
   import { taxiState } from "./taxi/store.svelte";
   import { NO_TOWER_MAGENTA, TOWER_BLUE, addAirportImages, runwayFeatures, symbolName } from "./airportSymbols";
-  import { addAirspaceLayers, airspaceAt, airspaceCard, airspaceOverlay, fillForAltitude, scaleAirspace, showAirspace } from "./airspaceLayer";
+  import { ASP_COLOR, addAirspaceLayers, airspaceAt, airspaceCard, airspaceOverlay, fillForAltitude, scaleAirspace, showAirspace } from "./airspaceLayer";
   import { NAV_AIDS_ENABLED, NAV_MIN_ZOOM, WPT_MIN_ZOOM, navAt, navCard, setNavData, showNavLayers } from "./navLayer";
   import { decodeTemps, setTempCanvas, showTemp, tempImage, tempAt, TEMP_BAR, gridImage, setGridCanvas, showGrid, cloudColor, visColor, visMiles, CLOUD_BAR, VIS_BANDS } from "./tempLayer";
   import { coversFl, decodeIcing, icingSeverity, icingShapes, setIcingAdvisories, setIcingShapes, showIcing } from "./icingLayer";
@@ -141,7 +142,9 @@
         : null),
   );
 
-  const PLAN = "#a78bfa";
+  /** The planned route: the flight profile's magenta, dashed while it is
+   * being planned and solid once the flight is started. */
+  const PLAN = "#ff3dd1";
 
   /** The planned route: one line from origin through every fix to the
    * destination (long legs follow the great circle), plus points to label. */
@@ -1260,6 +1263,100 @@
       drawing.pts = drawing.pts.map((p, i) => (i === d.i ? ap : p));
     }
   }
+  // --- The planned route, reshaped on the map --------------------------------
+  // While a flight is being set up (any way: typed, imported, drawn), its
+  // dashed line can be changed right there: drag a point to move it, drag
+  // the line to put a new point in, right-click a point to take it out.
+  // Start a flight takes the result (planEdit).
+  const planEditable = $derived(planner && !plan && !!draft && !drawOn && !tracing && !bare && !history);
+  let planDrag: { fixes: PlanFix[]; i: number; insert: number | null; from: maplibregl.Point; moved: boolean } | null = null;
+  /** The route's corners on screen: origin, each fix, destination. */
+  function planVerts(): [number, number][] {
+    if (!draft) return [];
+    return [[draft.origin.lon, draft.origin.lat], ...(draft.fixes ?? []).map((f) => [f.lon, f.lat] as [number, number]), [draft.dest.lon, draft.dest.lat]];
+  }
+  /** A planned point (index into the fixes) or leg (where a new point goes) under the pointer. */
+  function planHit(pt: maplibregl.Point): { fix: number | null; leg: number | null } {
+    const v = planVerts();
+    if (!map || v.length < 2) return { fix: null, leg: null };
+    const sp = v.map((c) => map!.project(c));
+    for (let i = 1; i < sp.length - 1; i++) if (Math.hypot(sp[i].x - pt.x, sp[i].y - pt.y) < 9) return { fix: i - 1, leg: null };
+    for (let k = 0; k < v.length - 1; k++) {
+      const a = v[k];
+      const b = v[k + 1];
+      const line = Math.hypot(b[0] - a[0], b[1] - a[1]) > 4 ? greatCircle(a, b, 24) : [a, b];
+      const sl = line.map((c) => map!.project(c));
+      for (let j = 0; j < sl.length - 1; j++) {
+        const p = sl[j];
+        const q = sl[j + 1];
+        const dx = q.x - p.x;
+        const dy = q.y - p.y;
+        const len2 = dx * dx + dy * dy || 1;
+        const t = Math.max(0, Math.min(1, ((pt.x - p.x) * dx + (pt.y - p.y) * dy) / len2));
+        if (Math.hypot(p.x + t * dx - pt.x, p.y + t * dy - pt.y) < 7) return { fix: null, leg: k };
+      }
+    }
+    return { fix: null, leg: null };
+  }
+  function planDragStart(e: maplibregl.MapMouseEvent | maplibregl.MapTouchEvent) {
+    if (!planEditable || !map || !draft) return false;
+    if ("points" in e && e.points.length !== 1) return false;
+    if ("button" in e.originalEvent && e.originalEvent.button !== 0) return false;
+    const h = planHit(e.point);
+    if (h.fix == null && h.leg == null) return false;
+    planDrag = { fixes: (draft.fixes ?? []).map((f) => ({ ...f })), i: h.fix ?? h.leg!, insert: h.leg, from: e.point, moved: false };
+    e.preventDefault();
+    map.dragPan.disable();
+    return true;
+  }
+  function planDragMove(e: maplibregl.MapMouseEvent | maplibregl.MapTouchEvent) {
+    const d = planDrag;
+    if (!d || !map || !draft) return;
+    if (!d.moved && Math.hypot(e.point.x - d.from.x, e.point.y - d.from.y) < 4) return;
+    const lat = e.lngLat.lat;
+    const lon = e.lngLat.lng;
+    if (!d.moved) {
+      d.moved = true;
+      if (d.insert != null) {
+        // A new point between two: on a climb or descent it takes their
+        // stage and the altitude between them; at cruise it follows the cruise.
+        const prev = d.fixes[d.insert - 1];
+        const next = d.fixes[d.insert];
+        const sloped = [prev?.stage, next?.stage].find((s) => s === "CLB" || s === "DSC");
+        const alt = sloped && prev && next ? Math.round((prev.alt_ft + next.alt_ft) / 2) : 0;
+        d.fixes.splice(d.insert, 0, { ident: "", kind: "ltlg", lat, lon, alt_ft: alt, stage: sloped ?? "CRZ", procedure: false });
+        d.i = d.insert;
+        d.insert = null;
+      }
+    }
+    const f = d.fixes[d.i];
+    d.fixes[d.i] = { ...f, lat, lon, ...(f.kind === "apt" ? { kind: "ltlg", ident: "" } : {}) };
+    const p = untrack(() => shownPlan);
+    if (p) (map.getSource("plan") as GeoJSONSource | undefined)?.setData(planFeatures({ ...p, fixes: d.fixes }));
+  }
+  async function planDragEnd(e: maplibregl.MapMouseEvent | maplibregl.MapTouchEvent) {
+    const d = planDrag;
+    if (!d) return;
+    planDrag = null;
+    map?.dragPan.enable();
+    if (!d.moved) return;
+    skipClick = true;
+    setTimeout(() => (skipClick = false), 0);
+    // Dropped on an airport: the point becomes that airport.
+    const hit = airportHit(e.point);
+    if (hit) d.fixes[d.i] = { ...d.fixes[d.i], ident: hit.ident, kind: "apt", lat: hit.at[1], lon: hit.at[0] };
+    planEdit.fixes = d.fixes;
+  }
+  /** Right-click on a planned point: take it out. */
+  function planRemoveAt(pt: maplibregl.Point): boolean {
+    if (!planEditable || !draft) return false;
+    const h = planHit(pt);
+    if (h.fix == null) return false;
+    planEdit.fixes = (draft.fixes ?? []).filter((_, i) => i !== h.fix);
+    return true;
+  }
+  let planCursor = false;
+
   let mHover = $state<[number, number] | null>(null);
   let legMarkers: maplibregl.Marker[] = [];
   const R_NM = 3440.065;
@@ -2040,13 +2137,42 @@
     });
     // The flight plan, under the flown track.
     map.addSource("plan", { type: "geojson", data: planFeatures(untrack(() => shownPlan)) });
+    // Airspace the route passes through: a bold outline with a soft glow
+    // (brighter for the conflicts the pilot asked to see).
+    map.addSource("route-asp", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+    const aspCol = ASP_COLOR as maplibregl.ExpressionSpecification;
+    map.addLayer({
+      id: "route-asp-glow",
+      type: "line",
+      source: "route-asp",
+      paint: {
+        "line-color": aspCol,
+        "line-width": ["case", ["==", ["get", "f"], 1], 16, 9],
+        "line-blur": ["case", ["==", ["get", "f"], 1], 9, 6],
+        "line-opacity": ["case", ["==", ["get", "f"], 1], 0.75, 0.38],
+      },
+    });
+    map.addLayer({
+      id: "route-asp-line",
+      type: "line",
+      source: "route-asp",
+      paint: { "line-color": aspCol, "line-width": ["case", ["==", ["get", "f"], 1], 3.4, 2.6], "line-opacity": 0.95 },
+    });
     map.addLayer({
       id: "plan-line",
       type: "line",
       source: "plan",
       filter: ["==", ["get", "kind"], "line"],
-      paint: { "line-color": PLAN, "line-width": 2, "line-opacity": 0.85, "line-dasharray": [2, 1.6] },
+      paint: { "line-color": PLAN, "line-width": 2.4, "line-opacity": 0.9, "line-dasharray": [2, 1.6] },
       layout: { "line-cap": "round", "line-join": "round" },
+    });
+    map.addLayer({
+      id: "plan-line-solid",
+      type: "line",
+      source: "plan",
+      filter: ["==", ["get", "kind"], "line"],
+      paint: { "line-color": PLAN, "line-width": 2.4, "line-opacity": 0.9 },
+      layout: { "line-cap": "round", "line-join": "round", visibility: "none" },
     });
     map.addLayer({
       id: "plan-fixes",
@@ -2085,7 +2211,7 @@
           "text-font": ["Noto Sans Bold"],
           "text-allow-overlap": false,
         },
-        paint: { "text-color": "#cfc4ff", "text-halo-color": C.land, "text-halo-width": 1.4 },
+        paint: { "text-color": "#ffc4ee", "text-halo-color": C.land, "text-halo-width": 1.4 },
       });
     }
     map.addSource("track", {
@@ -2382,6 +2508,11 @@
     }
     // Right-click on an airport: send it to the planner, or fit it in view.
     map.on("contextmenu", (e) => {
+      if (planRemoveAt(e.point)) {
+        e.preventDefault();
+        ctx = null;
+        return;
+      }
       // Drawing a route: a right-click adds a point, just as a click does.
       // On an airport, the airport's menu (Set as destination ends the
       // route there; Add as waypoint passes over it).
@@ -2414,12 +2545,27 @@
     map.on("mousedown", (e) => {
       if (e.originalEvent.button === 2) rightDown = [e.originalEvent.clientX, e.originalEvent.clientY];
     });
-    map.on("mousedown", dragStart);
-    map.on("touchstart", dragStart);
-    map.on("mouseup", dragEnd);
-    map.on("touchend", dragEnd);
-    map.on("touchmove", dragMove);
+    map.on("mousedown", (e) => planDragStart(e) || dragStart(e));
+    map.on("touchstart", (e) => planDragStart(e) || dragStart(e));
+    map.on("mouseup", (e) => (planDrag ? planDragEnd(e) : dragEnd(e)));
+    map.on("touchend", (e) => (planDrag ? planDragEnd(e) : dragEnd(e)));
+    map.on("touchmove", (e) => (planDrag ? planDragMove(e) : dragMove(e)));
     map.on("mousemove", (e) => {
+      if (planDrag) {
+        planDragMove(e);
+        return;
+      }
+      // The planned route: a hand over its points, a plus over its line.
+      if (planEditable && map) {
+        const h = planHit(e.point);
+        if (h.fix != null || h.leg != null) {
+          map.getCanvas().style.cursor = h.fix != null ? "grab" : "copy";
+          planCursor = true;
+        } else if (planCursor) {
+          map.getCanvas().style.cursor = "";
+          planCursor = false;
+        }
+      }
       if (routeDrag) {
         dragMove(e);
         mHover = null;
@@ -2436,6 +2582,7 @@
     map.on("zoom", () => (zoomNow = map!.getZoom()));
     map.on("click", (e) => {
       ctx = null;
+      if (skipClick && !drawOn) return;
       if (drawOn) {
         if (skipClick) return;
         drawClick(e.point, [e.lngLat.lng, e.lngLat.lat]);
@@ -2614,6 +2761,51 @@
     // A route being set up always shows; a real plan only before any flying.
     if (p && id !== lastPlanId && planInView(p)) fitPlan(p);
     lastPlanId = id;
+  });
+  // Dashed while planning; solid once the flight is started.
+  $effect(() => {
+    const started = !!plan && !history;
+    if (!loaded || !map?.getLayer("plan-line-solid")) return;
+    map.setLayoutProperty("plan-line", "visibility", started ? "none" : "visible");
+    map.setLayoutProperty("plan-line-solid", "visibility", started ? "visible" : "none");
+  });
+  // Areas the route crosses, glowing; conflicts shown on request.
+  let focusUntil = 0;
+  let focusTimer: ReturnType<typeof setTimeout> | undefined;
+  $effect(() => {
+    const list = routeAsp.list;
+    const focus = routeAsp.focus;
+    if (!loaded || !map || !planner || bare || history) return;
+    untrack(() => {
+      const focusing = focus > 0 && Date.now() < focusUntil;
+      const feats = list
+        // Not the vast class A or E blocks: they would light up the whole map.
+        .filter((c) => c.c !== "A" && c.c !== "E")
+        .map((c) => ({ ...c.feature, properties: { ...c.feature.properties, f: focusing && c.conflict ? 1 : 0 } }));
+      (map!.getSource("route-asp") as GeoJSONSource | undefined)?.setData({ type: "FeatureCollection", features: feats });
+    });
+  });
+  // Show the conflicts: zoom to them, brighter for a few seconds.
+  let lastFocus = 0;
+  $effect(() => {
+    const focus = routeAsp.focus;
+    if (!loaded || !map || focus === lastFocus) return;
+    lastFocus = focus;
+    untrack(() => {
+      const bad = routeAsp.list.filter((c) => c.conflict);
+      if (!bad.length) return;
+      const pts: [number, number][] = [];
+      for (const c of bad) {
+        const g = c.feature.geometry as GeoJSON.Polygon | GeoJSON.MultiPolygon;
+        const polys = g.type === "Polygon" ? [g.coordinates] : g.coordinates;
+        for (const poly of polys) for (const p of poly[0]) pts.push(p as [number, number]);
+      }
+      focusUntil = Date.now() + 6000;
+      routeAsp.list = [...routeAsp.list];
+      fit(pts, 9);
+      clearTimeout(focusTimer);
+      focusTimer = setTimeout(() => (routeAsp.list = [...routeAsp.list]), 6100);
+    });
   });
   function planInView(p: FlightPlan): boolean {
     return p.id === "draft" || (!untrack(() => history) && untrack(() => live.length) < 2);
