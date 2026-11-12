@@ -631,6 +631,7 @@ export async function mockCall<T>(cmd: string, _args?: Record<string, unknown>):
       other: [], error: null,
     } as T;
   }
+  if (cmd === "us_airport_use") return JSON.stringify({ public: ["KSEA", "SEA", "KBFI", "BFI"], private: ["X3", "X5"] }) as T;
   if (cmd === "resolve_fixes") {
     // A few real-world fixes (approximate) for importing SimBrief/MSFS plans.
     const known: Record<string, [number, number, string]> = { SLI: [33.78, -118.05, "vor"], SEBBY: [34.3, -117.45, "wpt"], YELAH: [35.0, -116.6, "wpt"], MISEN: [35.6, -115.75, "wpt"] };

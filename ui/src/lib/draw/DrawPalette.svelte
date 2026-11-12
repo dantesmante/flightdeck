@@ -38,6 +38,17 @@
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 20h11" /><path d="M5.6 14.4l8.8-8.8a2 2 0 0 1 2.8 0l2.2 2.2a2 2 0 0 1 0 2.8L11 19H8.4z" /><path d="M9.5 10.5l5 5" /></svg>
     </button>
   </div>
+  {#if pen.erasing}
+    <!-- What the eraser takes: just where it rubs, or whole lines it touches. -->
+    <div class="pair modes" role="radiogroup" aria-label="Eraser">
+      <button role="radio" aria-checked={pen.eraseMode === "area"} class:on={pen.eraseMode === "area"} title="Erase where the eraser passes" onclick={() => (pen.eraseMode = "area")}>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="6.5" stroke-dasharray="2.6 2.2" /></svg>
+      </button>
+      <button role="radio" aria-checked={pen.eraseMode === "line"} class:on={pen.eraseMode === "line"} title="Erase whole lines" onclick={() => (pen.eraseMode = "line")}>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 16c3-6 6-6 9 0s6 6 9 0" /><path d="M6 6l12 12" /></svg>
+      </button>
+    </div>
+  {/if}
   <span class="sep"></span>
   {#snippet dots()}
     {#each PEN_COLORS as c (c)}

@@ -4,7 +4,7 @@
   import RunwayPicker from "./RunwayPicker.svelte";
   // and mid-flight to add a plan.
   import { onDestroy, onMount, untrack } from "svelte";
-  import { draft, drawing, pick, planEdit, planInfo } from "../flyStore.svelte";
+  import { draft, drawing, pick, planClear, planEdit, planInfo } from "../flyStore.svelte";
   import { routeAsp } from "../routeAirspace.svelte";
   import { ASP_KINDS } from "../airspaceLayer";
   import { needsPositions, parsePln, toFixes } from "./pln";
@@ -517,19 +517,14 @@
   }
   let formEl = $state<HTMLDivElement>();
   let warnBtn = $state<HTMLButtonElement>();
-  let altAnchorDraw = $state<HTMLElement>();
-  let altAnchorRoute = $state<HTMLElement>();
   let floatLeft = $state(0);
   let warnTop = $state(0);
-  let altTop = $state(0);
   /** Where the cards go: just right of the Start a flight card. */
   function place() {
     const card = (formEl?.closest(".live") as HTMLElement | null) ?? formEl;
     if (!card) return;
     floatLeft = Math.round(card.getBoundingClientRect().right + 10);
     if (warnBtn) warnTop = Math.max(56, Math.round(warnBtn.getBoundingClientRect().top - 8));
-    const a = drawing.stage === "route" ? altAnchorDraw : altAnchorRoute;
-    if (a) altTop = Math.min(Math.max(56, Math.round(a.getBoundingClientRect().top)), window.innerHeight - 160);
   }
   onMount(() => {
     const on = () => place();
@@ -542,9 +537,10 @@
   });
   let warnOpen = $state(false);
   let warnTimer: ReturnType<typeof setTimeout> | undefined;
-  function showWarn(on: boolean) {
+  function showWarn(on: boolean, from?: HTMLElement) {
     clearTimeout(warnTimer);
     if (on) {
+      if (from) warnBtn = from as HTMLButtonElement;
       place();
       warnOpen = true;
     } else warnTimer = setTimeout(() => (warnOpen = false), 180);
@@ -582,6 +578,14 @@
     requestAnimationFrame(place);
   });
 
+  // "Clear" in the card's header.
+  let clearSeen = planClear.n;
+  $effect(() => {
+    if (planClear.n !== clearSeen) {
+      clearSeen = planClear.n;
+      if (mode === "start") untrack(clearPlan);
+    }
+  });
   /** Starts over: no airports, route, SimBrief plan or names. */
   function clearPlan() {
     cancelDrawing();
@@ -707,18 +711,60 @@
   onDestroy(() => (planInfo.v = null));
 </script>
 
+{#snippet altsInline()}
+  {#if altRows.length}
+    <!-- Altitude at each point (feet); empty follows the cruise. -->
+    <div class="alts" aria-label="Waypoint altitudes">
+      {#each altRows as r (r.key)}
+        <label class:apt={r.apt}>
+          <span class="num">{r.label}</span>
+          <input
+            class="num"
+            type="number"
+            min="0"
+            max="60000"
+            step="100"
+            placeholder={cruiseNow ? `${cruiseNow}` : "Cruise"}
+            value={r.alt ?? ""}
+            onchange={(e) => {
+              const v = (e.currentTarget as HTMLInputElement).valueAsNumber;
+              r.set(Number.isFinite(v) && v > 0 ? v : null);
+            }}
+            aria-label="Altitude at {r.label}, feet"
+          />
+        </label>
+      {/each}
+    </div>
+  {/if}
+{/snippet}
+
 {#snippet warnButton()}
+  {#if routeShown && routeAsp.terrain.length}
+    <!-- The flight path goes below the ground: a red mountain. -->
+    <button
+      type="button"
+      class="warn-ter"
+      aria-label="Terrain conflict on the route: show on the map"
+      onclick={() => routeAsp.focus++}
+      onmouseenter={(e) => showWarn(true, e.currentTarget)}
+      onmouseleave={() => showWarn(false)}
+      onfocus={(e) => showWarn(true, e.currentTarget)}
+      onblur={() => showWarn(false)}
+      ><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 19.5L9 8l3.6 6.2L15 10.5l6.5 9z" /><path d="M7.4 10.9L9 8l1.6 2.8-1.6 1.1z" class="snow" /></svg></button
+    >
+  {/if}
+  {#if conflicts.length}
           <button
             type="button"
             class="warn"
-            bind:this={warnBtn}
             aria-label="Conflicts on the route: show on the map"
             onclick={() => routeAsp.focus++}
-            onmouseenter={() => showWarn(true)}
+            onmouseenter={(e) => showWarn(true, e.currentTarget)}
             onmouseleave={() => showWarn(false)}
-            onfocus={() => showWarn(true)}
+            onfocus={(e) => showWarn(true, e.currentTarget)}
             onblur={() => showWarn(false)}>!</button
           >
+  {/if}
 {/snippet}
 
 {#snippet perf()}
@@ -748,7 +794,7 @@
   {#if mode === "start"}{@render perf()}{/if}
 
   {#if drawing.stage !== "off" && mode !== "attach"}
-    <section class="draw" aria-label="Draw a route" bind:this={altAnchorDraw}>
+    <section class="draw" aria-label="Draw a route">
       <h3>Draw a route</h3>
       {#if drawing.stage === "origin"}
         <p class="step">Choose where you depart from: type it, or click an airport on the map.</p>
@@ -786,6 +832,7 @@
           <p class="total"><b class="num">{Math.round(drawnNm)}</b> nm · {drawing.pts.length} point{drawing.pts.length === 1 ? "" : "s"}</p>
           {#if warnings}{@render warnButton()}{/if}
         </div>
+        {@render altsInline()}
         {#if drawing.pts.length && !lastIsAirport}<p class="note">Finish on an airport: click your destination.</p>{/if}
         <div class="row">
           <button type="button" class="ghost" onclick={cancelDrawing}>Cancel</button>
@@ -795,9 +842,6 @@
       {/if}
     </section>
   {:else}
-    {#if mode !== "attach" && (origin || dest || drawn || base || callsign || flightNo)}
-      <div class="clear-row"><button type="button" class="clear-all" onclick={clearPlan}>Clear plan</button></div>
-    {/if}
     <ol class="legs">
       {#if mode === "start"}
         <li class="ac">
@@ -872,7 +916,7 @@
 
 
     {#if drawn && mode !== "attach"}
-      <section class="drawn" aria-label="Your route" bind:this={altAnchorRoute}>
+      <section class="drawn" aria-label="Your route">
         <div class="drawn-top">
           <strong>{plnName ? "Imported route" : "Your route"}</strong>
           <span class="seg" role="radiogroup" aria-label="Flight rules">
@@ -888,6 +932,7 @@
           <button type="button" class="ghost" onclick={() => startDrawing()}>Redraw</button>
           <button type="button" class="ghost" onclick={() => ((drawn = null), (plnName = null), (plnNote = null))}>Remove</button>
         </div>
+        {@render altsInline()}
         {#if plnNote}<p class="hint">{plnNote}</p>{/if}
         {#if saved}<p class="hint">Saved {saved}. In MSFS 2020 or 2024, load it from the world map's flight plan menu.</p>{/if}
         <p class="hint">On the map: drag a point to move it, drag the line to add one, right-click a point to take it out.</p>
@@ -997,40 +1042,13 @@
     <span class="wc-foot">Click the ! to show them on the map.</span>
   </div>
 {/if}
-{#if altRows.length}
-  <div class="alt-card" use:portal style:left="{floatLeft}px" style:top="{altTop}px" style:max-height="calc(100vh - {altTop + 16}px)" aria-label="Waypoint altitudes">
-    <h4>Altitudes</h4>
-    <ol>
-      {#each altRows as r (r.key)}
-        <li>
-          <span class="num" class:apt={r.apt}>{r.label}</span>
-          <input
-            class="num"
-            type="number"
-            min="0"
-            max="60000"
-            step="100"
-            placeholder={cruiseNow ? `${cruiseNow}` : "Cruise"}
-            value={r.alt ?? ""}
-            onchange={(e) => {
-              const v = (e.currentTarget as HTMLInputElement).valueAsNumber;
-              r.set(Number.isFinite(v) && v > 0 ? v : null);
-            }}
-            aria-label="Altitude at {r.label}, feet"
-          />
-          <span class="u">ft</span>
-        </li>
-      {/each}
-    </ol>
-    <p>Empty: the cruise altitude.</p>
-  </div>
-{/if}
+
 
 <style>
   .form {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 8px;
   }
   .ids {
     display: grid;
@@ -1078,7 +1096,7 @@
   .perf {
     position: relative;
     height: 14px;
-    margin: 2px -18px;
+    margin: 0 -18px;
   }
   .perf span {
     position: absolute;
@@ -1095,8 +1113,8 @@
     width: 14px;
     height: 14px;
     border-radius: 50%;
-    background: #0f1012;
-    border: 1px solid var(--rule);
+    /* The card is cut here (see MapDock): nothing drawn, the map shows through. */
+    background: transparent;
     box-sizing: border-box;
   }
   .perf::before {
@@ -1118,7 +1136,7 @@
     display: flex;
     align-items: center;
     gap: 14px;
-    min-height: 40px;
+    min-height: 34px;
   }
   /* The line from origin to destination (solid), on to the alternate (dotted). */
   .legs li.pt.solid::after,
@@ -1207,7 +1225,7 @@
     flex-direction: column;
     align-items: center;
     gap: 2px;
-    padding: 11px 12px;
+    padding: 8px 12px;
     border: 1px solid transparent;
     border-radius: 9px;
     background: var(--panel-3);
@@ -1352,6 +1370,42 @@
   .dist-row .total {
     flex: 1;
   }
+  .alts {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+    gap: 4px 8px;
+    margin-top: 2px;
+  }
+  .alts label {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    min-width: 0;
+  }
+  .alts span {
+    flex: none;
+    width: 38px;
+    font-size: 11px;
+    color: var(--ink-dim);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .alts label.apt span {
+    color: var(--amber);
+  }
+  .alts input {
+    width: 100%;
+    min-width: 0;
+    height: 24px;
+    padding: 0 6px;
+    border: 1px solid var(--rule);
+    border-radius: 5px;
+    background: rgba(0, 0, 0, 0.2);
+    color: var(--ink);
+    font: inherit;
+    font-size: 12px;
+  }
   .warn {
     flex: none;
     width: 22px;
@@ -1365,89 +1419,33 @@
     cursor: pointer;
     box-shadow: 0 0 0 3px rgba(229, 72, 77, 0.25);
   }
+  .warn-ter {
+    flex: none;
+    width: 24px;
+    height: 22px;
+    border: 0;
+    padding: 0;
+    background: none;
+    cursor: pointer;
+    display: grid;
+    place-items: center;
+  }
+  .warn-ter svg {
+    width: 24px;
+    height: 22px;
+    fill: #e5484d;
+    stroke: #fff;
+    stroke-width: 1.3;
+    stroke-linejoin: round;
+    filter: drop-shadow(0 0 3px rgba(229, 72, 77, 0.5));
+  }
+  .warn-ter svg .snow {
+    fill: #fff;
+    stroke: none;
+  }
   .warn:hover,
   .warn:focus-visible {
     box-shadow: 0 0 0 4px rgba(229, 72, 77, 0.4);
-  }
-  .clear-row {
-    display: flex;
-    justify-content: flex-end;
-    margin: -4px 0 -6px;
-  }
-  .clear-row .clear-all {
-    border: 0;
-    background: none;
-    padding: 2px 0;
-    font: inherit;
-    font-size: 12px;
-    color: var(--ink-faint);
-    cursor: pointer;
-  }
-  .clear-row .clear-all:hover {
-    color: var(--amber);
-  }
-  /* Beside the Start a flight card, over the map. */
-  .alt-card {
-    position: fixed;
-    z-index: 1000;
-    width: 150px;
-    overflow-y: auto;
-    padding: 10px 12px;
-    background: rgba(28, 30, 33, 0.97);
-    border: 1px solid var(--rule);
-    border-radius: 12px;
-    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
-    color: var(--ink);
-  }
-  .alt-card h4 {
-    margin: 0 0 6px;
-    font-size: 10.5px;
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--ink-dim);
-    text-align: center;
-  }
-  .alt-card ol {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: grid;
-    gap: 5px;
-  }
-  .alt-card li {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-  .alt-card span.num {
-    width: 44px;
-    font-size: 12px;
-    color: var(--ink-dim);
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .alt-card span.apt {
-    color: var(--amber);
-  }
-  .alt-card input {
-    width: 64px;
-    padding: 3px 6px;
-    border: 1px solid var(--rule);
-    border-radius: 5px;
-    background: rgba(0, 0, 0, 0.2);
-    color: var(--ink);
-    font: inherit;
-    font-size: 12px;
-  }
-  .alt-card .u {
-    font-size: 11px;
-    color: var(--ink-faint);
-  }
-  .alt-card p {
-    margin: 6px 0 0;
-    font-size: 10.5px;
-    color: var(--ink-faint);
   }
   .warn-card {
     position: fixed;

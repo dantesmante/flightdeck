@@ -8,7 +8,7 @@
   import { briefing, openBriefing } from "./briefingStore.svelte";
   import { fly as slide } from "svelte/transition";
   import type { FlightDetail, Status } from "./api";
-  import { fly, pick } from "./flyStore.svelte";
+  import { fly, pick, planClear } from "./flyStore.svelte";
   import LivePanel from "./LivePanel.svelte";
   import Logo from "./Logo.svelte";
   import { screen } from "./phone.svelte";
@@ -95,11 +95,50 @@
     fly.item = null;
   }
 
+  let cardEl = $state<HTMLElement>();
+  /** The tear line's notches are real holes: the card is cut there (a mask), so the map shows through. */
+  function punchHoles(card: HTMLElement) {
+    let raf = 0;
+    const cut = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        const r = card.getBoundingClientRect();
+        const ys = [...card.querySelectorAll<HTMLElement>(".perf")].map((p) => {
+          const q = p.getBoundingClientRect();
+          return Math.round(q.top - r.top + q.height / 2);
+        });
+        const layers = ys.flatMap((y) => [`radial-gradient(circle at 0 ${y}px, transparent 7px, #000 7.6px)`, `radial-gradient(circle at 100% ${y}px, transparent 7px, #000 7.6px)`]);
+        const m = layers.join(", ");
+        card.style.maskImage = m;
+        card.style.setProperty("-webkit-mask-image", m);
+        card.style.maskComposite = layers.length > 1 ? "intersect" : "";
+        card.style.setProperty("-webkit-mask-composite", layers.length > 1 ? "source-in" : "");
+      });
+    };
+    const ro = new ResizeObserver(cut);
+    ro.observe(card);
+    const mo = new MutationObserver(cut);
+    mo.observe(card, { childList: true, subtree: true });
+    card.addEventListener("scroll", cut, { passive: true });
+    window.addEventListener("resize", cut);
+    cut();
+    return {
+      destroy() {
+        ro.disconnect();
+        mo.disconnect();
+        card.removeEventListener("scroll", cut);
+        window.removeEventListener("resize", cut);
+        cancelAnimationFrame(raf);
+      },
+    };
+  }
   const label = $derived(busy ? (flying ? (status?.phase_label ?? "Show flight") : "Flight complete") : status?.armed ? "Flight started" : status?.plan ? "Flight plan ready" : "Start a flight");
 </script>
 
 {#if shown}
   <section
+    bind:this={cardEl}
+    use:punchHoles
     class="card"
     aria-label={busy ? "Your flight" : "Start a flight"}
     transition:slide={{ y: 60, duration: 260, easing: cubicOut, opacity: 0 }}
@@ -111,6 +150,9 @@
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h7l4 4v14H7zM14 3v4h4M10 11h5M10 14h5M10 17h3" /></svg>
           {briefing.loading ? "Opening…" : "OFP"}
         </button>
+      {/if}
+      {#if !busy}
+        <button class="clear" onclick={() => planClear.n++} title="Clear the flight plan and start over">Clear</button>
       {/if}
       <button class="x" aria-label={busy ? "Put the card away" : "Close"} title={busy ? "Hide" : "Close"} onclick={close}>
         {#if busy}
@@ -206,6 +248,24 @@
     font-size: 21px;
     font-weight: 800;
     letter-spacing: -0.01em;
+  }
+  .clear {
+    margin-left: auto;
+    margin-right: 6px;
+    height: 28px;
+    padding: 0 12px;
+    border: 1px solid var(--rule);
+    border-radius: 7px;
+    background: var(--panel-2);
+    color: var(--ink);
+    font: inherit;
+    font-size: 12.5px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .clear:hover {
+    border-color: var(--amber);
+    color: var(--amber);
   }
   .x {
     display: grid;

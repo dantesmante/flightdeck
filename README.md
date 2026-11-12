@@ -38,8 +38,8 @@ MIT licensed.
     drawn): while planning, drag any point of the dashed line to move it,
     drag the line itself to put a new point in, right-click a point to
     take it out. No Edit button needed. Every point's altitude can be set
-    in a small Altitudes card beside Start a flight (empty follows the
-    cruise), while drawing and after. **Clear plan** empties the form. SimBrief's own
+    in a compact list in the card (empty follows the cruise), while
+    drawing and after. **Clear** (in the card's header) empties the form. SimBrief's own
     route is never changed. Each leg's length is written along it once
     the zoom leaves room for it.
   - **Import .PLN** (beside SimBrief): an MSFS flight plan from MSFS 2020
@@ -57,10 +57,11 @@ MIT licensed.
     path goes into a prohibited, restricted, danger, MOA, warning,
     national security, temporary reserved/segregated or military area
     (across its outline and between its floor and ceiling, as the flight
-    profile shows it), or below the ground (coarse terrain). Point at it
-    for the list, in a card beside Start a flight; click it to see them
+    profile shows it); a red mountain when it goes below the ground
+    (coarse terrain). Point at either for the list, in a card beside Start a flight; click it to see them
     on the map. On the map that stretch of the path is red with a white
-    core, with a red ! at its middle (click it for details). The warnings
+    core, with a red ! (or the red mountain for terrain) at its middle
+    (click it for details). The warnings
     follow the route while it is drawn or edited. Every area the
     route crosses has a bold outline with a soft glow on the map, whether
     or not the Airspace layer is on (not the vast class A and E blocks).
@@ -412,11 +413,14 @@ MIT licensed.
   menu picks Blank, Typed notes, Grid, CRAFT (clearance), Takeoff or
   Landing briefing; each keeps its own sheet. A pen palette at the bottom:
   pen or eraser, colours (one swatch that opens them when space is short),
-  a 2–10 px slider, undo, redo (Ctrl+Z / Ctrl+Shift+Z) and Clear. Fills the map by default; can be made smaller.
-  Kept in each device's browser.
+  a 2–10 px slider (it sizes the eraser too), undo, redo (Ctrl+Z / Ctrl+Shift+Z) and Clear. Fills the map by default; can be made smaller.
+  Kept in each device's browser. The eraser rubs out just what it passes
+  over, or (the second eraser button) takes away every whole line it
+  touches; it shows as an open circle its own size.
 - **Markup** (Tools → Markup): draw on the map with the same palette; the
   marks stick to the map, stay after the tool closes and are kept in the
-  browser until cleared. The eraser takes away whole marks; the move
+  browser until cleared. The eraser works as on the pad (rub out, or
+  whole lines); the move
   button lets the map be panned meanwhile. The mouse wheel zooms the map
   whenever the pen is lifted; while the pen is pressed the map stays put.
 - **Layers panel first**: it keeps the top right; airport, weather and
@@ -455,7 +459,10 @@ MIT licensed.
   contours from zoom 9, worked out in the background only for what is on
   screen), stronger borders, past routes, airports, **parked aircraft** (where you last left
   each aircraft, off by default), and live **rain radar** (RainViewer,
-  refreshed every 10 minutes). **World airports** puts the world's
+  refreshed every 10 minutes; RainViewer's free tiles come in blues only,
+  so FlightDeck recolours them as radar displays do: green for light rain
+  through yellow and orange to red and magenta for the heaviest, snow in
+  pale blues; a Radar key shows the colours). **World airports** puts the world's
   airports on the map with a **Detail** slider: Big (airports with a
   control tower), Small (adds any airport with a runway longer than
   3,000 ft) and All (every other airport, and every seaplane base
@@ -468,8 +475,11 @@ MIT licensed.
   there are too many to tell apart, as at O'Hare), ticks around it where
   fuel is sold, a ring with an R inside for a private airport, a white
   anchor for a seaplane base. Tower from OurAirports' frequencies (a TWR
-  frequency); private and fuel from openAIP's airport data (countries in
-  view, read once per 28-day cycle, CC BY-NC 4.0). Light on the computer:
+  frequency). Private: in the US from the FAA's own airport list (each
+  airport marked private or public use; read once per 28-day cycle),
+  elsewhere from openAIP's airport data matched by the airport's code.
+  Fuel from openAIP's airport data (countries in view, read once per
+  28-day cycle, CC BY-NC 4.0). Light on the computer:
   a dozen small images made once, and only the airports in view are
   drawn, so zooming in has no stutter. Click any airport, or one of your own, for
   its card: code, name and place, elevation, runways (length, width,

@@ -118,6 +118,61 @@ pub fn sua(data_dir: &Path) -> Result<String, String> {
     })
 }
 
+/// Which US airports are private use, as the FAA lists them (its airport
+/// list marks each one PRIVATEUSE 0 or 1): the codes of every listed
+/// airport ("SEA", "KSEA" and the like) in `public` or `private`. Kept a
+/// cycle like the airspace.
+pub fn us_airport_use(data_dir: &Path) -> Result<String, String> {
+    static ONE: Mutex<()> = Mutex::new(());
+    let _one = ONE.lock().unwrap_or_else(|e| e.into_inner());
+    cached(data_dir, "usapt1", |c| {
+        let mut public: Vec<String> = Vec::new();
+        let mut private: Vec<String> = Vec::new();
+        let mut offset = 0;
+        loop {
+            let url = format!("{US_AIRPORT_URL}&resultOffset={offset}&resultRecordCount=2000");
+            let v: Value = serde_json::from_str(&get_text(&url, "the FAA (ADDS)")?).map_err(|e| format!("Unexpected answer from the FAA: {e}"))?;
+            let page = v["features"].as_array().cloned().unwrap_or_default();
+            let n = page.len();
+            for f in &page {
+                let a = if f["attributes"].is_object() { &f["attributes"] } else { &f["properties"] };
+                let codes = airport_codes(a["IDENT"].as_str().unwrap_or(""), a["ICAO_ID"].as_str().unwrap_or(""));
+                if a["PRIVATEUSE"].as_i64() == Some(1) { private.extend(codes) } else { public.extend(codes) }
+            }
+            let more = v["exceededTransferLimit"].as_bool().unwrap_or(false) || v["properties"]["exceededTransferLimit"].as_bool().unwrap_or(false);
+            if n == 0 || !more || offset > 60_000 {
+                break;
+            }
+            offset += n;
+        }
+        if public.is_empty() {
+            return Err("The FAA's airport list came back empty".into());
+        }
+        log::info!("airports: FAA list: {} public-use codes, {} private-use codes", public.len(), private.len());
+        Ok(json!({ "cycle": c, "public": public, "private": private }).to_string())
+    })
+}
+
+/// The codes an airport may go by: the FAA ident ("SEA", "63CN"), its ICAO
+/// code, and K + a three-letter ident (as most US airports are known).
+fn airport_codes(ident: &str, icao: &str) -> Vec<String> {
+    let mut v = Vec::new();
+    for s in [ident.trim(), icao.trim()] {
+        if !s.is_empty() {
+            v.push(s.to_ascii_uppercase());
+        }
+    }
+    let id = ident.trim();
+    if id.len() == 3 && id.chars().all(|c| c.is_ascii_alphabetic()) {
+        v.push(format!("K{}", id.to_ascii_uppercase()));
+    }
+    v.sort();
+    v.dedup();
+    v
+}
+
+const US_AIRPORT_URL: &str = "https://services6.arcgis.com/ssFJjBXIUyZDrSYZ/arcgis/rest/services/US_Airport/FeatureServer/0/query?where=1%3D1&outFields=IDENT,ICAO_ID,PRIVATEUSE&returnGeometry=false&f=json";
+
 /// The FAA's special use airspace, as GeoJSON, simplified by the service
 /// (about 50 m) and rounded.
 const SUA_URL: &str = "https://services6.arcgis.com/ssFJjBXIUyZDrSYZ/arcgis/rest/services/Special_Use_Airspace/FeatureServer/0/query?where=1%3D1&outFields=NAME,TYPE_CODE,UPPER_VAL,UPPER_UOM,UPPER_CODE,LOWER_VAL,LOWER_UOM,LOWER_CODE&returnGeometry=true&maxAllowableOffset=0.0005&geometryPrecision=5&outSR=4326&f=geojson";
@@ -904,6 +959,13 @@ mod tests {
         assert_eq!(w["properties"]["label"], "D: GND-2500MSL");
         let d = openaip_feature(&json!({ "properties": { "name": "ED-R 116", "type": 1, "icaoClass": 8, "lowerLimit": { "value": 0, "unit": 1, "referenceDatum": 0 }, "upperLimit": { "value": 100, "unit": 6, "referenceDatum": 2 } }, "geometry": sq })).unwrap();
         assert_eq!(d["properties"]["label"], "ED-R 116: GND-FL100");
+    }
+
+    #[test]
+    fn faa_airport_codes() {
+        assert_eq!(airport_codes("SEA", "KSEA"), vec!["KSEA", "SEA"]);
+        assert_eq!(airport_codes("63CN", ""), vec!["63CN"]);
+        assert_eq!(airport_codes("S43", ""), vec!["S43"]);
     }
 
     #[test]

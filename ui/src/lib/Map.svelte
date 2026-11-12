@@ -15,7 +15,7 @@
   import { WindParticles } from "./wind/particles";
   import { addWindIcons, windIconExpr, windText } from "./wind/arrows";
   import { WIND_LEVELS, WIND_STOPS, decodeGrid, dirSpeed, levelFor, sample, type Field } from "./wind/wind";
-  import { latestRadar } from "./radar";
+  import { RADAR_BAR, latestRadar, registerRadarColours } from "./radar";
   import { nightShade } from "./terminator";
   import { day } from "./format";
   import { modelName } from "./hangar/names";
@@ -1715,10 +1715,30 @@
   const extrasByCode = new globalThis.Map<string, [boolean, boolean]>();
   const extrasByPlace = new globalThis.Map<string, [number, number, boolean, boolean][]>();
   const placeKey = (lat: number, lon: number) => `${Math.round(lat * 50)},${Math.round(lon * 50)}`;
+  /** The FAA's own word on which US airports are private use (codes). */
+  let faaUse: { pub: Set<string>; priv: Set<string> } | null = null;
+  let faaAsked = false;
+  function loadFaaUse() {
+    if (faaAsked) return;
+    faaAsked = true;
+    api
+      .usAirportUse()
+      .then((t) => {
+        const j = JSON.parse(t) as { public: string[]; private: string[] };
+        faaUse = { pub: new Set(j.public), priv: new Set(j.private) };
+        nearAirports();
+      })
+      .catch(() => (faaAsked = false));
+  }
+  /** Private and fuel for an airport: private from the FAA's list for US
+   * airports, else from openAIP by the airport's own code only (a nearby
+   * private strip must not mark its neighbour); fuel from openAIP by code,
+   * or the airport at the same spot. */
   function extrasFor(id: string, lon: number, lat: number): [boolean, boolean] {
     const hit = extrasByCode.get(id);
-    if (hit) return hit;
-    // Otherwise the nearest openAIP airport within about 1 km.
+    const faaPriv = faaUse && (faaUse.pub.has(id) || faaUse.priv.has(id)) ? faaUse.priv.has(id) : null;
+    if (hit) return [faaPriv ?? hit[0], hit[1]];
+    // Otherwise the nearest openAIP airport within about 1 km, for fuel.
     let best: [boolean, boolean] = [false, false];
     let bestD = 0.01 * 0.01;
     const [r, c] = [Math.round(lat * 50), Math.round(lon * 50)];
@@ -1728,13 +1748,14 @@
           const d = (la - lat) ** 2 + ((lo - lon) * Math.cos((lat * Math.PI) / 180)) ** 2;
           if (d < bestD) (bestD = d), (best = [pv, fu]);
         }
-    return best;
+    return [faaPriv ?? false, best[1]];
   }
   const extrasAsked = new Set<string>();
   let extrasBusy = false;
   /** Asks for openAIP's airports in view (zoomed in), a country or two at a time. */
   async function loadExtras() {
     if (!map || extrasBusy || map.getZoom() < SYMBOL_ZOOM - 1) return;
+    loadFaaUse();
     const b = map.getBounds();
     const key = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()].map((v) => Math.round(v)).join(",");
     if (extrasAsked.has(key)) return;
@@ -2257,12 +2278,13 @@
       paint: { "line-color": "#ffffff", "line-width": 2.2 },
     });
     if (!map.hasImage("conflict-bang")) map.addImage("conflict-bang", bangImage(), { pixelRatio: 2 });
+    if (!map.hasImage("conflict-terrain")) map.addImage("conflict-terrain", mountainImage(), { pixelRatio: 2 });
     map.addLayer({
       id: "route-conflict-mark",
       type: "symbol",
       source: "route-conflict",
       filter: ["==", ["geometry-type"], "Point"],
-      layout: { "icon-image": "conflict-bang", "icon-allow-overlap": true, "icon-ignore-placement": true },
+      layout: { "icon-image": ["case", ["==", ["get", "t"], 1], "conflict-terrain", "conflict-bang"], "icon-allow-overlap": true, "icon-ignore-placement": true },
     });
     // Each leg's length, along it, in a dark pill.
     if (map.getStyle().glyphs) {
@@ -2654,6 +2676,8 @@
     });
     map.on("mouseout", () => (mHover = null));
     map.on("zoom", () => (zoomNow = map!.getZoom()));
+    // Radar tiles recoloured green, yellow, red as they arrive.
+    registerRadarColours((name, fn) => maplibregl.addProtocol(name, fn as Parameters<typeof maplibregl.addProtocol>[1]));
     // The middle mouse button pans the map too.
     {
       const box = map.getCanvasContainer();
@@ -2921,7 +2945,7 @@
       const coords: [number, number][] = [];
       for (let i = 0; i <= n; i++) coords.push(alongRoute(pts, a + ((b - a) * i) / n));
       feats.push({ type: "Feature", properties: { id }, geometry: { type: "LineString", coordinates: coords } });
-      feats.push({ type: "Feature", properties: { id }, geometry: { type: "Point", coordinates: alongRoute(pts, (a + b) / 2) } });
+      feats.push({ type: "Feature", properties: { id, t: id.startsWith("terrain-") ? 1 : 0 }, geometry: { type: "Point", coordinates: alongRoute(pts, (a + b) / 2) } });
     };
     for (const c of list) if (c.conflict) stretch(c.id, c.inFrom, c.inTo);
     terrain.forEach((t, i) => stretch(`terrain-${i}`, Math.max(0, t.from - 0.25), t.to + 0.25));
@@ -2953,6 +2977,35 @@
     g.arc(22, 32, 3, 0, Math.PI * 2);
     g.fill();
     return g.getImageData(0, 0, 44, 44);
+  }
+  /** A red mountain with a white edge and snow cap, for the path below the ground. */
+  function mountainImage(): ImageData {
+    const c = document.createElement("canvas");
+    c.width = 52;
+    c.height = 44;
+    const g = c.getContext("2d")!;
+    g.lineJoin = "round";
+    g.beginPath();
+    g.moveTo(3, 40);
+    g.lineTo(18, 9);
+    g.lineTo(27, 24);
+    g.lineTo(33, 15);
+    g.lineTo(49, 40);
+    g.closePath();
+    g.fillStyle = "#e5484d";
+    g.fill();
+    g.lineWidth = 3;
+    g.strokeStyle = "#ffffff";
+    g.stroke();
+    g.beginPath();
+    g.moveTo(14.2, 16.8);
+    g.lineTo(18, 9);
+    g.lineTo(21.8, 15.5);
+    g.lineTo(18, 18.5);
+    g.closePath();
+    g.fillStyle = "#ffffff";
+    g.fill();
+    return g.getImageData(0, 0, 52, 44);
   }
   /** A dark rounded box that stretches round a leg's length. */
   function pillImage(): ImageData {
@@ -3722,10 +3775,17 @@
   </div>
 {/if}
 {#if layers.has("terrain") && !layers.has("satellite") && !offline && !(layers.has("taws") && altStep != null && posStep != null)}
-  <div class="wind-key temp-key" aria-label="Elevation colours">
+  <div class="wind-key temp-key" aria-label="Elevation colours" data-k="elev">
     <span class="t">Elevation</span>
     <span class="bar" style:background={ELEVATION_BAR}></span>
     <span class="ends"><span>0–500</span><span>6,000</span><span>12,000+ ft</span></span>
+  </div>
+{/if}
+{#if layers.has("radar") && !radarError}
+  <div class="wind-key temp-key" aria-label="Radar colours">
+    <span class="t">Radar</span>
+    <span class="bar" style:background={RADAR_BAR}></span>
+    <span class="ends"><span>Light</span><span>Moderate</span><span>Heavy</span></span>
   </div>
 {/if}
 {#if shown.length > 1}

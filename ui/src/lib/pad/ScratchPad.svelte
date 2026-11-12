@@ -18,7 +18,7 @@
   // (each device has its own pad).
   import { onMount, untrack } from "svelte";
   import { padState } from "./store.svelte";
-  import { pen } from "../draw/store.svelte";
+  import { eraserR, pen } from "../draw/store.svelte";
   import DrawPalette from "../draw/DrawPalette.svelte";
 
   interface Props {
@@ -27,7 +27,8 @@
   }
   let { insetLeft = 0 }: Props = $props();
 
-  type Stroke = { c: string; w: number; e?: boolean; p: number[] };
+  /** A stroke; `e` an eraser stroke (2: its width is the eraser's own, in px). */
+  type Stroke = { c: string; w: number; e?: boolean | number; p: number[] };
   type Page = { strokes: Stroke[]; text?: string };
   const KEY = "fd.pad";
 
@@ -43,7 +44,12 @@
   const saved = load();
   let template = $state<Template>(saved.t);
   let pages = $state.raw<Partial<Record<Template, Page>>>(saved.pages);
-  let redo = $state.raw<Stroke[]>([]);
+  /** Undo and redo: the sheet before and after each change. */
+  let past = $state.raw<Page[]>([]);
+  let future = $state.raw<Page[]>([]);
+  /** The eraser's ring, where the pointer is. */
+  let ring = $state<[number, number] | null>(null);
+  let rubBefore: Page | null = null;
   let picking = $state(false);
   let small = $state(false);
   let padW = $state(1000);
@@ -80,7 +86,7 @@
     ctx.globalCompositeOperation = s.e ? "destination-out" : "source-over";
     ctx.strokeStyle = s.c;
     ctx.fillStyle = s.c;
-    ctx.lineWidth = s.e ? s.w * 4 : s.w;
+    ctx.lineWidth = s.e === 2 ? s.w : s.e ? s.w * 4 : s.w;
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
     const X = (i: number) => p[i] * W;
@@ -137,15 +143,38 @@
     const r = canvas!.getBoundingClientRect();
     return [(e.clientX - r.left) / W, (e.clientY - r.top) / W];
   }
+  /** Whole-line eraser: takes away every line the eraser touches. */
+  function rubLines(x: number, y: number) {
+    const r = eraserR() / W;
+    const keep = page.strokes.filter((s) => {
+      if (s.e) return true;
+      for (let i = 0; i < s.p.length; i += 2) if (Math.hypot(s.p[i] - x, s.p[i + 1] - y) < r + s.w / 2 / W) return false;
+      return true;
+    });
+    if (keep.length !== page.strokes.length) setPage({ ...page, strokes: keep });
+  }
   function down(e: PointerEvent) {
     if (template === "type" || e.button > 0) return;
     canvas!.setPointerCapture(e.pointerId);
     picking = false;
-    drawing = { c: pen.color, w: pen.size, e: pen.erasing || undefined, p: pt(e) };
-    draw(canvas!.getContext("2d")!, drawing);
     e.preventDefault();
+    if (pen.erasing && pen.eraseMode === "line") {
+      rubBefore = page;
+      rubbing = true;
+      rubLines(...pt(e));
+      return;
+    }
+    drawing = pen.erasing ? { c: "#000", w: eraserR() * 2, e: 2, p: pt(e) } : { c: pen.color, w: pen.size, p: pt(e) };
+    draw(canvas!.getContext("2d")!, drawing);
   }
+  let rubbing = false;
   function move(e: PointerEvent) {
+    const r = canvas!.getBoundingClientRect();
+    ring = pen.erasing ? [e.clientX - r.left, e.clientY - r.top] : null;
+    if (rubbing) {
+      for (const ev of e.getCoalescedEvents?.() ?? [e]) rubLines(...pt(ev));
+      return;
+    }
     if (!drawing) return;
     const from = drawing.p.length;
     for (const ev of e.getCoalescedEvents?.() ?? [e]) drawing.p.push(...pt(ev));
@@ -155,32 +184,46 @@
       draw(canvas!.getContext("2d")!, drawing);
     } else draw(canvas!.getContext("2d")!, drawing, from);
   }
+  /** One change to undo: the sheet as it was. */
+  function remember(p: Page) {
+    past = [...past.slice(-49), p];
+    future = [];
+  }
   function up() {
+    if (rubbing) {
+      rubbing = false;
+      if (rubBefore && rubBefore !== page) remember(rubBefore);
+      rubBefore = null;
+      return;
+    }
     if (!drawing) return;
     const s = drawing;
     drawing = null;
-    redo = [];
+    remember(page);
     setPage({ ...page, strokes: [...page.strokes, s] });
   }
   function undo() {
-    const s = page.strokes;
-    if (!s.length) return;
-    redo = [...redo, s[s.length - 1]];
-    setPage({ ...page, strokes: s.slice(0, -1) });
+    if (!past.length) return;
+    future = [...future, page];
+    const p = past[past.length - 1];
+    past = past.slice(0, -1);
+    setPage(p);
   }
   function again() {
-    if (!redo.length) return;
-    const last = redo[redo.length - 1];
-    redo = redo.slice(0, -1);
-    setPage({ ...page, strokes: [...page.strokes, last] });
+    if (!future.length) return;
+    past = [...past, page];
+    const p = future[future.length - 1];
+    future = future.slice(0, -1);
+    setPage(p);
   }
   function clear() {
-    redo = [];
+    remember(page);
     setPage({ strokes: [], text: "" });
   }
   function choose(t: Template) {
     template = t;
-    redo = [];
+    past = [];
+    future = [];
     picking = false;
     persist();
   }
@@ -275,10 +318,14 @@
     {#if template === "type"}
       <textarea class="typed" placeholder="Type here…" value={page.text ?? ""} oninput={(e) => setPage({ ...page, text: (e.currentTarget as HTMLTextAreaElement).value })}></textarea>
     {/if}
-    <canvas bind:this={canvas} class:off={template === "type"} class:erase={pen.erasing} onpointerdown={down} onpointermove={move} onpointerup={up} onpointercancel={up}></canvas>
+    <canvas bind:this={canvas} class:off={template === "type"} class:erase={pen.erasing} onpointerdown={down} onpointermove={move} onpointerup={up} onpointercancel={up} onpointerleave={() => (ring = null)}></canvas>
+    {#if ring && pen.erasing && template !== "type"}
+      <!-- The eraser: an open circle its own size. -->
+      <div class="ring" style:left="{ring[0]}px" style:top="{ring[1]}px" style:width="{eraserR() * 2}px" style:height="{eraserR() * 2}px"></div>
+    {/if}
     {#if template !== "type"}
       <div class="dock">
-        <DrawPalette compact={padW < 720} canUndo={page.strokes.length > 0} canRedo={redo.length > 0} onundo={undo} onredo={again} onclear={clear} />
+        <DrawPalette compact={padW < 720} canUndo={past.length > 0} canRedo={future.length > 0} onundo={undo} onredo={again} onclear={clear} />
       </div>
     {:else}
       <div class="dock">
@@ -487,7 +534,16 @@
     cursor: crosshair;
   }
   canvas.erase {
-    cursor: cell;
+    cursor: none;
+  }
+  .ring {
+    position: absolute;
+    z-index: 3;
+    transform: translate(-50%, -50%);
+    border: 1.5px solid var(--ink, #fff);
+    border-radius: 50%;
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5);
+    pointer-events: none;
   }
   canvas.off {
     pointer-events: none;

@@ -390,6 +390,13 @@ async fn airport_extras(state: tauri::State<'_, AppState>, w: f64, s: f64, e: f6
     Ok(AirportExtras { list, more })
 }
 
+/// Which US airports are private use (FAA): {public: [...], private: [...]} as JSON text.
+#[tauri::command]
+async fn us_airport_use(state: tauri::State<'_, AppState>) -> CmdResult<String> {
+    let dir = state.data_dir.clone();
+    tauri::async_runtime::spawn_blocking(move || airspace::us_airport_use(&dir)).await.map_err(err)?.map_err(err)
+}
+
 /// Positions of waypoints named in a flight plan without them (SimBrief and
 /// MSFS 2024 .PLN files): the sim's nav data on this PC, then the FAA.
 #[tauri::command]
@@ -1609,6 +1616,7 @@ pub(crate) async fn dispatch(app: &tauri::AppHandle, cmd: &str, a: serde_json::V
         }),
         "us_airspace" => ok(to_value(us_airspace(st()).await?)),
         "sua_airspace" => ok(to_value(sua_airspace(st()).await?)),
+        "us_airport_use" => ok(to_value(us_airport_use(st()).await?)),
         "resolve_fixes" => ok(to_value(resolve_fixes(st(), arg(&a, "idents")?).await?)),
         "airport_extras" => ok(to_value(airport_extras(st(), arg(&a, "w")?, arg(&a, "s")?, arg(&a, "e")?, arg(&a, "n")?).await?)),
         "world_airspace" => ok(to_value(world_airspace(st(), arg(&a, "w")?, arg(&a, "s")?, arg(&a, "e")?, arg(&a, "n")?).await?)),
@@ -1802,6 +1810,7 @@ pub fn run() {
             world_airspace,
             airport_extras,
             resolve_fixes,
+            us_airport_use,
             pfd_watch,
             us_obstacles,
             pln_text,

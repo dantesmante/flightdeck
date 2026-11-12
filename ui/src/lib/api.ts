@@ -1031,6 +1031,8 @@ export const api = {
   wxAdvisories: () => call<WxAdvisories>("wx_advisories"),
   onlineNetwork: (net: Net) => call<NetworkData>("online_network", { net }),
   onlinePilot: (net: Net, callsign: string) => call<NetPilot | null>("online_pilot", { net, callsign }),
+  /** The FAA's US airports by use: {public: codes[], private: codes[]} (JSON text). */
+  usAirportUse: () => call<string>("us_airport_use"),
   /** Every known position of waypoints named without one in a flight plan. */
   resolveFixes: (idents: string[]) => call<{ ident: string; region: string; kind: string; lat: number; lon: number }[]>("resolve_fixes", { idents }),
   /** openAIP's airports in a box: [lat, lon, ICAO, private, fuel]. */

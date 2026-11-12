@@ -43,6 +43,9 @@ export const drawing = $state<{ stage: "off" | "origin" | "route"; origin: Spot 
   note: "",
 });
 
+/** "Clear" in the Start a flight card's header: the form starts over. */
+export const planClear = $state({ n: 0 });
+
 /** The plan's time and fuel for the card at the bottom of the map. */
 export interface PlanInfo {
   distance: string;
