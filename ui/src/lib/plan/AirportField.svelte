@@ -18,10 +18,13 @@
     placeholder: string;
     label: string;
     onchange: (v: Spot | null) => void;
+    /** Typing in this field starts (true) or ends (false). */
+    onactive?: (on: boolean) => void;
   }
-  let { value, placeholder, label, onchange }: Props = $props();
+  let { value, placeholder, label, onchange, onactive }: Props = $props();
 
   let editing = $state(false);
+  $effect(() => onactive?.(editing));
   let text = $state("");
   let hits = $state<AirportHit[]>([]);
   let active = $state(0);

@@ -8,7 +8,7 @@
   import { briefing, openBriefing } from "./briefingStore.svelte";
   import { fly as slide } from "svelte/transition";
   import type { FlightDetail, Status } from "./api";
-  import { fly, pick, planClear } from "./flyStore.svelte";
+  import { fly, pick, planClose } from "./flyStore.svelte";
   import LivePanel from "./LivePanel.svelte";
   import Logo from "./Logo.svelte";
   import { screen } from "./phone.svelte";
@@ -86,6 +86,14 @@
     else oninset?.(shown ? 380 : 0, 0);
   });
 
+  // Cancel at the foot of the form closes the card.
+  let closeSeen = planClose.n;
+  $effect(() => {
+    if (planClose.n !== closeSeen) {
+      closeSeen = planClose.n;
+      untrack(close);
+    }
+  });
   function close() {
     if (busy) {
       tucked = true;
@@ -150,9 +158,6 @@
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h7l4 4v14H7zM14 3v4h4M10 11h5M10 14h5M10 17h3" /></svg>
           {briefing.loading ? "Opening…" : "OFP"}
         </button>
-      {/if}
-      {#if !busy}
-        <button class="clear" onclick={() => planClear.n++} title="Clear the flight plan and start over">Clear</button>
       {/if}
       <button class="x" aria-label={busy ? "Put the card away" : "Close"} title={busy ? "Hide" : "Close"} onclick={close}>
         {#if busy}
@@ -248,24 +253,6 @@
     font-size: 21px;
     font-weight: 800;
     letter-spacing: -0.01em;
-  }
-  .clear {
-    margin-left: auto;
-    margin-right: 6px;
-    height: 28px;
-    padding: 0 12px;
-    border: 1px solid var(--rule);
-    border-radius: 7px;
-    background: var(--panel-2);
-    color: var(--ink);
-    font: inherit;
-    font-size: 12.5px;
-    font-weight: 600;
-    cursor: pointer;
-  }
-  .clear:hover {
-    border-color: var(--amber);
-    color: var(--amber);
   }
   .x {
     display: grid;

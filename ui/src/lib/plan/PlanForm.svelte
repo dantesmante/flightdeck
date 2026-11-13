@@ -4,7 +4,7 @@
   import RunwayPicker from "./RunwayPicker.svelte";
   // and mid-flight to add a plan.
   import { onDestroy, onMount, untrack } from "svelte";
-  import { draft, drawing, pick, planClear, planEdit, planInfo } from "../flyStore.svelte";
+  import { draft, drawing, pick, planClear, planClose, planEdit, planInfo } from "../flyStore.svelte";
   import { routeAsp } from "../routeAirspace.svelte";
   import { ASP_KINDS } from "../airspaceLayer";
   import { needsPositions, parsePln, toFixes } from "./pln";
@@ -509,6 +509,37 @@
     }
   }
 
+  // --- The card's layout ----------------------------------------------------------
+  /** How the route was planned; once one way is chosen, only it shows. */
+  const method = $derived<"none" | "simbrief" | "pln" | "draw">(
+    drawing.stage !== "off" ? "draw" : drawn ? (plnName ? "pln" : "draw") : base && sameRoute && base.source === "simbrief" ? "simbrief" : "none",
+  );
+  /** Something planned: Clear and Cancel join Start at the foot. */
+  const planned = $derived(method !== "none" || !!dest);
+  /** The airport field being typed in: its mark turns amber. */
+  let activeField = $state<"origin" | "dest" | "altn" | null>(null);
+  function setActive(f: "origin" | "dest" | "altn", on: boolean) {
+    if (on) activeField = f;
+    else if (activeField === f) activeField = null;
+  }
+  let altsOpen = $state(false);
+  /** A boarding-pass barcode for the legs, the same for the same flight. */
+  const codeBars = $derived.by(() => {
+    let h = 2166136261;
+    for (const ch of `${callsign}${flightNo}${origin?.icao ?? ""}${dest?.icao ?? ""}`) h = Math.imul(h ^ ch.charCodeAt(0), 16777619);
+    const bars: [number, number][] = [];
+    let y = 0;
+    const H = 150;
+    while (y < H) {
+      h = Math.imul(h ^ (h >>> 13), 1274126177);
+      const w = 1 + ((h >>> 3) & 3);
+      const gap = 1 + ((h >>> 7) & 3);
+      bars.push([y, Math.min(w, H - y)]);
+      y += w + gap;
+    }
+    return { h: H, bars };
+  });
+
   // --- Cards beside this one --------------------------------------------------
   /** Moves an element to the page itself, so it can sit over the map beside this card. */
   function portal(node: HTMLElement) {
@@ -711,9 +742,38 @@
   onDestroy(() => (planInfo.v = null));
 </script>
 
+{#snippet simbriefCard(wide: boolean)}
+  {#if !hasId}
+    <button type="button" class="opt sbcard" class:wide onclick={onsettings}>
+      <span class="sb-k">SimBrief</span>
+      <span class="sb-sub">Add your SimBrief Pilot ID in Settings first</span>
+    </button>
+  {:else if looking}
+    <div class="opt sbcard wait" class:wide><span class="sb-k">SimBrief</span><span class="sb-sub">Looking for your latest flight…</span></div>
+  {:else if latest}
+    {@const done = !!base && base.id === latest.id && !importing}
+    <button type="button" class="opt sbcard" class:wide class:done onclick={importSimbrief} disabled={importing || done} title={latest.route || undefined}>
+      <span class="sb-act" class:ok={done}>{importing ? "Importing…" : done ? "✓ Imported" : "Import"}</span>
+      <span class="sb-k">SimBrief</span>
+      <span class="sb-main num">{latest.origin.icao} - {latest.destination.icao}</span>
+      <span class="sb-sub">{[latest.aircraft_icao, latest.distance_nm ? `${distance(latest.distance_nm).value} ${distance(latest.distance_nm).unit}` : "", ago(latest.generated_ms)].filter(Boolean).join(" · ")}</span>
+    </button>
+  {:else}
+    <button type="button" class="opt sbcard" class:wide onclick={lookSimbrief}>
+      <span class="sb-k">SimBrief</span>
+      <span class="sb-sub">{sbError ?? "No flight found"} · click to try again</span>
+    </button>
+  {/if}
+{/snippet}
+
 {#snippet altsInline()}
   {#if altRows.length}
-    <!-- Altitude at each point (feet); empty follows the cruise. -->
+    <!-- Altitude at each point (feet); empty follows the cruise. Folded away unless wanted. -->
+    <details class="alts-box" bind:open={altsOpen}>
+      <summary>
+        <span>Waypoint altitudes</span>
+        <em>{altRows.filter((r) => r.alt != null).length ? `${altRows.filter((r) => r.alt != null).length} of ${altRows.length} set` : `All at cruise`}</em>
+      </summary>
     <div class="alts" aria-label="Waypoint altitudes">
       {#each altRows as r (r.key)}
         <label class:apt={r.apt}>
@@ -735,6 +795,7 @@
         </label>
       {/each}
     </div>
+    </details>
   {/if}
 {/snippet}
 
@@ -842,58 +903,67 @@
       {/if}
     </section>
   {:else}
-    <ol class="legs">
+    <!-- The legs, with a boarding-pass barcode beside them. -->
+    <div class="legs-wrap" class:with-code={mode === "start"}>
+      <ol class="legs">
+        {#if mode === "start"}
+          <li class="ac">
+            <span class="mark plane" aria-hidden="true">{@render glyph(45)}</span>
+            <select bind:value={aircraftId} aria-label="Aircraft" class:set={aircraftId > 0}>
+              <option value={-1}>Aircraft in the sim</option>
+              {#if aircraft && !fleet.some((a) => a.id === aircraft.id)}
+                <option value={aircraft.id}>{aircraft.registration || aircraft.icao_type} · {modelName(aircraft)}</option>
+              {/if}
+              {#each fleet as a (a.id)}
+                <option value={a.id}>{a.favorite ? "★ " : ""}{a.registration || a.icao_type || "Unregistered"} · {modelName(a)}</option>
+              {/each}
+            </select>
+          </li>
+        {/if}
+        <li class="pt solid">
+          <span class="mark icon" class:on={activeField === "origin"} aria-hidden="true">{@render glyph(45)}</span>
+          <AirportField label="Origin" placeholder="Origin" value={origin} onchange={(v) => ((origin = v), (originAuto = false))} onactive={(on) => setActive("origin", on)} />
+        </li>
+        <li class="pt" class:solid={!!dest} class:end={!dest}>
+          <span class="mark icon" class:on={activeField === "dest"} aria-hidden="true">{@render glyph(135)}</span>
+          <AirportField label="Destination" placeholder="Destination" value={dest} onchange={(v) => (dest = v)} onactive={(on) => setActive("dest", on)} />
+        </li>
+        {#if dest}
+          <!-- The runway to land on: the profile's glideslope uses it (changeable in flight too). -->
+          <li class="pt rwy-row">
+            <span class="mark icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M9 3h6l2 18H7z" /><path d="M12 6v2M12 11v2M12 16v2" /></svg>
+            </span>
+            <div class="rwy-pick">
+              <span class="rwy-k">Landing runway</span>
+              <RunwayPicker icao={dest.icao} value={landRwy} onchange={(r) => (landRwy = r)} />
+            </div>
+          </li>
+          <!-- The alternate: once there is a destination. -->
+          <li class="pt dotted">
+            <span class="mark icon alt" class:on={activeField === "altn"} aria-hidden="true">{@render glyph(90)}</span>
+            <AirportField label="Alternate" placeholder="Alternate" value={altn} onchange={(v) => (altn = v)} onactive={(on) => setActive("altn", on)} />
+          </li>
+          {#if !(sameRoute && base?.source === "simbrief")}
+            <!-- Cruise altitude: the flight profile climbs to it and descends from it. -->
+            <li class="pt cruise-row end">
+              <span class="mark icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M4 18h3l4-8h9v2h-8l-4 8H4z" /></svg>
+              </span>
+              <label class="cruise">
+                <input type="number" min="500" max="60000" step="500" placeholder="Cruise altitude" bind:value={cruiseFt} class="num" aria-label="Cruise altitude in feet" />
+                ft cruise
+              </label>
+            </li>
+          {/if}
+        {/if}
+      </ol>
       {#if mode === "start"}
-        <li class="ac">
-          <span class="mark plane" aria-hidden="true">{@render glyph(45)}</span>
-          <select bind:value={aircraftId} aria-label="Aircraft" class:set={aircraftId > 0}>
-            <option value={-1}>Aircraft in the sim</option>
-            {#if aircraft && !fleet.some((a) => a.id === aircraft.id)}
-              <option value={aircraft.id}>{aircraft.registration || aircraft.icao_type} · {modelName(aircraft)}</option>
-            {/if}
-            {#each fleet as a (a.id)}
-              <option value={a.id}>{a.favorite ? "★ " : ""}{a.registration || a.icao_type || "Unregistered"} · {modelName(a)}</option>
-            {/each}
-          </select>
-        </li>
+        <svg class="code" viewBox="0 0 30 {codeBars.h}" preserveAspectRatio="none" aria-hidden="true">
+          {#each codeBars.bars as b, i (i)}<rect x="0" y={b[0]} width="30" height={b[1]} />{/each}
+        </svg>
       {/if}
-      <li class="pt solid">
-        <span class="mark icon" aria-hidden="true">{@render glyph(45)}</span>
-        <AirportField label="Origin" placeholder="Origin" value={origin} onchange={(v) => ((origin = v), (originAuto = false))} />
-      </li>
-      <li class="pt">
-        <span class="mark icon" aria-hidden="true">{@render glyph(135)}</span>
-        <AirportField label="Destination" placeholder="Destination" value={dest} onchange={(v) => (dest = v)} />
-      </li>
-      {#if dest}
-        <!-- The runway to land on: the profile's glideslope uses it (changeable in flight too). -->
-        <li class="pt rwy-row">
-          <span class="mark icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24"><path d="M9 3h6l2 18H7z" /><path d="M12 6v2M12 11v2M12 16v2" /></svg>
-          </span>
-          <div class="rwy-pick">
-            <span class="rwy-k">Landing runway</span>
-            <RunwayPicker icao={dest.icao} value={landRwy} onchange={(r) => (landRwy = r)} />
-          </div>
-        </li>
-      {/if}
-      <li class="pt dotted">
-        <span class="mark icon alt" aria-hidden="true">{@render glyph(90)}</span>
-        <AirportField label="Alternate" placeholder="Alternate" value={altn} onchange={(v) => (altn = v)} />
-      </li>
-      {#if dest && !(sameRoute && base?.source === "simbrief")}
-        <!-- Cruise altitude: the flight profile climbs to it and descends from it. -->
-        <li class="pt cruise-row">
-          <span class="mark icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24"><path d="M4 18h3l4-8h9v2h-8l-4 8H4z" /></svg>
-          </span>
-          <label class="cruise">
-            <input type="number" min="500" max="60000" step="500" placeholder="Cruise altitude" bind:value={cruiseFt} class="num" aria-label="Cruise altitude in feet" />
-            ft
-          </label>
-        </li>
-      {/if}
-    </ol>
+    </div>
 
     {#if mode === "start" && aircraftId > 0}
       <p class="hint">This flight is logged to {chosen?.registration || "this aircraft"}, whatever the sim shows.</p>
@@ -913,12 +983,46 @@
       <p class="hint">Departing from {origin.icao}, where the aircraft is. Add a destination for a flight plan.</p>
     {/if}
 
+    <input bind:this={plnInput} type="file" accept=".pln,.PLN,application/xml,text/xml" hidden onchange={(e) => importPln((e.currentTarget as HTMLInputElement).files?.[0])} />
 
-
-    {#if drawn && mode !== "attach"}
+    {#if mode === "attach"}
+      {@render simbriefCard(false)}
+    {:else if method === "none"}
+      <!-- Every way to plan, until one is chosen. -->
+      {@render simbriefCard(true)}
+      <div class="three">
+        <button type="button" class="opt tile" disabled={plnBusy} onclick={() => plnInput?.click()} title="Import an MSFS flight plan (.PLN)">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h7l4 4v14H7zM14 3v4h4" /><path d="M12.5 10v7M9.5 14l3 3 3-3" /></svg>
+          <strong>{plnBusy ? "Reading…" : ".PLN"}</strong>
+          <span>Import</span>
+        </button>
+        <button type="button" class="opt tile" onclick={() => startDrawing()}>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="6" r="2" /><path d="M7.5 7.5c2 2 1 4 3 6s4 1 6 3" stroke-dasharray="2 2.4" /><path d="M16 16.5l3 3M19 16.5l-3 3" /></svg>
+          <strong>Draw route</strong>
+        </button>
+        <button type="button" class="opt tile" disabled title="Enter route manually: coming in a future version" aria-label="Enter route manually (coming soon)">
+          <em>Soon</em>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h10M4 17h7" /></svg>
+          <span>Enter route manually</span>
+        </button>
+      </div>
+    {:else if method === "simbrief"}
+      <!-- SimBrief's plan, as dispatched: not changed here. -->
+      <div class="sb-done">
+        {@render simbriefCard(false)}
+        <button type="button" class="ofp" onclick={() => base && openBriefing(base)} disabled={briefing.loading} title="View the OFP">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h7l4 4v14H7zM14 3v4h4M10 11h5M10 14h5M10 17h3" /></svg>
+          {briefing.loading ? "…" : "OFP"}
+        </button>
+      </div>
+    {:else if drawn}
+      <!-- The route drawn or imported: rules, the file, altitudes. -->
       <section class="drawn" aria-label="Your route">
         <div class="drawn-top">
-          <strong>{plnName ? "Imported route" : "Your route"}</strong>
+          <span class="kind">
+            <em>{method === "pln" ? "Imported .PLN" : "Drawn route"}</em>
+            <strong class="num">{method === "pln" ? plnName : `${drawn.length} point${drawn.length === 1 ? "" : "s"}`}</strong>
+          </span>
           <span class="seg" role="radiogroup" aria-label="Flight rules">
             <button type="button" role="radio" aria-checked={rules === "VFR"} class:on={rules === "VFR"} onclick={() => (rules = "VFR")}>VFR</button>
             <button type="button" role="radio" aria-checked={rules === "IFR"} class:on={rules === "IFR"} onclick={() => (rules = "IFR")}>IFR</button>
@@ -929,69 +1033,12 @@
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 19h14" /></svg>
             {saving ? "Saving…" : "Save .PLN"}
           </button>
-          <button type="button" class="ghost" onclick={() => startDrawing()}>Redraw</button>
-          <button type="button" class="ghost" onclick={() => ((drawn = null), (plnName = null), (plnNote = null))}>Remove</button>
+          {#if method === "draw"}<button type="button" class="ghost" onclick={() => startDrawing()}>Redraw</button>{/if}
         </div>
         {@render altsInline()}
         {#if plnNote}<p class="hint">{plnNote}</p>{/if}
         {#if saved}<p class="hint">Saved {saved}. In MSFS 2020 or 2024, load it from the world map's flight plan menu.</p>{/if}
-        <p class="hint">On the map: drag a point to move it, drag the line to add one, right-click a point to take it out.</p>
       </section>
-    {/if}
-
-    <input bind:this={plnInput} type="file" accept=".pln,.PLN,application/xml,text/xml" hidden onchange={(e) => importPln((e.currentTarget as HTMLInputElement).files?.[0])} />
-    <div class="box sb-pln">
-      {#if !hasId}
-        <button type="button" class="opt" onclick={onsettings}>
-          <strong>Import from SimBrief</strong>
-          <span>Add your SimBrief Pilot ID in Settings first</span>
-        </button>
-      {:else if looking}
-        <div class="opt wait"><strong>Import from SimBrief</strong><span>Looking for your latest flight…</span></div>
-      {:else if latest}
-        <!-- One compact row: the flight, then Import (or Imported) and the OFP. -->
-        <div class="sbrow">
-          <button type="button" class="opt sb" onclick={importSimbrief} disabled={importing} title={latest.route || undefined}>
-            <span class="sb-k">SimBrief</span>
-            <span class="sb-main num">{latest.callsign || `${latest.airline}${latest.flight_number}`} · {latest.origin.icao}–{latest.destination.icao}</span>
-            <span class="sb-sub">{[latest.aircraft_icao, latest.distance_nm ? `${distance(latest.distance_nm).value} ${distance(latest.distance_nm).unit}` : "", ago(latest.generated_ms)].filter(Boolean).join(" · ")}</span>
-            <span class="sb-act" class:done={!!base && base.id === latest.id && !importing}>{importing ? "Importing…" : base && base.id === latest.id ? "✓ Imported" : "Import"}</span>
-          </button>
-          {#if base && base.source === "simbrief"}
-            <button type="button" class="ofp" onclick={() => base && openBriefing(base)} disabled={briefing.loading} title="View the OFP">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h7l4 4v14H7zM14 3v4h4M10 11h5M10 14h5M10 17h3" /></svg>
-              {briefing.loading ? "…" : "OFP"}
-            </button>
-          {/if}
-        </div>
-      {:else}
-        <button type="button" class="opt" onclick={lookSimbrief}>
-          <strong>Import from SimBrief</strong>
-          <span>{sbError ?? "No flight found"}</span>
-          <span class="again">Click to try again</span>
-        </button>
-      {/if}
-      {#if mode !== "attach"}
-        <button type="button" class="opt pln-in" disabled={plnBusy} onclick={() => plnInput?.click()} title="Import an MSFS flight plan (.PLN)">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h7l4 4v14H7zM14 3v4h4" /><path d="M12.5 10v7M9.5 14l3 3 3-3" /></svg>
-          <strong>{plnBusy ? "Reading…" : ".PLN"}</strong>
-          <span>Import</span>
-        </button>
-      {/if}
-    </div>
-
-    {#if mode !== "attach"}
-      <div class="two">
-        <button type="button" class="opt small" disabled title="Enter route manually: coming in a future version" aria-label="Enter route manually (coming soon)">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h10M4 17h7" /></svg>
-          Enter route manually
-          <em>Soon</em>
-        </button>
-        <button type="button" class="opt small" onclick={() => startDrawing()}>
-          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="6" r="2" /><path d="M7.5 7.5c2 2 1 4 3 6s4 1 6 3" stroke-dasharray="2 2.4" /><path d="M16 16.5l3 3M19 16.5l-3 3" /></svg>
-          Draw route
-        </button>
-      </div>
     {/if}
   {/if}
 
@@ -999,19 +1046,23 @@
 
   {#if mode === "start"}{@render perf()}{/if}
 
-  <button type="button" class="go" onclick={go} disabled={busy || partial || drawing.stage !== "off" || (mode !== "start" && !(origin && dest))}>
-    {#if mode === "attach"}
-      Add flight plan
-    {:else if mode === "edit"}
-      Save flight plan
-    {:else if origin && dest}
-      Start flight
-    {:else}
-      Start without a flight plan
-    {/if}
-  </button>
   {#if mode === "start"}
+    {#if planned}
+      <div class="foot">
+        <div class="pair-btn">
+          <button type="button" onclick={clearPlan} title="Clear the flight plan and start over">Clear</button>
+          <button type="button" onclick={() => planClose.n++} title="Close Start a flight">Cancel</button>
+        </div>
+        <button type="button" class="go" onclick={go} disabled={busy || partial || drawing.stage !== "off"}>Start</button>
+      </div>
+    {:else}
+      <button type="button" class="go solo" onclick={go} disabled={busy || partial || drawing.stage !== "off"}>Start without a flight plan</button>
+    {/if}
     <p class="hint center">Tracking starts as soon as you are in the cockpit.</p>
+  {:else}
+    <button type="button" class="go" onclick={go} disabled={busy || partial || drawing.stage !== "off" || !(origin && dest)}>
+      {mode === "attach" ? "Add flight plan" : "Save flight plan"}
+    </button>
   {/if}
 </div>
 
@@ -1151,6 +1202,9 @@
   .legs li.pt:not(.solid):not(.dotted)::after {
     border-left: 2px dotted #6b7078;
   }
+  .legs li.pt.end::after {
+    display: none;
+  }
   .mark {
     flex: none;
     width: 24px;
@@ -1214,12 +1268,6 @@
     text-align: center;
     margin-top: -4px;
   }
-  .box {
-    margin-top: 2px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
   .opt {
     display: flex;
     flex-direction: column;
@@ -1238,113 +1286,88 @@
     border-color: #a78bfa;
     background: #33373c;
   }
-  .opt strong {
-    font-size: 14.5px;
+  .opt.wait {
+    cursor: default;
   }
-  .opt span {
-    color: var(--ink-dim);
-  }
-  .opt .again {
-    margin-top: 3px;
-    color: var(--ink-faint);
-  }
-  .sbrow {
-    display: flex;
-    gap: 6px;
-    align-items: stretch;
-  }
-  /* SimBrief's flight in one compact block: label and action on the top
-     line, the flight, then its details. */
-  .opt.sb {
+  /* SimBrief: label, the flight, its details; the action at the top right. */
+  .sbcard {
+    position: relative;
     flex: 1;
     min-width: 0;
-    display: grid;
-    grid-template-columns: 1fr auto;
-    grid-template-areas: "k act" "main main" "sub sub";
-    align-items: center;
-    gap: 1px 8px;
-    padding: 8px 11px;
+    gap: 1px;
+    padding: 9px 12px;
+    align-items: flex-start;
     text-align: left;
   }
+  .sbcard.wide {
+    align-items: center;
+    text-align: center;
+    padding: 10px 56px;
+  }
+  .sbcard.done {
+    cursor: default;
+    opacity: 1;
+  }
   .sb-k {
-    grid-area: k;
     font-size: 10.5px;
     font-weight: 700;
-    letter-spacing: 0.08em;
+    letter-spacing: 0.1em;
     text-transform: uppercase;
-    color: #a78bfa !important;
+    color: #a78bfa;
   }
   .sb-main {
-    grid-area: main;
-    font-size: 15px;
-    color: #c4b5fd !important;
+    font-size: 16px;
+    font-weight: 700;
+    color: #c4b5fd;
+    max-width: 100%;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
   .sb-sub {
-    grid-area: sub;
+    max-width: 100%;
     font-size: 12px;
+    color: var(--ink-dim);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
   .sb-act {
-    grid-area: act;
+    position: absolute;
+    top: 8px;
+    right: 11px;
     font-size: 12px;
     font-weight: 600;
-    color: var(--ink) !important;
+    color: var(--ink);
   }
-  .sb-act.done {
-    color: #7ddc9a !important;
+  .sb-act.ok {
+    color: #7ddc9a;
   }
-  .sbrow .ofp {
-    flex-direction: column;
-    gap: 3px;
-    padding: 6px 10px;
-    font-size: 12px;
+  /* SimBrief imported, its OFP beside it. */
+  .sb-done {
+    display: flex;
+    gap: 8px;
+    align-items: stretch;
   }
-
   .ofp {
-    display: inline-flex;
+    flex: none;
+    width: 64px;
+    display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 6px;
-    padding: 7px 10px;
-    border-radius: 8px;
+    gap: 4px;
+    border-radius: 9px;
     border: 1px solid #6d5bd0;
     background: transparent;
     color: #c4b5fd;
-    font-size: 13px;
-    font-weight: 600;
+    font-size: 12px;
+    font-weight: 700;
   }
   .ofp:hover:not(:disabled) {
     background: rgba(167, 139, 250, 0.12);
   }
   .ofp svg {
-    width: 16px;
-    height: 16px;
-    fill: none;
-    stroke: currentColor;
-    stroke-width: 1.8;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-  }
-  .opt.wait {
-    cursor: default;
-  }
-  /* SimBrief, with the .PLN import to its right. */
-  .box.sb-pln {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) 74px;
-    align-items: stretch;
-  }
-  .opt.pln-in {
-    justify-content: center;
-    gap: 1px;
-    padding: 6px 4px;
-  }
-  .opt.pln-in svg {
     width: 20px;
     height: 20px;
     fill: none;
@@ -1352,13 +1375,162 @@
     stroke-width: 1.7;
     stroke-linecap: round;
     stroke-linejoin: round;
+  }
+  /* .PLN, Draw route, Enter route manually. */
+  .three {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .opt.tile {
+    position: relative;
+    justify-content: center;
+    gap: 3px;
+    min-height: 66px;
+    padding: 8px 6px;
+    font-size: 12.5px;
+    line-height: 1.2;
+  }
+  .opt.tile:hover:not(:disabled) {
+    border-color: var(--amber);
+  }
+  .opt.tile svg {
+    width: 20px;
+    height: 20px;
+    flex: none;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.7;
+    stroke-linecap: round;
+    stroke-linejoin: round;
     color: var(--ink-dim);
   }
-  .opt.pln-in strong {
-    font-size: 12.5px;
+  .opt.tile strong {
+    font-size: 13px;
   }
-  .opt.pln-in span {
-    font-size: 11px;
+  .opt.tile span {
+    color: var(--ink-dim);
+    font-size: 11.5px;
+  }
+  .opt.tile:disabled {
+    color: var(--ink-faint);
+    cursor: default;
+  }
+  .opt.tile:disabled span {
+    color: var(--ink-faint);
+  }
+  .opt.tile em {
+    position: absolute;
+    top: -7px;
+    right: 6px;
+    font-style: normal;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: #3a3e44;
+    color: var(--ink-dim);
+    border: 1px solid #23262a;
+  }
+  /* The legs, with the barcode at their right. */
+  .legs-wrap.with-code {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 30px;
+    gap: 14px;
+    align-items: stretch;
+  }
+  .code {
+    width: 30px;
+    height: 100%;
+    max-height: 190px;
+    align-self: center;
+    fill: var(--ink-faint, #7d828a);
+    opacity: 0.55;
+  }
+  @media (max-width: 560px) {
+    .legs-wrap.with-code {
+      grid-template-columns: 1fr;
+    }
+    .code {
+      display: none;
+    }
+  }
+  /* The field being typed in. */
+  .mark.icon.on,
+  .mark.icon.alt.on {
+    background: var(--amber);
+    border-color: var(--amber);
+    box-shadow: 0 0 0 3px rgba(240, 178, 58, 0.25);
+  }
+  .mark.icon.on svg,
+  .mark.icon.alt.on svg {
+    fill: #000;
+  }
+  /* Clear | Cancel, then Start. */
+  .foot {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 8px;
+  }
+  .pair-btn {
+    display: flex;
+    border: 1px solid #50555c;
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  .pair-btn button {
+    padding: 0 16px;
+    border: none;
+    background: transparent;
+    color: var(--ink);
+    font-size: 13.5px;
+    font-weight: 600;
+  }
+  .pair-btn button + button {
+    border-left: 1px solid #50555c;
+  }
+  .pair-btn button:hover {
+    background: rgba(255, 255, 255, 0.06);
+  }
+  .go.solo {
+    width: 100%;
+  }
+  /* Waypoint altitudes, folded to one line. */
+  .alts-box summary {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    list-style: none;
+    font-size: 12.5px;
+    color: var(--ink);
+    padding: 2px 0;
+  }
+  .alts-box summary::-webkit-details-marker {
+    display: none;
+  }
+  .alts-box summary::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-right: 1.6px solid var(--ink-dim);
+    border-bottom: 1.6px solid var(--ink-dim);
+    transform: rotate(-45deg);
+    transition: transform 0.15s;
+  }
+  .alts-box[open] summary::before {
+    transform: rotate(45deg);
+  }
+  .alts-box summary em {
+    margin-left: auto;
+    font-style: normal;
+    color: var(--ink-dim);
+    font-size: 12px;
+  }
+  .alts-box[open] .alts {
+    margin-top: 6px;
   }
   /* Distance, with the airspace warning at its right. */
   .dist-row {
@@ -1492,51 +1664,6 @@
     color: var(--ink-faint);
     font-size: 11px;
   }
-  .two {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 8px;
-  }
-  .opt.small {
-    position: relative;
-    flex-direction: row;
-    justify-content: center;
-    gap: 7px;
-    padding: 10px 4px;
-    font-size: 12.5px;
-    font-weight: 600;
-    white-space: nowrap;
-  }
-  .opt.small svg {
-    width: 17px;
-    height: 17px;
-    flex: none;
-    fill: none;
-    stroke: currentColor;
-    stroke-width: 1.8;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-  }
-  .opt.small:disabled {
-    color: var(--ink-faint);
-    cursor: default;
-  }
-  .opt.small em {
-    position: absolute;
-    top: -7px;
-    right: 6px;
-    font-style: normal;
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    padding: 1px 5px;
-    border-radius: 4px;
-    background: #3a3e44;
-    color: var(--ink-dim);
-    border: 1px solid #23262a;
-  }
-
   /* Drawing a route, and the route drawn. */
   .draw,
   .drawn {
@@ -1655,8 +1782,25 @@
     align-items: center;
     justify-content: space-between;
   }
+  .drawn-top .kind {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+  }
+  .drawn-top em {
+    font-style: normal;
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--amber);
+  }
   .drawn-top strong {
     font-size: 14px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .seg {
     display: inline-flex;
