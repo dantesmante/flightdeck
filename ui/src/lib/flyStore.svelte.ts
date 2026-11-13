@@ -47,6 +47,12 @@ export const drawing = $state<{ stage: "off" | "origin" | "route"; origin: Spot 
 export const planClear = $state({ n: 0 });
 /** Cancel at the foot of Start a flight: the card closes. */
 export const planClose = $state({ n: 0 });
+/** One waypoint's altitude set from the map or the profile: the index into
+ * the plan's fixes, feet (null: follow the cruise); `n` counts requests. */
+export const planAlt = $state<{ i: number; ft: number | null; n: number }>({ i: -1, ft: null, n: 0 });
+/** The planned flight's airline livery for the Start a flight header:
+ * background, accent, swoosh colour and the text colour that reads on it. */
+export const planLook = $state<{ on: boolean; a: string; b: string; c: string; ink: string }>({ on: false, a: "", b: "", c: "", ink: "#fff" });
 
 /** The plan's time and fuel for the card at the bottom of the map. */
 export interface PlanInfo {

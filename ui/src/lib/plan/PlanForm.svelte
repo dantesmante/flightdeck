@@ -4,7 +4,7 @@
   import RunwayPicker from "./RunwayPicker.svelte";
   // and mid-flight to add a plan.
   import { onDestroy, onMount, untrack } from "svelte";
-  import { draft, drawing, pick, planClear, planClose, planEdit, planInfo } from "../flyStore.svelte";
+  import { draft, drawing, pick, planAlt, planClear, planClose, planEdit, planInfo, planLook } from "../flyStore.svelte";
   import { routeAsp } from "../routeAirspace.svelte";
   import { ASP_KINDS } from "../airspaceLayer";
   import { needsPositions, parsePln, toFixes } from "./pln";
@@ -14,6 +14,7 @@
   import { briefing, openBriefing } from "../briefingStore.svelte";
   import { api, inTauri, type FlightPlan, type HangarItem, type PlanFix, type PlnRoute } from "../api";
   import { modelName } from "../hangar/names";
+  import { airlineLook, findAirline } from "../hangar/airlines";
   import { distance, prefs } from "../prefs.svelte";
   import AirportField, { type Spot } from "./AirportField.svelte";
 
@@ -97,6 +98,20 @@
       if (!origin || !dest) return;
       drawn = renumber(fx);
       drawnFor = { o: origin.icao, d: dest.icao };
+      saved = null;
+    });
+  });
+  // A waypoint's altitude set on the map or in the profile.
+  let altSeen = planAlt.n;
+  $effect(() => {
+    const n = planAlt.n;
+    if (n === altSeen) return;
+    altSeen = n;
+    untrack(() => {
+      const i = planAlt.i;
+      const ft = planAlt.ft;
+      if (mode === "attach" || drawing.stage !== "off" || !drawn || i < 0 || i >= drawn.length) return;
+      drawn = drawn.map((x, k) => (k === i ? { ...x, alt_ft: ft ?? cruiseNow, stage: ft ? "USR" : "CRZ" } : x));
       saved = null;
     });
   });
@@ -523,6 +538,46 @@
     else if (activeField === f) activeField = null;
   }
   let altsOpen = $state(false);
+  /** The flight's airline: SimBrief's, the flight number's prefix, or the aircraft's. */
+  const look = $derived.by(() => {
+    if (mode !== "start") return null;
+    const sbNo = !!base && flightNo === `${base.airline}${base.flight_number}`;
+    if (sbNo && base?.airline) {
+      const a = findAirline(base.airline);
+      if (a) return { colors: a.colors };
+    }
+    const m = flightNo.trim().toUpperCase().match(/^([A-Z]{3}|[A-Z0-9]{2})(?=\d)/);
+    const byNo = m ? findAirline(m[1]) : null;
+    if (byNo) return { colors: byNo.colors };
+    const ac = chosen ?? aircraft;
+    const l = ac?.airline ? airlineLook(ac.airline) : null;
+    return l ? { colors: l.colors } : null;
+  });
+  /** White on dark liveries, near-black on light ones. */
+  function inkOn(c: string): string {
+    const m = c.match(/^#([0-9a-f]{6})$/i);
+    if (!m) return "#fff";
+    const n = parseInt(m[1], 16);
+    const lin = (v: number) => ((v /= 255) <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
+    const L = 0.2126 * lin(n >> 16) + 0.7152 * lin((n >> 8) & 255) + 0.0722 * lin(n & 255);
+    // Contrast with white vs with #111: pick the larger.
+    return 1.05 / (L + 0.05) >= (L + 0.05) / 0.056 ? "#fff" : "#111";
+  }
+  const lookKey = $derived(look ? look.colors.join(",") : "");
+  $effect(() => {
+    const k = lookKey;
+    if (!k) {
+      planLook.on = false;
+      return;
+    }
+    const [a, b, c] = k.split(",");
+    planLook.a = a;
+    planLook.b = b;
+    planLook.c = c ?? b;
+    planLook.ink = inkOn(a);
+    planLook.on = true;
+    return () => (planLook.on = false);
+  });
   /** A boarding-pass barcode for the legs, the same for the same flight. */
   const codeBars = $derived.by(() => {
     let h = 2166136261;
@@ -566,6 +621,28 @@
       window.removeEventListener("scroll", on, true);
     };
   });
+  /** The pop-up card's bottom never below the window: lifted as needed. */
+  function keepInWindow(el: HTMLElement) {
+    const fit = () => {
+      const h = el.offsetHeight;
+      const want = warnTop;
+      const top = Math.max(56, Math.min(want, window.innerHeight - h - 12));
+      el.style.top = `${top}px`;
+    };
+    const ro = new ResizeObserver(fit);
+    ro.observe(el);
+    window.addEventListener("resize", fit);
+    $effect(() => {
+      void warnTop;
+      fit();
+    });
+    return {
+      destroy() {
+        ro.disconnect();
+        window.removeEventListener("resize", fit);
+      },
+    };
+  }
   let warnOpen = $state(false);
   let warnTimer: ReturnType<typeof setTimeout> | undefined;
   function showWarn(on: boolean, from?: HTMLElement) {
@@ -841,7 +918,16 @@
 {/snippet}
 
 <div class="form" class:start={mode === "start"} bind:this={formEl}>
-  <div class="ids">
+  <div class="ids" class:band={!!look} style:--la={look ? planLook.a : null} style:--ink-on={look ? planLook.ink : null}>
+    {#if look}
+      <!-- The airline's livery behind the header, its tail swoosh at the right. -->
+      <span class="band-bg" aria-hidden="true">
+        <svg class="swoosh" viewBox="0 0 30 40" preserveAspectRatio="none">
+          <path d="M30 4 C 28 18, 25 30, 20 40 L 30 40 Z" fill={planLook.b} />
+          <path d="M21 0 L30 0 L30 4 C 28 18, 25 30, 20 40 L0 40 C 10 33, 18 20, 21 0 Z" fill={planLook.c} />
+        </svg>
+      </span>
+    {/if}
     <label>
       <span>Callsign</span>
       <input class="num" bind:value={callsign} placeholder="AMERICAN" maxlength="10" autocomplete="off" spellcheck="false" />
@@ -920,42 +1006,29 @@
             </select>
           </li>
         {/if}
-        <li class="pt solid">
+        <li class="pt to-solid">
           <span class="mark icon" class:on={activeField === "origin"} aria-hidden="true">{@render glyph(45)}</span>
           <AirportField label="Origin" placeholder="Origin" value={origin} onchange={(v) => ((origin = v), (originAuto = false))} onactive={(on) => setActive("origin", on)} />
         </li>
-        <li class="pt" class:solid={!!dest} class:end={!dest}>
+        <li class="pt" class:to-dash={!!dest}>
           <span class="mark icon" class:on={activeField === "dest"} aria-hidden="true">{@render glyph(135)}</span>
           <AirportField label="Destination" placeholder="Destination" value={dest} onchange={(v) => (dest = v)} onactive={(on) => setActive("dest", on)} />
         </li>
         {#if dest}
           <!-- The runway to land on: the profile's glideslope uses it (changeable in flight too). -->
-          <li class="pt rwy-row">
-            <span class="mark icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24"><path d="M9 3h6l2 18H7z" /><path d="M12 6v2M12 11v2M12 16v2" /></svg>
-            </span>
+          <li class="through rwy-row">
             <div class="rwy-pick">
-              <span class="rwy-k">Landing runway</span>
+              <span class="rwy-k">Landing Runway
+                <svg viewBox="0 0 22 8" aria-hidden="true"><path d="M0 0h2v8H0zM3.5 0h2v8h-2zM7 0h2v8H7zM13 0h2v8h-2zM16.5 0h2v8h-2zM20 0h2v8h-2z" /></svg>
+              </span>
               <RunwayPicker icao={dest.icao} value={landRwy} onchange={(r) => (landRwy = r)} />
             </div>
           </li>
           <!-- The alternate: once there is a destination. -->
-          <li class="pt dotted">
+          <li class="pt">
             <span class="mark icon alt" class:on={activeField === "altn"} aria-hidden="true">{@render glyph(90)}</span>
             <AirportField label="Alternate" placeholder="Alternate" value={altn} onchange={(v) => (altn = v)} onactive={(on) => setActive("altn", on)} />
           </li>
-          {#if !(sameRoute && base?.source === "simbrief")}
-            <!-- Cruise altitude: the flight profile climbs to it and descends from it. -->
-            <li class="pt cruise-row end">
-              <span class="mark icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24"><path d="M4 18h3l4-8h9v2h-8l-4 8H4z" /></svg>
-              </span>
-              <label class="cruise">
-                <input type="number" min="500" max="60000" step="500" placeholder="Cruise altitude" bind:value={cruiseFt} class="num" aria-label="Cruise altitude in feet" />
-                ft cruise
-              </label>
-            </li>
-          {/if}
         {/if}
       </ol>
       {#if mode === "start"}
@@ -975,6 +1048,14 @@
         {:else if direct != null}
           <p class="hint">{distance(direct).value} {distance(direct).unit} direct{base && sameRoute && base.distance_nm ? `, ${distance(base.distance_nm).value} ${distance(base.distance_nm).unit} planned` : ""}</p>
         {/if}
+        {#if dest && !(sameRoute && base?.source === "simbrief")}
+          <!-- Cruise altitude: the flight profile climbs to it and descends from it. -->
+          <label class="cruise">
+            Cruise
+            <input type="number" min="500" max="60000" step="500" bind:value={cruiseFt} class="num" aria-label="Cruise altitude in feet" />
+            ft
+          </label>
+        {/if}
         {#if warnings}{@render warnButton()}{/if}
       </div>
     {:else if partial}
@@ -987,8 +1068,9 @@
 
     {#if mode === "attach"}
       {@render simbriefCard(false)}
-    {:else if method === "none"}
-      <!-- Every way to plan, until one is chosen. -->
+    {:else if method === "none" && !dest}
+      <!-- Every way to plan, until one is chosen. Typing a destination is a
+           choice too: the rest stay away until Clear or the fields are emptied. -->
       {@render simbriefCard(true)}
       <div class="three">
         <button type="button" class="opt tile" disabled={plnBusy} onclick={() => plnInput?.click()} title="Import an MSFS flight plan (.PLN)">
@@ -1068,7 +1150,7 @@
 
 <!-- Beside the card, over the map: the conflicts (on hover) and the waypoint altitudes. -->
 {#if warnOpen && warnings}
-  <div class="warn-card" use:portal style:left="{floatLeft}px" style:top="{warnTop}px" role="tooltip" onmouseenter={() => showWarn(true)} onmouseleave={() => showWarn(false)}>
+  <div class="warn-card" use:portal use:keepInWindow style:left="{floatLeft}px" role="tooltip" onmouseenter={() => showWarn(true)} onmouseleave={() => showWarn(false)}>
     <strong>Conflicts on the route</strong>
     {#each conflicts as c (c.id)}
       <span class="wc-row">
@@ -1136,6 +1218,48 @@
   .ids input::placeholder {
     color: #464b52;
   }
+  /* In the airline's colours: the band runs up behind the card's title. */
+  .ids.band {
+    position: relative;
+    margin: 0 -18px;
+    padding: 0 64px 12px 18px;
+  }
+  .ids.band label {
+    position: relative;
+    z-index: 1;
+    color: var(--ink-on);
+    opacity: 0.85;
+  }
+  .ids.band input {
+    color: var(--ink-on);
+  }
+  .ids.band input::placeholder {
+    color: var(--ink-on);
+    opacity: 0.45;
+  }
+  .ids.band input:hover {
+    border-bottom-color: color-mix(in srgb, var(--ink-on) 35%, transparent);
+  }
+  .ids.band input:focus {
+    border-bottom-color: var(--ink-on);
+  }
+  .band-bg {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    top: -80px;
+    z-index: 0;
+    background: var(--la);
+    pointer-events: none;
+  }
+  .band-bg .swoosh {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 50px;
+    height: 100%;
+  }
   .ids input:hover {
     border-bottom-color: #3a3e44;
   }
@@ -1185,25 +1309,38 @@
   .legs li {
     position: relative;
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 14px;
     min-height: 34px;
   }
-  /* The line from origin to destination (solid), on to the alternate (dotted). */
-  .legs li.pt.solid::after,
-  .legs li.pt:not(.solid):not(.dotted)::after {
+  .legs li.ac {
+    align-items: center;
+  }
+  .legs li.pt > .mark {
+    margin-top: 5px;
+  }
+  /* One unbroken line down the marks: solid from origin to destination,
+     dashed on to the alternate. Each row draws from under its mark to
+     the next row's mark, whatever the rows' heights. */
+  .legs li.to-solid::after,
+  .legs li.to-dash::after,
+  .legs li.through::before {
     content: "";
     position: absolute;
     left: 11px;
-    top: calc(50% + 12px);
-    height: calc(100% - 24px);
+    top: 29px;
+    bottom: -5px;
     border-left: 2px solid #8c9199;
   }
-  .legs li.pt:not(.solid):not(.dotted)::after {
-    border-left: 2px dotted #6b7078;
+  .legs li.to-dash::after,
+  .legs li.through::before {
+    border-left-style: dashed;
   }
-  .legs li.pt.end::after {
-    display: none;
+  .legs li.through::before {
+    top: 0;
+  }
+  .legs li.through {
+    padding: 2px 0 6px 38px;
   }
   .mark {
     flex: none;
@@ -1213,21 +1350,24 @@
     place-items: center;
   }
   .mark.icon {
+    position: relative;
+    z-index: 1;
     border-radius: 50%;
-    background: #d9dce0;
+    box-sizing: border-box;
+    border: 1.6px solid #c9ccd1;
+    background: var(--panel, #1c1e21);
   }
   .mark.icon svg {
-    width: 18px;
-    height: 18px;
-    fill: #1b1c1e;
+    width: 16px;
+    height: 16px;
+    fill: #e6e8eb;
   }
   .mark.icon.alt {
-    background: transparent;
-    border: 1.6px dashed #8c9199;
-    box-sizing: border-box;
+    border-style: dashed;
+    border-color: #8c9199;
   }
   .mark.icon.alt svg {
-    fill: #8c9199;
+    fill: #c9ccd1;
   }
   .plane svg {
     width: 24px;
@@ -1822,10 +1962,11 @@
     color: #1b1406;
   }
   .cruise {
+    flex: none;
     display: flex;
     align-items: center;
-    gap: 8px;
-    font-size: 13px;
+    gap: 5px;
+    font-size: 12px;
     color: var(--ink-dim);
   }
   .rwy-pick {
@@ -1836,16 +1977,20 @@
     flex: 1;
   }
   .rwy-k {
-    font-size: 12px;
-    color: var(--ink-faint, #7d828a);
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 13px;
+    color: var(--ink-dim);
   }
-  .cruise-row .cruise {
-    flex: 1;
-    min-width: 0;
+  .rwy-k svg {
+    width: 22px;
+    height: 8px;
+    fill: var(--ink);
   }
   .cruise input {
-    width: 150px;
-    padding: 5px 8px;
+    width: 74px;
+    padding: 3px 6px;
     border-radius: 6px;
     border: 1px solid #464b52;
     background: #23262a;

@@ -8,7 +8,7 @@
   import { briefing, openBriefing } from "./briefingStore.svelte";
   import { fly as slide } from "svelte/transition";
   import type { FlightDetail, Status } from "./api";
-  import { fly, pick, planClose } from "./flyStore.svelte";
+  import { fly, pick, planClose, planLook } from "./flyStore.svelte";
   import LivePanel from "./LivePanel.svelte";
   import Logo from "./Logo.svelte";
   import { screen } from "./phone.svelte";
@@ -151,7 +151,7 @@
     aria-label={busy ? "Your flight" : "Start a flight"}
     transition:slide={{ y: 60, duration: 260, easing: cubicOut, opacity: 0 }}
   >
-    <div class="top" class:flat={busy}>
+    <div class="top" class:flat={busy} class:inked={!busy && planLook.on} style:color={!busy && planLook.on ? planLook.ink : null}>
       {#if !busy}<h2>Start a flight</h2>{/if}
       {#if busy && status?.plan?.source === "simbrief"}
         <button class="ofp" onclick={() => status?.plan && openBriefing(status.plan)} disabled={briefing.loading} title="SimBrief's flight plan (OFP)">
@@ -268,6 +268,13 @@
   .x:hover {
     color: var(--ink);
     background: var(--panel-2);
+  }
+  .top.inked .x {
+    color: inherit;
+    background: rgba(0, 0, 0, 0.22);
+  }
+  .top.inked .x:hover {
+    background: rgba(0, 0, 0, 0.18);
   }
   .x svg {
     width: 18px;

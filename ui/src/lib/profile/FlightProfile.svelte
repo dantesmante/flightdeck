@@ -16,7 +16,7 @@
   import { onDestroy, untrack } from "svelte";
   import { api, type RunwayEnd, type RunwayEnds } from "../api";
   import RunwayPicker from "../plan/RunwayPicker.svelte";
-  import { profileState } from "./store.svelte";
+  import { PROFILE_MIN_H, profileState, saveProfileHeight } from "./store.svelte";
   import { areasNear, crossingsAlong } from "../routeAirspace.svelte";
   import { ASP_KINDS } from "../airspaceLayer";
   import {
@@ -46,6 +46,8 @@
     aircraft,
     onclose,
     onrunway,
+    editable = false,
+    onalt,
   }: {
     route: ProfileRoute | null;
     /** The aircraft while the sim is connected; `tracking` while a flight is recorded. */
@@ -53,6 +55,10 @@
     onclose: () => void;
     /** The pilot picked the runway to land on. */
     onrunway: (rwy: string) => void;
+    /** The route being planned (not SimBrief's): waypoints drag up and down. */
+    editable?: boolean;
+    /** A waypoint's altitude dragged: index into route.fixes, feet (null: the cruise). */
+    onalt?: (i: number, ft: number | null) => void;
   } = $props();
 
   // --- The route -----------------------------------------------------------
@@ -525,10 +531,86 @@
     setView(barDrag.a + dd, barDrag.a + dd + (view.b - view.a));
   }
   const barUp = () => (barDrag = null);
+
+  // --- Waypoints dragged up and down (planning only) -------------------------
+  /** Each waypoint's handle: where it is and the altitude it asks for. */
+  const handles = $derived.by(() => {
+    if (!editable || glide || !route || pts.length < 3) return [];
+    const off = route.fixes[0]?.ident === route.origin.icao ? 1 : 0;
+    return pts.slice(1, -1).map((p, j) => ({ i: j + off, d: p.d, ident: p.ident, ft: Number.isNaN(p.alt) ? cruise : p.alt, own: !!p.stage && p.stage !== "CRZ" }));
+  });
+  let altDrag = $state<{ i: number; ft: number; y0: number; ft0: number } | null>(null);
+  const ftAtY = (py: number) => yMin + (1 - (py - M.t) / ch) * (yMax - yMin);
+  function handleDown(e: PointerEvent, hd: { i: number; ft: number }) {
+    e.stopPropagation();
+    (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
+    altDrag = { i: hd.i, ft: hd.ft, y0: e.clientY, ft0: hd.ft };
+  }
+  function handleMove(e: PointerEvent) {
+    const a = altDrag;
+    if (!a) return;
+    e.stopPropagation();
+    const top = svgEl?.getBoundingClientRect().top ?? 0;
+    const raw = ftAtY(e.clientY - top);
+    const snap = e.shiftKey ? 100 : 500;
+    a.ft = Math.max(snap, Math.min(60000, Math.round(raw / snap) * snap));
+  }
+  function handleUp(e: PointerEvent) {
+    const a = altDrag;
+    if (!a) return;
+    e.stopPropagation();
+    altDrag = null;
+    if (Math.abs(e.clientY - a.y0) < 3 || a.ft === a.ft0) return;
+    onalt?.(a.i, a.ft === cruise ? null : a.ft);
+  }
+
+  // --- The panel's height: the bar along its top edge -------------------------
+  let sectionEl = $state<HTMLElement | null>(null);
+  let sizing: { y: number; h: number } | null = null;
+  function sizeDown(e: PointerEvent) {
+    if (!sectionEl) return;
+    (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
+    sizing = { y: e.clientY, h: sectionEl.getBoundingClientRect().height };
+  }
+  function sizeMove(e: PointerEvent) {
+    if (!sizing || !sectionEl) return;
+    const room = sectionEl.parentElement?.getBoundingClientRect().height ?? window.innerHeight;
+    const nh = Math.max(PROFILE_MIN_H, Math.min(room - 160, sizing.h + (sizing.y - e.clientY)));
+    profileState.h = Math.round(nh);
+  }
+  function sizeUp() {
+    if (!sizing) return;
+    sizing = null;
+    if (profileState.h) saveProfileHeight(profileState.h);
+  }
+  function sizeKey(e: KeyboardEvent) {
+    const cur = profileState.h ?? sectionEl?.getBoundingClientRect().height ?? 300;
+    const room = sectionEl?.parentElement?.getBoundingClientRect().height ?? window.innerHeight;
+    const step = e.key === "ArrowUp" ? 24 : e.key === "ArrowDown" ? -24 : 0;
+    if (!step) return;
+    e.preventDefault();
+    profileState.h = Math.max(PROFILE_MIN_H, Math.min(room - 160, cur + step));
+    saveProfileHeight(profileState.h);
+  }
   onDestroy(() => touches.clear());
 </script>
 
-<section class="profile" aria-label="Flight profile">
+<section class="profile" aria-label="Flight profile" bind:this={sectionEl}>
+  <!-- Drag to make the profile taller or shorter. -->
+  <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
+  <div
+    class="sizer"
+    role="separator"
+    aria-orientation="horizontal"
+    aria-label="Resize the flight profile"
+    tabindex="0"
+    title="Drag to resize"
+    onpointerdown={sizeDown}
+    onpointermove={sizeMove}
+    onpointerup={sizeUp}
+    onpointercancel={sizeUp}
+    onkeydown={sizeKey}
+  ><span></span></div>
   <header>
     <h3>{glide ? "Glideslope" : "Flight profile"}</h3>
     {#if route}
@@ -705,8 +787,25 @@
           />
         {/if}
 
+        <!-- Waypoints to drag up or down: their altitude. -->
+        {#each handles as hd (hd.i)}
+          {#if hd.d >= view.a && hd.d <= view.b}
+            {@const live = altDrag?.i === hd.i}
+            {@const ft = live ? altDrag!.ft : hd.ft}
+            <g class="wp-h" class:own={hd.own} class:live transform="translate({x(hd.d)} {y(ft)})">
+              <circle r="11" class="wp-hit" role="slider" aria-label="{hd.ident || 'Waypoint'} altitude" aria-valuenow={ft} tabindex="-1"
+                onpointerdown={(e) => handleDown(e, hd)} onpointermove={handleMove} onpointerup={handleUp} onpointercancel={handleUp} />
+              <circle r="5" class="wp-dot" />
+              {#if live}
+                <rect x="9" y="-22" width="78" height="20" rx="4" class="tip" />
+                <text x="15" y="-8" class="tip-t">{fmt(ft)} ft</text>
+              {/if}
+            </g>
+          {/if}
+        {/each}
+
         <!-- Pointer readout. -->
-        {#if hoverD != null}
+        {#if hoverD != null && !altDrag}
           {@const p = altAt(plan, hoverD)}
           {@const g = elevAt(hoverD)}
           {@const hx = x(hoverD)}
@@ -740,12 +839,55 @@
     left: 0;
     right: 0;
     bottom: 0;
-    height: 50%;
+    height: min(var(--prof-h, 50%), calc(100% - 160px));
+    min-height: 240px;
     display: flex;
     flex-direction: column;
     background: var(--panel, #1c1e21);
     border-top: 1px solid var(--rule, #34373c);
     z-index: 4;
+  }
+  .sizer {
+    position: absolute;
+    z-index: 3;
+    left: 0;
+    right: 0;
+    top: -5px;
+    height: 11px;
+    cursor: ns-resize;
+    touch-action: none;
+    display: grid;
+    place-items: center;
+  }
+  .sizer span {
+    width: 46px;
+    height: 4px;
+    border-radius: 2px;
+    background: #50555c;
+    transition: background 0.15s;
+  }
+  .sizer:hover span,
+  .sizer:focus-visible span {
+    background: var(--amber, #f0b23a);
+  }
+  .wp-hit {
+    fill: transparent;
+    cursor: ns-resize;
+    touch-action: none;
+  }
+  .wp-dot {
+    fill: #1c1e21;
+    stroke: #ff3dd1;
+    stroke-width: 2;
+    pointer-events: none;
+  }
+  .wp-h.own .wp-dot {
+    fill: #ff3dd1;
+  }
+  .wp-h:hover .wp-dot,
+  .wp-h.live .wp-dot {
+    fill: #f0b23a;
+    stroke: #fff;
   }
   header {
     display: flex;
@@ -970,6 +1112,15 @@
     font-size: 11px;
     font-weight: 700;
     filter: brightness(1.35);
+  }
+  .hover,
+  .tip,
+  .tip-t {
+    pointer-events: none;
+  }
+  .chart svg {
+    user-select: none;
+    -webkit-user-select: none;
   }
   .hover {
     stroke: rgba(255, 255, 255, 0.5);

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, untrack } from "svelte";
   import { fly as slide } from "svelte/transition";
-  import { draft, drawing, fly } from "./lib/flyStore.svelte";
+  import { draft, drawing, fly, planAlt } from "./lib/flyStore.svelte";
   import { api, inRemote, on, type FlightDetail, type FlightPlan, type HangarItem, type Photo, type Route, type Status } from "./lib/api";
   import FlightsPanel from "./lib/FlightsPanel.svelte";
   import PhotosPanel from "./lib/PhotosPanel.svelte";
@@ -309,7 +309,7 @@
     </button>
   </nav>
 
-  <main class="stage" class:hidden={full} class:split={splitOn} class:profiled={profileOn}>
+  <main class="stage" class:hidden={full} class:split={splitOn} class:profiled={profileOn} style:--prof-h={profileState.h ? `${profileState.h}px` : null}>
     <div class="mapside">
     <!-- One map for the Map, Flights and Photos tabs; in Photos it shows
          nothing but the screenshot pins. -->
@@ -358,6 +358,8 @@
         aircraft={profileAircraft}
         onclose={() => (profileState.open = false)}
         onrunway={(r) => (status?.plan ? void api.setLandingRunway(r) : (draft.runway = r))}
+        editable={!status?.plan && !!draft.origin && !draft.locked && drawing.stage === "off"}
+        onalt={(i, ft) => ((planAlt.i = i), (planAlt.ft = ft), planAlt.n++)}
       />{/if}
   </main>
 
@@ -477,7 +479,7 @@
   /* Flight profile: the map above, the profile below (under the map's
      half only when the PFD is split beside it). */
   .stage.profiled .mapside {
-    bottom: 50%;
+    bottom: min(var(--prof-h, 50%), calc(100% - 160px));
   }
   .stage.split.profiled :global(.profile) {
     right: 50%;

@@ -20,7 +20,7 @@
   import { day } from "./format";
   import { modelName } from "./hangar/names";
   import { prefs, setPref } from "./prefs.svelte";
-  import { drawing, pick, planEdit, planInfo } from "./flyStore.svelte";
+  import { drawing, pick, planAlt, planEdit, planInfo } from "./flyStore.svelte";
   import { routeAsp } from "./routeAirspace.svelte";
   import { pointAt as alongRoute } from "./profile/build";
   import { pfdState } from "./pfd/store.svelte";
@@ -1354,13 +1354,66 @@
     if (!d) return;
     planDrag = null;
     map?.dragPan.enable();
-    if (!d.moved) return;
+    if (!d.moved) {
+      // A click on a point (no drag): its altitude, in a small box beside it.
+      if (d.insert == null) {
+        skipClick = true;
+        setTimeout(() => (skipClick = false), 0);
+        openAltBox(d.i);
+      }
+      return;
+    }
+    altPop?.remove();
     skipClick = true;
     setTimeout(() => (skipClick = false), 0);
     // Dropped on an airport: the point becomes that airport.
     const hit = airportHit(e.point);
     if (hit) d.fixes[d.i] = { ...d.fixes[d.i], ident: hit.ident, kind: "apt", lat: hit.at[1], lon: hit.at[0] };
     planEdit.fixes = d.fixes;
+  }
+  /** The altitude box on a clicked point: type feet, Enter sets it, "Cruise" follows the cruise. */
+  let altPop: maplibregl.Popup | null = null;
+  function openAltBox(i: number) {
+    const f = draft?.fixes?.[i];
+    if (!map || !f) return;
+    altPop?.remove();
+    const el = document.createElement("form");
+    el.className = "alt-box";
+    const own = f.stage !== "CRZ";
+    const name = f.ident || `WP${i + 1}`;
+    el.innerHTML = `<strong></strong><label><input type="number" min="0" max="60000" step="100" inputmode="numeric" aria-label="Altitude in feet"><span>ft</span></label><div class="ab-row"><button type="button" class="ab-crz">Cruise</button><button type="submit" class="ab-set">Set</button></div>`;
+    (el.querySelector("strong") as HTMLElement).textContent = `${name} altitude`;
+    const input = el.querySelector("input") as HTMLInputElement;
+    input.placeholder = "Cruise";
+    if (own && f.alt_ft) input.value = String(f.alt_ft);
+    const send = (ft: number | null) => {
+      planAlt.i = i;
+      planAlt.ft = ft;
+      planAlt.n++;
+      pop.remove();
+    };
+    el.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const v = Math.round(Number(input.value));
+      send(input.value.trim() && Number.isFinite(v) && v > 0 ? Math.min(60000, v) : null);
+    });
+    (el.querySelector(".ab-crz") as HTMLButtonElement).onclick = () => send(null);
+    input.addEventListener("keydown", (e) => e.key === "Escape" && pop.remove());
+    const pop = new maplibregl.Popup({ className: "alt-pop", anchor: "left", offset: 14, closeButton: false, closeOnClick: false, maxWidth: "200px" })
+      .setLngLat([f.lon, f.lat])
+      .setDOMContent(el)
+      .addTo(map);
+    // Closed by the next press on the map (this click's own events are past by then).
+    const m = map;
+    const off = () => pop.remove();
+    const arm = setTimeout(() => m.once("mousedown", off), 0);
+    pop.on("close", () => {
+      clearTimeout(arm);
+      m.off("mousedown", off);
+      if (altPop === pop) altPop = null;
+    });
+    altPop = pop;
+    requestAnimationFrame(() => (input.focus(), input.select()));
   }
   /** Right-click on a planned point: take it out. */
   function planRemoveAt(pt: maplibregl.Point): boolean {
@@ -4350,6 +4403,64 @@
   .pi-note {
     color: var(--ink-faint);
     font-size: 10.5px;
+  }
+  :global(.alt-pop .maplibregl-popup-content) {
+    background: rgba(28, 30, 33, 0.97);
+    color: #eceef1;
+    border: 1px solid #ff3dd1;
+    border-radius: 10px;
+    padding: 9px 10px;
+    box-shadow: 0 10px 26px rgba(0, 0, 0, 0.45);
+  }
+  :global(.alt-pop .maplibregl-popup-tip) {
+    border-top-color: #ff3dd1;
+    border-bottom-color: #ff3dd1;
+  }
+  :global(.alt-box) {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    margin: 0;
+    font-size: 12px;
+  }
+  :global(.alt-box strong) {
+    font-size: 12.5px;
+  }
+  :global(.alt-box label) {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: #a8adb4;
+  }
+  :global(.alt-box input) {
+    width: 110px;
+    padding: 5px 7px;
+    border-radius: 6px;
+    border: 1px solid #f0b23a;
+    background: #23262a;
+    color: #eceef1;
+    font: 600 14px "IBM Plex Mono", ui-monospace, monospace;
+    outline: none;
+  }
+  :global(.alt-box .ab-row) {
+    display: flex;
+    gap: 6px;
+  }
+  :global(.alt-box button) {
+    flex: 1;
+    padding: 5px 8px;
+    border-radius: 6px;
+    border: 1px solid #50555c;
+    background: transparent;
+    color: #eceef1;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  :global(.alt-box .ab-set) {
+    border-color: #f0b23a;
+    background: #f0b23a;
+    color: #1b1406;
   }
   :global(.conflict-pop .maplibregl-popup-content) {
     background: rgba(28, 30, 33, 0.97);
