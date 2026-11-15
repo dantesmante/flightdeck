@@ -3314,7 +3314,7 @@
   let wasTracking = false;
   let liftLive: Raised | null = null;
 
-  // The selected heading: a line from the nose, 100 px at any zoom, shown
+  // The selected heading: a line from the nose, 400 px at any zoom, shown
   // for 10 s after the heading bug is turned. Drawn inside the aircraft
   // marker, so it costs no map layer and follows the aircraft for free.
   let selSeen: number | null = null;
@@ -3984,7 +3984,7 @@
     position: relative;
     filter: drop-shadow(0 0 6px rgba(240, 178, 58, 0.55));
   }
-  /* The selected heading: from the nose, 100 px, cyan like the heading bug. */
+  /* The selected heading: a thin dashed white line from the nose, 400 px. */
   .map :global(.hdg-sel) {
     position: absolute;
     left: 50%;
@@ -4006,15 +4006,12 @@
   }
   .map :global(.hdg-sel span) {
     position: absolute;
-    left: -1.5px;
+    left: -0.75px;
     bottom: 15px;
-    width: 3px;
-    height: 100px;
-    border-radius: 2px;
-    background: #3fe0ff;
-    box-shadow:
-      0 0 0 1px rgba(10, 12, 14, 0.75),
-      0 0 6px rgba(63, 224, 255, 0.55);
+    width: 1.5px;
+    height: 400px;
+    background: repeating-linear-gradient(to top, #fff 0 7px, transparent 7px 12px);
+    filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.9));
   }
   /* Shown but not tracked: white with a dark grey outline. */
   .map :global(.plane.idle svg) {

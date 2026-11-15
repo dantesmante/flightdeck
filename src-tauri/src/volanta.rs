@@ -94,6 +94,89 @@ fn t(v: &Value, k: &str) -> Option<i64> {
     v.get(k).and_then(Value::as_str).and_then(parse_time)
 }
 
+// --- Volanta's ".export" files ---------------------------------------------
+//
+// Newer Volanta exports name their keys with colons ("heading:true",
+// "ground:status"), give positions as degrees-minutes-seconds text and list
+// them under "coordinates". They are turned into the older JSON shape here,
+// so one reader serves both.
+
+/// "41° 7' 54.97\" N" → 41.13194. Plain numbers pass through.
+fn dms(v: Option<&Value>) -> Option<f64> {
+    let v = v?;
+    if let Some(x) = v.as_f64() {
+        return Some(x);
+    }
+    let s = v.as_str()?;
+    let nums: Vec<f64> = s
+        .split(|c: char| !(c.is_ascii_digit() || c == '.'))
+        .filter(|p| !p.is_empty())
+        .filter_map(|p| p.parse().ok())
+        .collect();
+    let deg = nums.first()? + nums.get(1).unwrap_or(&0.0) / 60.0 + nums.get(2).unwrap_or(&0.0) / 3600.0;
+    let neg = s.contains(['S', 's', 'W', 'w']) || s.trim_start().starts_with('-');
+    Some(if neg { -deg } else { deg })
+}
+
+/// Fuel burned from the fuel on board at each position: every drop added
+/// up, leaving out jumps of more than 300 kg between two positions (fuel
+/// loaded or unloaded in the sim, not burned).
+fn burned_kg(fuel: &[f64]) -> Option<f64> {
+    if fuel.len() < 2 {
+        return None;
+    }
+    Some(fuel.windows(2).map(|w| w[0] - w[1]).filter(|d| *d > 0.0 && *d < 300.0).sum())
+}
+
+/// A Volanta ".export" flight in the older JSON shape; other JSON as it is.
+pub fn normalize(v: Value) -> Value {
+    let (Some(coords), Some(key)) = (v.get("coordinates").and_then(Value::as_array), st(&v, "key")) else { return v };
+    let mut fuel = Vec::new();
+    let positions: Vec<Value> = coords
+        .iter()
+        .filter(|c| st(c, "position:type").is_none_or(|t| t == "Aircraft"))
+        .filter_map(|c| {
+            if let Some(kg) = f(c, "fuel:kg") {
+                fuel.push(kg);
+            }
+            Some(json!({
+                "time": c.get("time")?,
+                "latitude": dms(c.get("lat"))?,
+                "longitude": dms(c.get("lng"))?,
+                "altitude": f(c, "altitude"),
+                "altitudeAgl": f(c, "agl:altitude"),
+                "groundSpeed": f(c, "ground:speed"),
+                "verticalSpeed": f(c, "vertical:speed"),
+                "headingTrue": f(c, "heading:true"),
+                "onGround": c.get("ground:status").and_then(Value::as_bool).unwrap_or(false),
+                "bank": f(c, "bank"),
+                "pitch": f(c, "pitch"),
+            }))
+        })
+        .collect();
+    let g = |k: &str| v.get(k).cloned().unwrap_or(Value::Null);
+    json!({
+        "id": key,
+        "createdAt": g("creation:time"),
+        "offBlocksTime": g("departure:time"),
+        "onBlocksTime": g("block:on:time"),
+        "realBlockTime": g("block:duration"),
+        "origin": g("departure"),
+        "destination": g("destination"),
+        "aircraftTitle": g("plane:name"),
+        "aircraftIcao": g("aircraft:type"),
+        "aircraftRegistration": g("registration"),
+        "aircraftDirectory": g("plane:folder"),
+        "state": g("flight:state"),
+        "distanceFlownInNauticalMiles": g("nautical:miles"),
+        "fuelBurn": burned_kg(&fuel),
+        "flightNumber": st(&v, "flight:call").or_else(|| st(&v, "flight:code")),
+        "note": g("note"),
+        "events": g("events"),
+        "positions": positions,
+    })
+}
+
 /// A Volanta flight, ready to save.
 pub struct ImportedFlight {
     pub id: String,
@@ -144,7 +227,7 @@ fn wind_parts(hdg: f64, wind_from: f64, kt: f64) -> (f64, f64) {
 /// Every position in a Volanta file, with the attitude Volanta logged, for
 /// working out how the flight was handled.
 pub fn samples(text: &str) -> Vec<tracker::Sample> {
-    let Ok(v) = serde_json::from_str::<Value>(text) else { return vec![] };
+    let Ok(v) = serde_json::from_str::<Value>(text).map(normalize) else { return vec![] };
     let mut out: Vec<tracker::Sample> = v
         .get("positions")
         .and_then(Value::as_array)
@@ -173,7 +256,7 @@ pub fn samples(text: &str) -> Vec<tracker::Sample> {
 }
 
 pub fn parse(text: &str, refdata: &refdata::RefData) -> Result<ImportedFlight, String> {
-    let v: Value = serde_json::from_str(text).map_err(|e| format!("not a JSON file ({e})"))?;
+    let v: Value = normalize(serde_json::from_str(text).map_err(|e| format!("not a JSON file ({e})"))?);
     let id = st(&v, "id").ok_or("not a Volanta flight (no id)")?;
     let positions = v.get("positions").and_then(Value::as_array).cloned().unwrap_or_default();
     if positions.is_empty() && v.get("origin").is_none() {
@@ -505,6 +588,54 @@ mod tests {
     use super::*;
 
     #[test]
+    fn export_format() {
+        let pos = |t: &str, lat: &str, lng: &str, alt: f64, ground: bool, fuel: f64| {
+            json!({"time": t, "lat": lat, "lng": lng, "altitude": alt, "agl:altitude": 0.0, "ground:speed": 120.0,
+                   "vertical:speed": 0.0, "heading:true": 90.0, "ground:status": ground, "bank": 0.0, "pitch": 0.0,
+                   "fuel:kg": fuel, "position:type": "Aircraft", "network": "Volanta"})
+        };
+        let text = json!({
+            "key": "31329ec4-b3a4-4eb4-b918-d2c3196f1267",
+            "creation:time": "2023-01-05T17:08:24.902519",
+            "departure:time": "2023-01-05T17:10:00.000",
+            "block:on:time": "2023-01-05T18:10:00.000",
+            "block:duration": 3000.0,
+            "departure": {"icaoCode": "LIBD", "name": "Bari", "latitude": 41.1389, "longitude": 16.7606},
+            "destination": {"icaoCode": "LEBL", "name": "Barcelona", "latitude": 41.2971, "longitude": 2.07846},
+            "plane:name": "PMDG 737-700", "aircraft:type": "B737", "registration": "EI-SEV", "plane:folder": "PMDG 737-700",
+            "flight:state": "Completed", "nautical:miles": 757.1, "flight:call": "FR2422",
+            "events": [{"landingRate": -161.0, "gForce": 1.1, "pitch": -4.7, "roll": -0.8, "groundSpeed": 131.0,
+                        "latitude": 41.29, "longitude": 2.08, "heading": 16.0, "windHeading": 320.0, "windSpeed": 7.0,
+                        "time": "2023-01-05T18:00:53.547254"}],
+            "coordinates": [
+                pos("2023-01-05T17:10:00Z", "41° 7' 54.97\" N", "16° 44' 30.64\" E", 150.0, true, 10_000.0),
+                pos("2023-01-05T17:12:00Z", "41° 8' 0\" N", "16° 40' 0\" E", 3000.0, false, 4000.0),
+                pos("2023-01-05T17:40:00Z", "41° 10' 0\" N", "10° 0' 0\" E", 29000.0, false, 3800.0),
+                pos("2023-01-05T18:01:00Z", "41° 18' 11.40\" N", "2° 4' 54.68\" E", 10.0, true, 3700.0),
+            ],
+        })
+        .to_string();
+        let r = parse(&text, &refdata::RefData::load()).unwrap();
+        let s = &r.summary;
+        assert_eq!(r.id, "31329ec4-b3a4-4eb4-b918-d2c3196f1267");
+        assert_eq!(s.track.len(), 4);
+        assert!((s.track[0].lat - 41.131936).abs() < 1e-4 && (s.track[0].lon - 16.741844).abs() < 1e-4);
+        assert!((s.track[3].lon - 2.081856).abs() < 1e-4);
+        assert_eq!(s.aircraft.registration, "EI-SEV");
+        assert_eq!(s.landings.len(), 1);
+        assert!(s.takeoff_ms.is_some());
+        // The 6,000 kg drop is fuel unloaded, not burned.
+        assert!((s.fuel_used_kg - 300.0).abs() < 1e-6, "{}", s.fuel_used_kg);
+        assert_eq!(s.paused_ms, 600_000);
+        assert_eq!(r.ctx.flight_no, "FR2422");
+        assert_eq!(r.ctx.dep.as_ref().map(|p| p.icao.as_str()), Some("LIBD"));
+        assert!(matches!(s.status, FlightStatus::Complete));
+        // The original file is kept, so it exports back unchanged.
+        assert_eq!(r.ctx.source.as_ref().map(|i| i.file.as_str()), Some(text.as_str()));
+        assert_eq!(samples(&text).len(), 4);
+    }
+
+    #[test]
     fn imported_flights_count_in_the_monthly_hours() {
         let t0 = 1_790_000_000_000i64;
         let positions: Vec<Value> = (0..120)
@@ -579,6 +710,32 @@ mod tests {
 
     /// Round trip a real Volanta file: set FLIGHTDECK_VOLANTA_SAMPLE to its
     /// path and run with `--ignored`. (Pilots' files stay out of the repo.)
+    #[test]
+    #[ignore]
+    fn real_volanta_export_files() {
+        let paths = std::env::var("FLIGHTDECK_VOLANTA_EXPORTS").expect("set FLIGHTDECK_VOLANTA_EXPORTS");
+        let refdata = refdata::RefData::load();
+        for path in paths.split(';') {
+            let text = std::fs::read_to_string(path).unwrap();
+            let p = parse(&text, &refdata).unwrap();
+            let s = &p.summary;
+            println!(
+                "{} {}→{} pts {} landings {:?} burn {:.0} kg dist {:.0} paused {} min block {} min max alt {:.0} takeoff {:?}",
+                p.ctx.flight_no,
+                p.ctx.dep.as_ref().map(|x| x.icao.as_str()).unwrap_or("-"),
+                p.ctx.arr.as_ref().map(|x| x.icao.as_str()).unwrap_or("-"),
+                s.track.len(),
+                s.landings.iter().map(|l| l.vs_fpm.round()).collect::<Vec<_>>(),
+                s.fuel_used_kg,
+                s.distance_nm,
+                s.paused_ms / 60_000,
+                (s.block_in_ms.unwrap_or(0) - s.block_out_ms.unwrap_or(0) - s.paused_ms) / 60_000,
+                s.max_alt_ft,
+                s.takeoff_ms.map(|t| format_time(t, true)),
+            );
+        }
+    }
+
     #[test]
     #[ignore]
     fn real_volanta_file_round_trip() {

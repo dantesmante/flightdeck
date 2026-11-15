@@ -460,14 +460,14 @@
   <div class="group">
     <h3>Volanta</h3>
     <p class="help">
-      Bring your Volanta history across: select Volanta flight files (.json), one or many at once. You see the flights
+      Bring your Volanta history across: select Volanta flight files (.export or the older .json), one or many at once. You see the flights
       found before anything is saved, with any you already have marked. Each becomes a FlightDeck flight on the map, in the
       logbook, passport and hangar, and the original file is kept with it.
     </p>
     <div class="row">
       <label class="primary file" class:disabled={vBusy}>
         Import Volanta flights
-        <input type="file" accept=".json,application/json" multiple onchange={(e) => importFiles(e, "volanta")} disabled={vBusy} />
+        <input type="file" accept=".export,.json,application/json" multiple onchange={(e) => importFiles(e, "volanta")} disabled={vBusy} />
       </label>
     </div>
     {#if vKind === "volanta"}{@render importStatus()}{/if}
