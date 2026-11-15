@@ -52,6 +52,8 @@
     powered?: boolean | null;
     /** Ground speed, kt (Smart taxi waits for the rollout to end). */
     acGs?: number | null;
+    /** The heading selected in the sim (heading bug), true degrees. */
+    acSelHdg?: number | null;
     /** Departure point of the live flight. */
     origin: [number, number] | null;
     /** A saved flight's track to show instead of the live one. */
@@ -106,6 +108,7 @@
     landedAt = null,
     powered = null,
     acGs = null,
+    acSelHdg = null,
     origin,
     history,
     routes = [],
@@ -2544,7 +2547,7 @@
   function planeEl() {
     const d = document.createElement("div");
     d.className = "plane";
-    d.innerHTML = `<svg viewBox="-24 -24 48 48" width="38" height="38" aria-hidden="true"><path d="M0 -20 L3.4 -6 L19 1.5 L19 5.5 L3.4 2.6 L2.4 13 L8 17 L8 19.6 L0 17.8 L-8 19.6 L-8 17 L-2.4 13 L-3.4 2.6 L-19 5.5 L-19 1.5 L-3.4 -6 Z" fill="#F0B23A" stroke="#111214" stroke-width="1.5" stroke-linejoin="round"/></svg>`;
+    d.innerHTML = `<div class="hdg-sel" aria-hidden="true"><span></span></div><svg viewBox="-24 -24 48 48" width="38" height="38" aria-hidden="true"><path d="M0 -20 L3.4 -6 L19 1.5 L19 5.5 L3.4 2.6 L2.4 13 L8 17 L8 19.6 L0 17.8 L-8 19.6 L-8 17 L-2.4 13 L-3.4 2.6 L-19 5.5 L-19 1.5 L-3.4 -6 Z" fill="#F0B23A" stroke="#111214" stroke-width="1.5" stroke-linejoin="round"/></svg>`;
     return d;
   }
 
@@ -3310,6 +3313,34 @@
   });
   let wasTracking = false;
   let liftLive: Raised | null = null;
+
+  // The selected heading: a line from the nose, 100 px at any zoom, shown
+  // for 10 s after the heading bug is turned. Drawn inside the aircraft
+  // marker, so it costs no map layer and follows the aircraft for free.
+  let selSeen: number | null = null;
+  let selShownAt = $state(0);
+  let selHide: ReturnType<typeof setTimeout> | undefined;
+  $effect(() => {
+    const s = acSelHdg;
+    untrack(() => {
+      // The first value after connecting is not a turn of the knob.
+      if (s != null && selSeen != null && Math.abs(((s - selSeen + 540) % 360) - 180) >= 0.5) {
+        selShownAt = Date.now();
+        clearTimeout(selHide);
+        selHide = setTimeout(() => (selShownAt = 0), 10_000);
+      }
+      selSeen = s;
+    });
+  });
+  $effect(() => {
+    // Read everything first: the marker itself is not reactive.
+    const on = selShownAt > 0 && acSelHdg != null;
+    const ac = aircraft;
+    const el = marker?.getElement().querySelector<HTMLElement>(".hdg-sel");
+    if (!el || !ac) return;
+    if (on) el.style.setProperty("--rel", `${(((acSelHdg! - ac.hdg + 540) % 360) - 180).toFixed(1)}deg`);
+    el.classList.toggle("on", on);
+  });
   /** From here on, airports show their chart symbols instead of dots. */
   const SYMBOL_ZOOM = 8;
 
@@ -3949,11 +3980,44 @@
     background: rgba(240, 178, 58, 0.35);
     border: 1px solid rgba(240, 178, 58, 0.8);
   }
-  .map :global(.plane) {
+  .map :global(.plane svg) {
+    position: relative;
     filter: drop-shadow(0 0 6px rgba(240, 178, 58, 0.55));
   }
+  /* The selected heading: from the nose, 100 px, cyan like the heading bug. */
+  .map :global(.hdg-sel) {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 0;
+    height: 0;
+    transform: rotate(var(--rel, 0deg));
+    opacity: 0;
+    transition:
+      opacity 0.6s ease,
+      transform 0.25s ease-out;
+    pointer-events: none;
+  }
+  .map :global(.hdg-sel.on) {
+    opacity: 1;
+    transition:
+      opacity 0.15s ease,
+      transform 0.25s ease-out;
+  }
+  .map :global(.hdg-sel span) {
+    position: absolute;
+    left: -1.5px;
+    bottom: 15px;
+    width: 3px;
+    height: 100px;
+    border-radius: 2px;
+    background: #3fe0ff;
+    box-shadow:
+      0 0 0 1px rgba(10, 12, 14, 0.75),
+      0 0 6px rgba(63, 224, 255, 0.55);
+  }
   /* Shown but not tracked: white with a dark grey outline. */
-  .map :global(.plane.idle) {
+  .map :global(.plane.idle svg) {
     filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.55));
   }
   .map :global(.plane.idle path) {

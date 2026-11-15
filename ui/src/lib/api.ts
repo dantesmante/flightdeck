@@ -289,6 +289,8 @@ export interface Status {
   live: LiveFlight | null;
   dep: Place | null;
   telemetry: Telemetry | null;
+  /** The heading selected on the autopilot (heading bug), true degrees. */
+  sel_hdg_true: number | null;
   last_landing: LandingReport | null;
   demo: boolean;
   session: number;

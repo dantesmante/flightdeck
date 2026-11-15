@@ -110,6 +110,7 @@ const status: FullStatus = {
     track_points: 40,
   },
   dep: { icao: "KSEA", name: "Seattle–Tacoma International Airport", country: "US", region: "US-WA" },
+  sel_hdg_true: 187,
   telemetry: {
     t_ms: now,
     lat: track[39][1],
@@ -781,6 +782,10 @@ if (typeof window !== "undefined") {
   };
   w.__fdAt = (lat: number, lon: number, alt: number, onGround = false, hdg?: number) => {
     if (status.telemetry) status.telemetry = { ...status.telemetry, lat, lon, alt_msl_ft: alt, on_ground: onGround, ...(hdg != null ? { hdg_true_deg: hdg, hdg_deg: hdg } : {}) };
+    pushStatus();
+  };
+  w.__fdSelHdg = (deg: number) => {
+    status.sel_hdg_true = deg;
     pushStatus();
   };
   w.__fdTaxiLayout = mockTaxiLayout;

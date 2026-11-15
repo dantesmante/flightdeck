@@ -68,6 +68,8 @@ pub struct Status {
     pub live: Option<LiveFlight>,
     pub dep: Option<Place>,
     pub telemetry: Option<Telemetry>,
+    /// The heading selected on the autopilot (heading bug), true degrees.
+    pub sel_hdg_true: Option<f64>,
     pub last_landing: Option<LandingReport>,
     pub demo: bool,
     /// Changes whenever a new flight begins, so the UI starts a fresh track.
@@ -876,6 +878,12 @@ impl Engine {
             live,
             dep: self.dep.clone(),
             telemetry: self.last_sample.filter(|_| self.in_world_seen),
+            sel_hdg_true: self.last_sample.filter(|_| self.in_world_seen).and_then(|s| {
+                // The bug is magnetic: add the local variation (true − magnetic heading).
+                let sel = self.instr.sel_hdg_deg?;
+                let var = self.instr.hdg_mag_deg.map(|m| s.hdg_true_deg - m).unwrap_or(0.0);
+                Some(((sel + var).rem_euclid(360.0) * 10.0).round() / 10.0)
+            }),
             demo: self.demo,
             session: self.session,
             track_tail: std::mem::take(&mut self.tail),
