@@ -349,6 +349,14 @@ export interface ImportPreview {
   error: string | null;
 }
 
+/** What FlightDeck uses: the core process and the window's WebView2 processes, MB. */
+export interface MemoryUsage {
+  core_mb: number | null;
+  window_mb: number | null;
+  window_processes: number;
+  low: boolean;
+}
+
 export interface DuplicateFlight extends FlightRow {
   has_track: boolean;
   /** "" (recorded by FlightDeck), "manual", "volanta" or "elevatex". */
@@ -942,6 +950,8 @@ export const api = {
   flight: (id: number) => call<FlightDetail | null>("get_flight", { id }),
   deleteFlight: (id: number) => call<boolean>("delete_flight", { id }),
   findDuplicates: () => call<DuplicateFlight[][]>("find_duplicates"),
+  findNoLandings: () => call<DuplicateFlight[]>("find_no_landings"),
+  memoryUsage: () => call<MemoryUsage>("memory_usage"),
   deleteFlights: (ids: number[]) => call<number>("delete_flights", { ids }),
   startDemo: (route: number | null, speedup = 30) => call<void>("start_demo", { route, speedup }),
   stopDemo: () => call<void>("stop_demo"),

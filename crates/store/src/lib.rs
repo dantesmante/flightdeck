@@ -648,6 +648,26 @@ impl Store {
         Ok(out)
     }
 
+    /// Flights that never landed: no touchdown recorded and no landings in
+    /// their logbook line (sessions ended in the air, or never flown). Newest first.
+    pub fn flights_without_landings(&self) -> Result<Vec<DuplicateFlight>> {
+        let mut st = self.conn.prepare(
+            "SELECT f.id, EXISTS (SELECT 1 FROM track t WHERE t.flight_id = f.id), COALESCE(f.source, '')
+             FROM flight f LEFT JOIN log_entry l ON l.flight_id = f.id
+             WHERE f.landing IS NULL AND f.landing_rate_fpm IS NULL
+               AND COALESCE(l.day_landings, 0) + COALESCE(l.night_landings, 0) = 0
+             ORDER BY f.start_ms DESC",
+        )?;
+        let rows: Vec<(i64, bool, String)> = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect::<std::result::Result<_, _>>()?;
+        let mut out = Vec::with_capacity(rows.len());
+        for (id, has_track, source) in rows {
+            if let Some(flight) = self.get_flight(id)? {
+                out.push(DuplicateFlight { flight, has_track, source });
+            }
+        }
+        Ok(out)
+    }
+
     /// Delete several flights at once. Returns how many went.
     pub fn delete_flights(&mut self, ids: &[i64]) -> Result<usize> {
         let tx = self.conn.transaction()?;

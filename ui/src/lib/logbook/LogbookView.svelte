@@ -22,12 +22,37 @@
   let hover = $state<number | null>(null);
   let opened = $state<LogRow | null>(null);
   let adding = $state(false);
-  let dupes = $state(false);
+  /** The maintenance finder open: duplicates or flights that never landed. */
+  let dupes = $state<"dupes" | "nolanding" | null>(null);
+  let maint = $state(false);
+
+  // Filter by aircraft: "type:A20N" or "reg:N704DA" ("" = every flight).
+  let only = $state("");
+  const types = $derived([...new Set(rows.map((r) => r.aircraft_type).filter(Boolean))].sort());
+  const regs = $derived([...new Set(rows.map((r) => r.ident).filter(Boolean))].sort());
+  const shown = $derived.by(() => {
+    if (!only) return rows;
+    const [k, v] = [only.slice(0, only.indexOf(":")), only.slice(only.indexOf(":") + 1)];
+    return rows.filter((r) => (k === "type" ? r.aircraft_type === v : r.ident === v));
+  });
+  // A filter that matches nothing any more (the flights were deleted) is dropped.
+  $effect(() => {
+    if (only && loaded && shown.length === 0) only = "";
+  });
+  // Changing the filter starts at its latest page.
+  let onlySeen = "";
+  $effect(() => {
+    if (only !== onlySeen) {
+      onlySeen = only;
+      spread = Math.max(0, Math.ceil(shown.length / ROWS) - 1);
+    }
+  });
 
   /** A new manual entry: show the page it landed on. */
   async function added(id: number) {
     adding = false;
     await load();
+    only = "";
     const i = rows.findIndex((r) => r.flight_id === id);
     if (i >= 0) book?.goTo(Math.floor(i / ROWS));
   }
@@ -39,7 +64,7 @@
   const cols = $derived(LAYOUTS[layout]);
   const left = $derived(cols.filter((c) => c.side === "L"));
   const right = $derived(cols.filter((c) => c.side === "R"));
-  const spreads = $derived(Math.max(1, Math.ceil(rows.length / ROWS)));
+  const spreads = $derived(Math.max(1, Math.ceil(shown.length / ROWS)));
 
   async function load(toEnd = false) {
     rows = (await api.logbook()) ?? [];
@@ -52,7 +77,7 @@
   const template = (cs: Col[]) => cs.map((c) => (c.flex ? "minmax(0, 1fr)" : `${c.width}px`)).join(" ");
 
   function pageRows(s: number) {
-    const slice = rows.slice(s * ROWS, (s + 1) * ROWS);
+    const slice = shown.slice(s * ROWS, (s + 1) * ROWS);
     return [...slice, ...Array(ROWS - slice.length).fill(null)] as (LogRow | null)[];
   }
 
@@ -61,8 +86,8 @@
   }
 
   function footer(col: Col, s: number) {
-    const page = rows.slice(s * ROWS, (s + 1) * ROWS);
-    const before = rows.slice(0, s * ROWS);
+    const page = shown.slice(s * ROWS, (s + 1) * ROWS);
+    const before = shown.slice(0, s * ROWS);
     return {
       page: printValue(col, sum(col, page), layout),
       forward: printValue(col, sum(col, before), layout),
@@ -73,7 +98,7 @@
   // The simple list: the main columns in one table, newest flight first,
   // with the full date. FAA/EASA still sets how times are written.
   const tableCols = LIST_COLS;
-  const newestFirst = $derived([...rows].reverse());
+  const newestFirst = $derived([...shown].reverse());
   const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   const fullDate = (ms: number) => {
     const d = new Date(ms);
@@ -166,8 +191,32 @@
   <div class="toolbar">
     <h2>Logbook</h2>
     <span class="where">
-      {rows.length} {rows.length === 1 ? "entry" : "entries"}
+      {#if only}{shown.length} of {rows.length}{:else}{rows.length}{/if} {rows.length === 1 ? "entry" : "entries"}
     </span>
+    {#if types.length + regs.length > 1}
+      <!-- Only the flights in one aircraft type or one registration. -->
+      <label class="only" class:on={!!only}>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16l-6 7.5V19l-4-2v-4.5z" /></svg>
+        <select bind:value={only} aria-label="Show flights in">
+          <option value="">All aircraft</option>
+          {#if types.length}
+            <optgroup label="Aircraft type">
+              {#each types as t (t)}<option value="type:{t}">{t}</option>{/each}
+            </optgroup>
+          {/if}
+          {#if regs.length}
+            <optgroup label="Registration">
+              {#each regs as r (r)}<option value="reg:{r}">{r}</option>{/each}
+            </optgroup>
+          {/if}
+        </select>
+        {#if only}
+          <button type="button" class="clr" aria-label="Show every flight" title="Show every flight" onclick={() => (only = "")}>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
+          </button>
+        {/if}
+      </label>
+    {/if}
     <div class="seg" role="group" aria-label="Logbook view">
       <button class:on={!list} onclick={() => setPref("logbook_view", "book")} title="A paper pilot logbook">Logbook</button>
       <button class:on={list} onclick={() => setPref("logbook_view", "list")} title="A plain list of every flight">List</button>
@@ -190,10 +239,26 @@
         </button>
       </div>
     {/if}
-    <button class="add dup" onclick={() => (dupes = true)} title="Find flights logged more than once">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" /></svg>
-      Find duplicates
-    </button>
+    <!-- Maintenance: opens out like the map's Tools. -->
+    <div class="maint" class:open={maint}>
+      {#if maint}
+        <div class="maint-items" role="group" aria-label="Maintenance">
+          <button class="add dup" onclick={() => (dupes = "dupes")} title="Find flights logged more than once">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" /></svg>
+            Find duplicates
+          </button>
+          <button class="add dup" onclick={() => (dupes = "nolanding")} title="Find flights that never touched down">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17h18" /><path d="M5 13l5-1 6-6 2 1-4 6 4 1 1-1 1 1-2 3-12-1z" /><path d="M4 4l16 16" /></svg>
+            Flights without landings
+          </button>
+        </div>
+      {/if}
+      <button class="add dup" class:on={maint} aria-expanded={maint} onclick={() => (maint = !maint)} title="Logbook maintenance">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.2L4 16.8V20h3.2l5.3-5.3a4 4 0 0 0 5.2-5.4l-2.5 2.5-2.4-.6-.6-2.4z" /></svg>
+        Maintenance
+        <svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6" /></svg>
+      </button>
+    </div>
     <button class="add" onclick={() => (adding = true)}>
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
       Add manual entry
@@ -228,7 +293,7 @@
             <tr>
               <td>Totals</td>
               {#each tableCols as c (c.key)}
-                <td class:num={c.kind !== "text"}>{c.kind === "text" ? "" : printValue(c, sum(c, rows), layout)}</td>
+                <td class:num={c.kind !== "text"}>{c.kind === "text" ? "" : printValue(c, sum(c, shown), layout)}</td>
               {/each}
             </tr>
           </tfoot>
@@ -248,7 +313,7 @@
 </section>
 
 {#if dupes}
-  <Duplicates onclose={() => (dupes = false)} ondone={() => load()} />
+  <Duplicates mode={dupes} onclose={() => (dupes = null)} ondone={() => load()} />
 {/if}
 
 {#if adding}
@@ -323,8 +388,102 @@
     font-size: 13px;
     font-weight: 600;
   }
-  .add.dup + .add {
+  .maint {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .maint .add {
     margin-left: 0;
+  }
+  .maint + .add {
+    margin-left: 0;
+  }
+  .maint-items {
+    display: flex;
+    gap: 6px;
+    animation: maint-in 0.18s ease-out;
+  }
+  @keyframes maint-in {
+    from {
+      opacity: 0;
+      transform: translateX(10px);
+    }
+  }
+  .add.on {
+    border-color: var(--amber);
+    color: var(--amber);
+    background: rgba(240, 178, 58, 0.1);
+  }
+  .add .chev {
+    width: 12px;
+    height: 12px;
+    transition: transform 0.18s;
+  }
+  .add.on .chev {
+    transform: rotate(180deg);
+  }
+  .only {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 6px 0 9px;
+    height: 29px;
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    background: #26282c;
+    color: var(--ink-dim);
+  }
+  .only.on {
+    border-color: var(--amber);
+    color: var(--amber);
+  }
+  .only > svg {
+    width: 14px;
+    height: 14px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linejoin: round;
+  }
+  .only select {
+    border: none;
+    background: transparent;
+    color: var(--ink);
+    font-size: 13px;
+    font-weight: 600;
+    padding: 0 2px;
+    outline: none;
+    cursor: pointer;
+  }
+  .only select option,
+  .only select optgroup {
+    background: #26282c;
+    color: var(--ink);
+  }
+  .only .clr {
+    display: grid;
+    place-items: center;
+    width: 20px;
+    height: 20px;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--ink-dim);
+    padding: 0;
+  }
+  .only .clr:hover {
+    color: var(--amber);
+  }
+  .only .clr svg {
+    width: 12px;
+    height: 12px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2.4;
+    stroke-linecap: round;
   }
   .add svg rect,
   .add svg path {

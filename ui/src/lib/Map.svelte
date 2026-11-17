@@ -11,6 +11,7 @@
   import type { Net, NetworkData } from "./api";
   import { showRoads, setRoadsOpacity, showTaws, showObstacles, showRings, autoRingStep, C as BASE, STYLE, addAirportLayout, addRegionLines, approachLines, offlineStyle, runwayEnds, setBorders, showAirportLayout, showSatellite, showTerrain, tintMap, ELEVATION_BAR } from "./mapStyle";
   import MapLayers from "./MapLayers.svelte";
+  import Credits from "./Credits.svelte";
   import { shots as shotStore, type PlacedShot } from "./shots.svelte";
   import { WindParticles } from "./wind/particles";
   import { addWindIcons, windIconExpr, windText } from "./wind/arrows";
@@ -331,7 +332,6 @@
     if (p != null) wasPowered = p;
   });
   onDestroy(() => {
-    attribWatch?.disconnect();
     clearTimeout(smartTimer);
     if (typeof window !== "undefined") {
       for (const ev of looks) window.removeEventListener(ev, smartLook);
@@ -1759,7 +1759,7 @@
     }
     return null;
   }
-  let attribWatch: MutationObserver | null = null;
+  let creditsOpen = $state(false);
   /** World airports detail: 1 major, 2 + regional, 3 + small airports and strips. */
   const airportDetail = $derived(Math.min(3, Math.max(1, Number(prefs.s.map_airport_detail ?? "1") || 1)));
   const worldCache = new globalThis.Map<number, GeoJSON.FeatureCollection>();
@@ -2570,12 +2570,31 @@
       style: STYLE,
       center: [-30, 40],
       zoom: 2.2,
-      attributionControl: { compact: true },
+      // Our own credits button and card (MapLibre's folded credits kept
+      // reopening over the map keys, and then would not open at all).
+      attributionControl: false,
       fadeDuration: 0,
       maxPitch: 75,
+      // Keep tiles for the zoom levels next to this one only (MapLibre keeps
+      // five): zooming in and out by a step stays instant, far less is held.
+      maxTileCacheZoomLevels: 3,
     });
     // For automated checks of the interface in development builds.
     if (import.meta.env.DEV) (window as unknown as { __fdMap?: maplibregl.Map }).__fdMap = map;
+    // Bottom controls stack upwards: the credits (i) first, under the zoom buttons.
+    map.addControl(
+      {
+        onAdd() {
+          const d = document.createElement("div");
+          d.className = "maplibregl-ctrl maplibregl-ctrl-group fd-credits-ctl";
+          d.innerHTML = `<button type="button" class="fd-credits-btn" title="Credits" aria-label="Credits"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9.5"/><path d="M12 11v6"/><circle cx="12" cy="7.6" r="1.1" class="dot"/></svg></button>`;
+          d.querySelector("button")!.addEventListener("click", () => (creditsOpen = !creditsOpen));
+          return d;
+        },
+        onRemove() {},
+      },
+      "bottom-right",
+    );
     map.addControl(new maplibregl.NavigationControl({ showCompass: true, visualizePitch: true }), "bottom-right");
     map.on("style.load", () => {
       tint();
@@ -2583,20 +2602,6 @@
       addMeasureLayers();
       loaded = true;
       if (!cats.size) loadCats();
-      // The credits start folded to their (i) button: open, they run across the map.
-      // MapLibre opens them again whenever a layer brings new credits (the
-      // Topographic layer, say), over the map keys: keep them folded unless
-      // opened with the (i) button.
-      const attrib = el.querySelector(".maplibregl-ctrl-attrib");
-      if (attrib && !attribWatch) {
-        let mine = false;
-        attrib.querySelector(".maplibregl-ctrl-attrib-button")?.addEventListener("click", () => (mine = attrib.classList.contains("maplibregl-compact-show")));
-        attribWatch = new MutationObserver(() => {
-          if (!mine && attrib.classList.contains("maplibregl-compact-show")) attrib.classList.remove("maplibregl-compact-show");
-        });
-        attribWatch.observe(attrib, { attributes: true, attributeFilter: ["class"] });
-      }
-      attrib?.classList.remove("maplibregl-compact-show");
     });
     map.on("error", (e) => {
       if (!loaded && String(e.error?.message ?? "").match(/fetch|network|load|style/i)) useOfflineStyle();
@@ -3082,6 +3087,21 @@
   /** The map keys' size: the plan card keeps clear of them (beside them
    * when there is room, else just above). */
   let keysW = $state(0);
+  /** The replay button: centred in the map, unless that puts it on the map
+   * keys; then just left of them, or above them when there is no room. */
+  let dockW = $state(0);
+  const dockPos = $derived.by(() => {
+    const bottom = 16 + insetBottom;
+    const center = insetLeft + (mapW - insetLeft) / 2;
+    // While replaying, the keys move up above the replay bar.
+    if (replayOn || !keysW) return { left: center, bottom };
+    const half = dockW / 2;
+    const keysLeft = mapW - 56 - keysW;
+    if (center + half + 12 <= keysLeft) return { left: center, bottom };
+    const left = keysLeft - 12 - half;
+    if (left - half >= insetLeft + 12) return { left, bottom };
+    return { left: center, bottom: bottom + keysH + 10 };
+  });
   let keysH = $state(0);
   const cardRight = $derived(openAirport || netPick || wxPick ? Math.max(372, insetRight) : insetRight);
   const besideKeys = $derived.by(() => mapW - insetLeft - Math.max(cardRight, keysW ? keysW + 68 : 0) >= 460);
@@ -3791,7 +3811,7 @@
 {/if}
 </div>
 {#if history && history.length > 1 && !bare}
-  <div class="replay-dock" style:left="calc({insetLeft}px + (100% - {insetLeft}px) / 2)" style:bottom="{16 + insetBottom}px">
+  <div class="replay-dock" style:left="{dockPos.left}px" style:bottom="{dockPos.bottom}px">
     {#if replayOn && replayTimes && replayNow}
       <ReplayBar
         t={replayT}
@@ -3811,13 +3831,14 @@
         onclose={replayStop}
       />
     {:else}
-      <button class="replay-go" onclick={replayStart}>
+      <button class="replay-go" bind:clientWidth={dockW} onclick={replayStart}>
         <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M4 2.2v11.6c0 .6.7 1 1.2.7l9.2-5.8a.8.8 0 0 0 0-1.4L5.2 1.5C4.7 1.2 4 1.6 4 2.2z" fill="currentColor" /></svg>
         Replay flight
       </button>
     {/if}
   </div>
 {/if}
+<div style:display="contents" style:--inset-r="{insetRight}px" style:--inset-b="{insetBottom}px"><Credits getMap={() => map} bind:open={creditsOpen} /></div>
 <div class="keys" class:above-replay={replayOn && !!history} bind:clientWidth={keysW} bind:clientHeight={keysH}>
 {#if layers.has("wind")}
   <div class="wind-key" aria-label="Wind speed colours">
@@ -4180,12 +4201,27 @@
   .map :global(.maplibregl-ctrl-icon) {
     filter: invert(0.85);
   }
-  .map :global(.maplibregl-ctrl-attrib) {
-    background: rgba(28, 30, 33, 0.85);
-    color: var(--ink-dim);
+  .map :global(.fd-credits-btn) {
+    display: grid;
+    place-items: center;
   }
-  .map :global(.maplibregl-ctrl-attrib a) {
-    color: var(--ink-dim);
+  .map :global(.fd-credits-btn svg) {
+    width: 18px;
+    height: 18px;
+    fill: none;
+    stroke: var(--ink-dim);
+    stroke-width: 1.8;
+    stroke-linecap: round;
+  }
+  .map :global(.fd-credits-btn svg .dot) {
+    fill: var(--ink-dim);
+    stroke: none;
+  }
+  .map :global(.fd-credits-btn:hover svg) {
+    stroke: var(--amber);
+  }
+  .map :global(.fd-credits-btn:hover svg .dot) {
+    fill: var(--amber);
   }
   .hover-tip {
     position: absolute;

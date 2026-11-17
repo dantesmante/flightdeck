@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { api, inRemote, type BackupInfo, type FlightPlan, type ImportPreview, type Pilot, type RemoteInfo, type EfbInfo } from "./api";
+  import { api, inRemote, type BackupInfo, type FlightPlan, type ImportPreview, type MemoryUsage, type Pilot, type RemoteInfo, type EfbInfo } from "./api";
   import ImportReview from "./ImportReview.svelte";
   import { shrinkImage } from "./image";
   import { loadPrefs, prefs, setPref } from "./prefs.svelte";
@@ -233,6 +233,32 @@
   let dBusy = $state(false);
   let dMsg = $state<string | null>(null);
   let dErr = $state(false);
+  // Memory: the core, the window's web engine, and the page's own share.
+  let mem = $state<MemoryUsage | null>(null);
+  let memBusy = $state(false);
+  async function readMemory() {
+    memBusy = true;
+    try {
+      mem = await api.memoryUsage();
+    } catch {
+      mem = null;
+    } finally {
+      memBusy = false;
+    }
+  }
+  const jsHeapMb = () => {
+    const m = (performance as unknown as { memory?: { usedJSHeapSize: number } }).memory;
+    return m ? m.usedJSHeapSize / 1048576 : null;
+  };
+  let heap = $state<number | null>(null);
+  $effect(() => {
+    if (tab === "system") {
+      readMemory();
+      heap = jsHeapMb();
+    }
+  });
+  const mbText = (v: number | null | undefined) => (v == null ? "–" : `${Math.round(v)} MB`);
+
   async function copyDiagnostics() {
     dBusy = true;
     dMsg = null;
@@ -682,6 +708,26 @@
     </div>
     {#if dMsg}<p class={dErr ? "err" : "ok"} role="status">{dMsg}</p>{/if}
   </div>
+  <div class="group">
+    <h3>Memory</h3>
+    <p class="help">
+      FlightDeck is two parts: the core, which talks to the sim and records your flights, and the window, drawn by
+      Windows' web engine (WebView2, listed in Task Manager under its own name). While FlightDeck is minimized the window
+      gives back as much memory as it can; recording carries on.
+    </p>
+    <dl class="mem">
+      <div><dt>Core</dt><dd class="num">{mbText(mem?.core_mb)}</dd></div>
+      <div>
+        <dt>Window{mem?.window_processes ? ` (${mem.window_processes} processes)` : ""}</dt>
+        <dd class="num">{mbText(mem?.window_mb)}</dd>
+      </div>
+      <div><dt>Of which the page's data</dt><dd class="num">{mbText(heap)}</dd></div>
+      <div><dt>Total</dt><dd class="num">{mem?.core_mb != null && mem?.window_mb != null ? mbText(mem.core_mb + mem.window_mb) : "–"}</dd></div>
+    </dl>
+    <div class="row">
+      <button class="ghost" onclick={() => (readMemory(), (heap = jsHeapMb()))} disabled={memBusy}>{memBusy ? "Measuring…" : "Measure again"}</button>
+    </div>
+  </div>
 
   {/if}
   <div class="group">
@@ -1078,5 +1124,20 @@
     padding-left: 18px;
     color: var(--ink-dim);
     font-size: 13px;
+  }
+  .mem {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, max-content));
+    gap: 4px 28px;
+    margin: 4px 0 10px;
+  }
+  .mem dt {
+    font-size: 12px;
+    color: var(--ink-dim);
+  }
+  .mem dd {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
   }
 </style>

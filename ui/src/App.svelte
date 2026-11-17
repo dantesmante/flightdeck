@@ -5,30 +5,32 @@
   import { api, inRemote, on, type FlightDetail, type FlightPlan, type HangarItem, type Photo, type Route, type Status } from "./lib/api";
   import FlightsPanel from "./lib/FlightsPanel.svelte";
   import PhotosPanel from "./lib/PhotosPanel.svelte";
-  import PfdWindow from "./lib/pfd/PfdWindow.svelte";
   import FlightProfile from "./lib/profile/FlightProfile.svelte";
   import { updateRouteAirspace } from "./lib/routeAirspace.svelte";
   import { profileState } from "./lib/profile/store.svelte";
   import type { ProfileRoute } from "./lib/profile/build";
   import { pfdState } from "./lib/pfd/store.svelte";
   import { prefs } from "./lib/prefs.svelte";
-  import HangarView from "./lib/hangar/HangarView.svelte";
   import MapDock from "./lib/MapDock.svelte";
   import ShotViewer from "./lib/ShotViewer.svelte";
   import { place, shots } from "./lib/shots.svelte";
   import { screen } from "./lib/phone.svelte";
-  import LogbookView from "./lib/logbook/LogbookView.svelte";
   import Map from "./lib/Map.svelte";
-  import PassportView from "./lib/passport/PassportView.svelte";
-  import PilotView from "./lib/pilot/PilotView.svelte";
   import { loadPrefs } from "./lib/prefs.svelte";
-  import SettingsView from "./lib/SettingsView.svelte";
   import UpdateBanner from "./lib/UpdateBanner.svelte";
-  import Briefing from "./lib/Briefing.svelte";
   import TitleBar from "./lib/TitleBar.svelte";
   import { briefing, closeBriefing } from "./lib/briefingStore.svelte";
   import { fromTrack, type Pt } from "./lib/track";
   import { checkForUpdates } from "./lib/updates.svelte";
+  // Views loaded when first opened, not at start: less to load and hold
+  // for a window that mostly shows the map. Each loads once and is kept.
+  const pfdWindow = () => import("./lib/pfd/PfdWindow.svelte");
+  const logbookView = () => import("./lib/logbook/LogbookView.svelte");
+  const passportView = () => import("./lib/passport/PassportView.svelte");
+  const pilotView = () => import("./lib/pilot/PilotView.svelte");
+  const hangarView = () => import("./lib/hangar/HangarView.svelte");
+  const settingsView = () => import("./lib/SettingsView.svelte");
+  const briefingView = () => import("./lib/Briefing.svelte");
 
   type View = "live" | "flights" | "photos" | "logbook" | "passport" | "hangar" | "pilot" | "settings";
   let view = $state<View>("live");
@@ -352,7 +354,7 @@
       {/if}
     {/if}
     </div>
-    {#if splitOn}<PfdWindow />{/if}
+    {#if splitOn}{#await pfdWindow() then { default: PfdWindow }}<PfdWindow />{/await}{/if}
     {#if profileOn}<FlightProfile
         route={profileRoute}
         aircraft={profileAircraft}
@@ -366,15 +368,15 @@
   {#if full}
     <div class="fullview">
       {#if view === "logbook"}
-        {#key refreshKey}<LogbookView onflight={showFlight} />{/key}
+        {#key refreshKey}{#await logbookView() then { default: LogbookView }}<LogbookView onflight={showFlight} />{/await}{/key}
       {:else if view === "passport"}
-        {#key refreshKey}<PassportView onsettings={() => go("settings")} />{/key}
+        {#key refreshKey}{#await passportView() then { default: PassportView }}<PassportView onsettings={() => go("settings")} />{/await}{/key}
       {:else if view === "pilot"}
-        {#key refreshKey}<PilotView onflight={showFlight} onsettings={() => go("settings")} />{/key}
+        {#key refreshKey}{#await pilotView() then { default: PilotView }}<PilotView onflight={showFlight} onsettings={() => go("settings")} />{/await}{/key}
       {:else if view === "hangar"}
-        {#key refreshKey}<HangarView onsettings={() => go("settings")} onflight={showFlight} />{/key}
+        {#key refreshKey}{#await hangarView() then { default: HangarView }}<HangarView onsettings={() => go("settings")} onflight={showFlight} />{/await}{/key}
       {:else}
-        <SettingsView />
+        {#await settingsView() then { default: SettingsView }}<SettingsView />{/await}
       {/if}
     </div>
   {/if}
@@ -383,9 +385,9 @@
     <div class="toast" role="status">{toast}</div>
   {/if}
   <UpdateBanner />
-  {#if pfdState.open && view === "live" && !pfdState.split}<PfdWindow />{/if}
+  {#if pfdState.open && view === "live" && !pfdState.split}{#await pfdWindow() then { default: PfdWindow }}<PfdWindow />{/await}{/if}
   {#if briefing.plan && briefing.ofp}
-    <Briefing plan={briefing.plan} ofp={briefing.ofp} onclose={closeBriefing} />
+    {#await briefingView() then { default: Briefing }}<Briefing plan={briefing.plan} ofp={briefing.ofp} onclose={closeBriefing} />{/await}
   {/if}
 
 </div>

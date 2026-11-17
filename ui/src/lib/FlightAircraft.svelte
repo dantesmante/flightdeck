@@ -133,6 +133,6 @@
   }
   .pic {
     position: relative;
-    height: 150px;
+    height: 112px;
   }
 </style>

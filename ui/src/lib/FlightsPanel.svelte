@@ -69,16 +69,23 @@
 {#if selected}
   {@const f = selected.flight}
   <div class="detail">
-    <button class="back" onclick={close}>
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg>
-      Back to all flights
-    </button>
-    <h2 class="num">{f.dep_icao ?? "????"} <span class="to">to</span> {f.arr_icao ?? "????"}</h2>
-    <p class="names">{f.dep_name ?? "Unknown departure"}<br />{f.arr_name ?? "Unknown arrival"}</p>
-    <p class="meta">
-      {[day(f.start_ms), [f.icao_type || f.aircraft_title, f.registration].filter(Boolean).join(" ")].filter(Boolean).join(", ")}
-      {#if f.status !== "complete"}<span class="tag">{f.status}</span>{/if}
-    </p>
+    <div class="top">
+      <button class="back" onclick={close} title="Back to all flights">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg>
+        All flights
+      </button>
+      <span class="meta">
+        {day(f.start_ms)}
+        {#if f.status !== "complete"}<span class="tag">{f.status}</span>{/if}
+      </span>
+    </div>
+    <div class="head">
+      <h2 class="num">{f.dep_icao ?? "????"} <span class="to">to</span> {f.arr_icao ?? "????"}</h2>
+      <p class="names">
+        <span title={f.dep_name ?? ""}>{f.dep_name ?? "Unknown departure"}</span>
+        <span title={f.arr_name ?? ""}>{f.arr_name ?? "Unknown arrival"}</span>
+      </p>
+    </div>
     {#key f.id}<FlightAircraft flight={f} />{/key}
     <dl class="times">
       <div><dt>Block out</dt><dd class="num">{zulu(f.block_out)}</dd></div>
@@ -91,9 +98,9 @@
       <div><dt>Fuel used</dt><dd class="num">{int(f.fuel_used_kg)} kg</dd></div>
     </dl>
     {#each selected.landings.filter((l) => !l.touch_and_go) as l (l.t_ms)}
-      <LandingCard landing={l} />
+      <LandingCard landing={l} compact />
     {/each}
-    <AltSpeedGraph pts={fromTrack(selected.track)} height={170} />
+    <AltSpeedGraph pts={fromTrack(selected.track)} height={140} />
     <ShotStrip list={place(shots.flight, fromTrack(selected.track))} />
     {#if selected.score}
       {#key f.id}<PilotScoreCard score={selected.score} standing={selected.standing} />{/key}
@@ -240,10 +247,32 @@
   .detail {
     display: flex;
     flex-direction: column;
-    gap: 14px;
+    gap: 10px;
   }
   .detail h2 {
-    font-size: 34px;
+    font-size: 28px;
+  }
+  .top {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding-right: 30px;
+  }
+  .top .meta {
+    margin: 0;
+    font-size: 12.5px;
+  }
+  .head .names {
+    display: flex;
+    flex-direction: column;
+    margin: 2px 0 0;
+    font-size: 12.5px;
+    line-height: 1.35;
+  }
+  .head .names span {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .to {
     font-family: var(--sans);
@@ -251,32 +280,30 @@
     font-weight: 400;
     color: var(--ink-dim);
   }
-  .names {
-    margin-top: -8px;
-  }
   .times {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
-    gap: 10px 8px;
+    gap: 6px 8px;
     margin: 0;
-    padding: 12px 0;
+    padding: 8px 0;
     border-top: 1px solid var(--rule);
     border-bottom: 1px solid var(--rule);
   }
   dt {
-    font-size: 12px;
+    font-size: 11.5px;
     color: var(--ink-dim);
   }
   dd {
     margin: 0;
-    font-size: 17px;
+    font-size: 15px;
   }
   button.back {
-    align-self: flex-start;
+    flex: none;
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    padding: 6px 12px 6px 8px;
+    gap: 4px;
+    padding: 4px 10px 4px 6px;
+    font-size: 12.5px;
     border: 1px solid var(--rule);
     border-radius: 8px;
     background: rgba(255, 255, 255, 0.03);

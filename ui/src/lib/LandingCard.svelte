@@ -2,7 +2,7 @@
   import type { LandingReport } from "./api";
   import { dec, gradeTone, int } from "./format";
 
-  let { landing }: { landing: LandingReport } = $props();
+  let { landing, compact = false }: { landing: LandingReport; compact?: boolean } = $props();
 
   function gradeOf(vs: number) {
     const v = Math.abs(vs);
@@ -10,10 +10,16 @@
   }
   const grade = $derived(gradeOf(landing.vs_fpm));
   const tone = $derived(gradeTone(grade));
-  const cross = $derived(Math.abs(landing.crosswind_kt) < 1 ? "none" : `${int(Math.abs(landing.crosswind_kt))} kt from the ${landing.crosswind_kt > 0 ? "right" : "left"}`);
+  const cross = $derived(
+    Math.abs(landing.crosswind_kt) < 1
+      ? "none"
+      : compact
+        ? `${int(Math.abs(landing.crosswind_kt))} kt ${landing.crosswind_kt > 0 ? "R" : "L"}`
+        : `${int(Math.abs(landing.crosswind_kt))} kt from the ${landing.crosswind_kt > 0 ? "right" : "left"}`,
+  );
 </script>
 
-<section class="landing" aria-label="Landing">
+<section class="landing" class:compact aria-label="Landing">
   <div class="rate">
     <span class="num fpm">{int(landing.vs_fpm)}</span>
     <span class="unit">fpm</span>
@@ -22,7 +28,7 @@
   <dl>
     <div><dt>Peak G</dt><dd class="num">{dec(landing.g_peak)}</dd></div>
     <div><dt>Bounces</dt><dd class="num">{landing.bounces}</dd></div>
-    <div><dt>Crosswind</dt><dd>{cross}</dd></div>
+    <div><dt>{compact ? "X-wind" : "Crosswind"}</dt><dd title={compact ? `Crosswind ${cross}` : undefined}>{cross}</dd></div>
   </dl>
   {#if landing.vs_source === "derived"}
     <p class="note">Rate measured by FlightDeck from vertical speed at touchdown.</p>
@@ -82,6 +88,39 @@
   dd {
     margin: 0;
     font-size: 15px;
+  }
+  /* One row: the rate and its grade, the figures beside them. */
+  .landing.compact {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 16px;
+    padding: 8px 12px;
+  }
+  .compact .rate {
+    gap: 5px;
+  }
+  .compact .fpm {
+    font-size: 26px;
+  }
+  .compact .grade {
+    margin-left: 4px;
+    font-size: 12px;
+    padding: 1px 8px;
+  }
+  .compact dl {
+    margin: 0 0 0 auto;
+    gap: 12px;
+  }
+  .compact dd {
+    font-size: 13.5px;
+  }
+  .compact dt {
+    font-size: 11px;
+  }
+  .compact .note {
+    flex-basis: 100%;
+    margin: 0;
   }
   .note {
     margin: 8px 0 0;

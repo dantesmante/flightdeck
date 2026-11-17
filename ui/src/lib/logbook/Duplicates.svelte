@@ -6,7 +6,8 @@
   import { api, type DuplicateFlight } from "../api";
   import { day, hhmm, int, zulu } from "../format";
 
-  let { onclose, ondone }: { onclose: () => void; ondone: () => void } = $props();
+  let { mode = "dupes", onclose, ondone }: { mode?: "dupes" | "nolanding"; onclose: () => void; ondone: () => void } = $props();
+  const none = $derived(mode === "nolanding");
 
   let groups = $state<DuplicateFlight[][] | null>(null);
   let picked = $state<Set<number>>(new Set());
@@ -17,9 +18,16 @@
 
   onMount(async () => {
     try {
-      groups = (await api.findDuplicates()) ?? [];
-      // Keep the first (most complete) of each set; tick the rest.
-      picked = new Set(groups.flatMap((g) => g.slice(1).map((f) => f.id)));
+      if (mode === "nolanding") {
+        // One list; nothing ticked until the pilot chooses.
+        const list = (await api.findNoLandings()) ?? [];
+        groups = list.length ? [list] : [];
+        picked = new Set();
+      } else {
+        groups = (await api.findDuplicates()) ?? [];
+        // Keep the first (most complete) of each set; tick the rest.
+        picked = new Set(groups.flatMap((g) => g.slice(1).map((f) => f.id)));
+      }
     } catch (e) {
       error = String(e);
       groups = [];
@@ -35,7 +43,10 @@
 
   const chosen = $derived((groups ?? []).flat().filter((f) => picked.has(f.id)));
   /** A set where every flight is ticked would lose the flight entirely. */
-  const wipes = $derived((groups ?? []).filter((g) => g.every((f) => picked.has(f.id))).length);
+  const wipes = $derived(none ? 0 : (groups ?? []).filter((g) => g.every((f) => picked.has(f.id))).length);
+  function all(on: boolean) {
+    picked = new Set(on ? (groups ?? []).flat().map((f) => f.id) : []);
+  }
 
   const SOURCE: Record<string, string> = { "": "Recorded", manual: "Entered by hand", volanta: "From Volanta", elevatex: "From Elevatex" };
 
@@ -72,11 +83,15 @@
 {/snippet}
 
 <div class="backdrop" role="presentation" onclick={(e) => e.target === e.currentTarget && onclose()}>
-  <div class="sheet" role="dialog" aria-modal="true" aria-label="Duplicate flights">
+  <div class="sheet" role="dialog" aria-modal="true" aria-label={none ? "Flights without landings" : "Duplicate flights"}>
     <header>
       <div>
-        <h3>Duplicate flights</h3>
-        <p>Flights on the same day, in the same aircraft, between the same airports. The most complete one in each set is kept.</p>
+        <h3>{none ? "Flights without landings" : "Duplicate flights"}</h3>
+        <p>
+          {none
+            ? "Flights with no touchdown recorded and no landings in their logbook line: sessions that ended in the air, or never left the ground. Tick the ones to delete."
+            : "Flights on the same day, in the same aircraft, between the same airports. The most complete one in each set is kept."}
+        </p>
       </div>
       <button class="x" aria-label="Close" onclick={onclose}><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" /></svg></button>
     </header>
@@ -87,10 +102,10 @@
         <button class="primary" onclick={onclose}>Done</button>
       </div>
     {:else if groups == null}
-      <p class="empty">Looking for duplicates…</p>
+      <p class="empty">{none ? "Looking for flights without landings…" : "Looking for duplicates…"}</p>
     {:else if groups.length === 0}
       <div class="done">
-        <p class="empty">No duplicates found. Every flight in your logbook is unique.</p>
+        <p class="empty">{none ? "Every flight in your logbook has a landing." : "No duplicates found. Every flight in your logbook is unique."}</p>
         <button class="primary" onclick={onclose}>Done</button>
       </div>
     {:else if confirming}
@@ -115,7 +130,14 @@
         </footer>
       </div>
     {:else}
-      <p class="count">{groups.length} {groups.length === 1 ? "set" : "sets"} found. Untick a flight to keep it.</p>
+      {#if none}
+        <p class="count">
+          {groups[0].length} {groups[0].length === 1 ? "flight" : "flights"} found.
+          <button type="button" class="link" onclick={() => all(chosen.length < groups![0].length)}>{chosen.length < groups[0].length ? "Tick all" : "Untick all"}</button>
+        </p>
+      {:else}
+        <p class="count">{groups.length} {groups.length === 1 ? "set" : "sets"} found. Untick a flight to keep it.</p>
+      {/if}
       <div class="groups">
         {#each groups as g, gi (gi)}
           <ul class="list group">
@@ -373,5 +395,18 @@
   }
   .danger-btn:disabled {
     opacity: 0.5;
+  }
+  .link {
+    border: none;
+    background: none;
+    padding: 0;
+    margin-left: 6px;
+    color: var(--amber);
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .link:hover {
+    text-decoration: underline;
   }
 </style>

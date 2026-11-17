@@ -1272,6 +1272,8 @@ dependencies = [
  "trash",
  "ureq",
  "watcher",
+ "webview2-com",
+ "windows 0.62.2",
  "zip",
  "zstd",
 ]

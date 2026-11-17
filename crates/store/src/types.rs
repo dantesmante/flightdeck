@@ -21,7 +21,7 @@ const SINGLE: &[&str] = &[
     "SU29", "SU31", "YK52", "YK18", "ZLIN", "Z42", "BL8", "CITA", "HUSK", "A1", "PIVI", "SNTS", "VIRU", "FDCT", "TOBA",
     "GA8", "KODI", "AN2", "DHC1", "DH82", "DHC2", "DHC3", "PC6T", "PC6P", "PC7", "PC9", "PC21", "PC12", "TBM7", "TBM8",
     "TBM9", "TBM910", "T6", "TEX2", "P51", "SPIT", "CORS", "F4U", "DR1", "WACO", "GEE", "JUNK", "STAR", "VAMP", "L39",
-    "F16", "F35", "MIR2", "HAWK", "CL41", "M346", "AT6T", "AT8T", "AT5T", "AT02", "C82T", "S108", "A210", "BCUB", "DEC",
+    "F16", "F35", "MIR2", "HAWK", "CL41", "M346", "AT6T", "AT8T", "AT5T", "AT02", "C82T", "S108", "A210", "BCUB", "DEC", "ST75",
 ];
 
 /// Multi-engine aeroplanes (twins, airliners, business and military jets).
@@ -50,6 +50,9 @@ const MULTI: &[&str] = &[
     "RJ70", "RJ85", "RJ1H", "F28", "F70", "F100", "CRJ1", "CRJ2", "CRJ7", "CRJ9", "CRJX", "E135", "E145", "E170",
     "E175", "E190", "E195", "E290", "E295", "E75L", "E75S", "J328", "SU95", "CONC", "T134", "T154", "T204", "IL62",
     "IL76", "IL96", "C17", "C5M", "K35R", "KC10", "E3TF", "P8", "C2", "E2",
+    // Family names some aircraft report instead of a designator
+    "A220", "A300", "A330", "A340", "A350", "A380", "B717", "B747", "B757", "B767", "B777", "B787", "B707", "MD80", "E170",
+    "E190", "CRJ", "ATR", "DH8", "Q400", "C919", "ARJ", "SSJ", "B37", "B38", "B39",
     // Military twins
     "F18", "F18S", "F14", "F15", "F22", "EUFI", "A10", "T38", "F4", "F5", "F117",
 ];
@@ -65,18 +68,48 @@ const HELI: &[&str] = &[
 const GLIDER: &[&str] = &["DG80", "LS8", "DISC", "VENT", "ARCP", "ASK21", "AS21", "AS33", "GLID", "DG1T", "DUOD", "ASW2", "LS4"];
 
 /// The ICAO type designator from a sim value, which may be a localization
-/// key such as "ATCCOM.AC_MODEL_B738.0.text".
+/// key such as "ATCCOM.AC_MODEL_B738.0.text" or a variant such as
+/// "A321-271N" or "B787-9" (the part before the dash is kept).
 pub fn clean_type(raw: &str) -> String {
     let t = raw.trim().to_uppercase();
     if let Some(i) = t.find("AC_MODEL") {
         let rest = t[i + 8..].trim_start_matches(['_', ' ']);
         return rest.chars().take_while(|c| c.is_ascii_alphanumeric()).take(4).collect();
     }
-    if (2..=6).contains(&t.len()) && t.chars().all(|c| c.is_ascii_alphanumeric()) {
-        t
+    let first = t.split(|c: char| !c.is_ascii_alphanumeric()).next().unwrap_or("");
+    if (2..=6).contains(&first.len()) {
+        first.to_string()
     } else {
         String::new()
     }
+}
+
+/// Airliner and twin families by the shape of the designator (A3xx, A2xN,
+/// B7xx, B3xM, E1xx, CRJx, MDxx, DCxx, ATxx, DH8x) and by maker names in the
+/// title, for types not in the lists.
+fn looks_multi(code: &str, title: &str) -> bool {
+    let c: Vec<char> = code.chars().collect();
+    let d = |i: usize| c.get(i).is_some_and(|x| x.is_ascii_digit());
+    let by_code = match c.first() {
+        Some('A') => c.get(1) == Some(&'3') && d(2) || (c.get(1).is_some_and(|x| *x == '1' || *x == '2') && d(2) && c.get(3) == Some(&'N')),
+        Some('B') => c.get(1) == Some(&'7') && d(2) || (c.get(1) == Some(&'3') && d(2) && c.get(3) == Some(&'M')),
+        Some('E') => c.get(1) == Some(&'1') && d(2) && d(3),
+        _ => ["CRJ", "MD", "DC", "AT4", "AT7", "DH8", "C919", "SU9"].iter().any(|p| code.starts_with(p)),
+    };
+    if by_code {
+        return true;
+    }
+    let t = title.to_lowercase();
+    // The Boeing Stearman is a single-engine biplane.
+    (t.contains("boeing") && !t.contains("stearman"))
+        || [
+            "airbus", "embraer", "bombardier", "crj", "atr 42", "atr 72", "atr42", "atr72", "dash 8", "dash-8", "q400", "fokker",
+            "mcdonnell", "douglas dc", "md-8", "md-11", "learjet", "citation", "king air", "twin otter", "concorde", "tupolev",
+            "ilyushin", "comac", "superjet", "gulfstream", "challenger", "global express", "phenom", "praetor", "a318", "a319",
+            "a320", "a321", "a330", "a340", "a350", "a380", "a220",
+        ]
+        .iter()
+        .any(|w| t.contains(w))
 }
 
 /// Floats or amphibian gear, from the sim's title.
@@ -97,10 +130,14 @@ pub fn class_for(icao_type: &str, title: &str, engine_count: u8, engine_type: En
     }
     let multi = if has(SINGLE) {
         false
-    } else if has(MULTI) {
+    } else if has(MULTI) || looks_multi(&code, title) {
+        // Listed, or an airliner or twin family by designator or maker.
         true
-    } else {
+    } else if engine_count > 0 {
         engine_count > 1
+    } else {
+        // The sim said nothing about engines: jets are nearly all twins or more.
+        engine_type == EngineType::Jet
     };
     match (multi, on_floats(title)) {
         (false, false) => "SEL",
@@ -145,5 +182,17 @@ mod tests {
         // Unknown type: the engine count decides.
         assert_eq!(class_for("ZZZZ", "Homebuilt", 2, EngineType::Piston), "MEL");
         assert_eq!(class_for("", "Homebuilt", 1, EngineType::Piston), "SEL");
+        // Airliners reported by family or variant, with no engine count.
+        assert_eq!(class_for("A330", "Airbus A330-900neo", 0, EngineType::Unknown), "MEL");
+        assert_eq!(class_for("A321-271N", "Airbus A321neo", 0, EngineType::Unknown), "MEL");
+        assert_eq!(class_for("B787-9", "Boeing 787-9", 0, EngineType::Unknown), "MEL");
+        assert_eq!(class_for("", "Headwind A330-900", 0, EngineType::Unknown), "MEL");
+        assert_eq!(class_for("B78X", "", 0, EngineType::Unknown), "MEL");
+        assert_eq!(class_for("XJET", "Some jet", 0, EngineType::Jet), "MEL");
+        assert_eq!(class_for("XPRP", "Bush plane", 0, EngineType::Piston), "SEL");
+        // A misreported single engine does not make an airliner single-engine.
+        assert_eq!(class_for("A339", "Headwind A330-900neo", 1, EngineType::Jet), "MEL");
+        assert_eq!(class_for("", "iniBuilds A350", 1, EngineType::Jet), "MEL");
+        assert_eq!(class_for("", "Boeing Stearman", 1, EngineType::Piston), "SEL");
     }
 }

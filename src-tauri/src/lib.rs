@@ -2,6 +2,7 @@
 
 mod airports;
 mod diag;
+mod memory;
 mod elevatex;
 mod engine;
 mod photos;
@@ -1319,6 +1320,17 @@ fn find_duplicates(state: tauri::State<AppState>) -> CmdResult<Vec<Vec<store::Du
     state.db.lock().unwrap().duplicate_flights().map_err(err)
 }
 
+/// How much memory FlightDeck uses: the core and the window's web engine.
+#[tauri::command]
+async fn memory_usage(app: tauri::AppHandle) -> memory::Usage {
+    memory::usage(&app)
+}
+
+#[tauri::command]
+fn find_no_landings(state: tauri::State<AppState>) -> CmdResult<Vec<store::DuplicateFlight>> {
+    state.db.lock().unwrap().flights_without_landings().map_err(err)
+}
+
 /// Delete the chosen flights (from the duplicate finder).
 #[tauri::command]
 fn delete_flights(app: tauri::AppHandle, state: tauri::State<AppState>, ids: Vec<i64>) -> CmdResult<usize> {
@@ -1650,6 +1662,7 @@ pub(crate) async fn dispatch(app: &tauri::AppHandle, cmd: &str, a: serde_json::V
         "add_aircraft" => ok(to_value(add_aircraft(st(), arg(&a, "aircraft")?)?)),
         "delete_aircraft" => ok(to_value(delete_aircraft(app.clone(), st(), arg(&a, "id")?, arg(&a, "moveTo")?)?)),
         "find_duplicates" => ok(to_value(find_duplicates(st())?)),
+        "find_no_landings" => ok(to_value(find_no_landings(st())?)),
         "delete_flights" => ok(to_value(delete_flights(app.clone(), st(), arg(&a, "ids")?)?)),
         "aircraft_with_registration" => ok(to_value(aircraft_with_registration(st(), arg(&a, "registration")?)?)),
         "get_passport" => ok(to_value(get_passport(st())?)),
@@ -1678,6 +1691,12 @@ pub fn run() {
             if let tauri::WindowEvent::CloseRequested { .. } = event {
                 if window.label() == "main" {
                     backup::on_close(&window.state::<AppState>().db);
+                }
+            }
+            // Minimized: the window's web engine keeps as little as it can.
+            if let tauri::WindowEvent::Resized(_) = event {
+                if window.label() == "main" {
+                    memory::on_resize(window);
                 }
             }
         })
@@ -1762,6 +1781,8 @@ pub fn run() {
             add_aircraft,
             delete_aircraft,
             find_duplicates,
+            find_no_landings,
+            memory_usage,
             remote_info,
             remote_set,
             remote_new_code,
